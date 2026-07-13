@@ -16,8 +16,44 @@ import {
   X,
 } from "lucide-react";
 
-function App() {
-  const [count, setCount]  = useState(0)
+const features = [
+  {
+    icon: LayoutGrid,
+    title: "Smart Excel-Like Workspace",
+    description:
+      "Enter client details, notes, meetings and assignments using a familiar cell-based interface without formulas or Excel complexity.",
+  },
+  {
+    icon: CalendarDays,
+    title: "Automatic Office Calendar",
+    description:
+      "Meetings, follow-ups and deadlines entered in the workspace automatically appear in the shared office calendar.",
+  },
+  {
+    icon: Users,
+    title: "Employee Assignment",
+    description:
+      "Assign yourself or another employee to client meetings, follow-ups and important office tasks.",
+  },
+  {
+    icon: BellRing,
+    title: "Reminders and Notifications",
+    description:
+      "Employees receive reminders for upcoming meetings, changed schedules, overdue work and newly assigned responsibilities.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Secure Employee Access",
+    description:
+      "Only registered and approved employees can log in and access shared office information.",
+  },
+  {
+    icon: Database,
+    title: "Centralized Client Records",
+    description:
+      "Keep client contact details, communication history and future actions securely organized in one shared system.",
+  },
+];
 
 const workflow = [
   {
@@ -609,5 +645,5 @@ function App() {
     </div>
   );
 }
-}
+
 export default App;
