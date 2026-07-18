@@ -179,8 +179,14 @@ function EmptyState({ onAddRow, onUpload }) {
 
 export default function ManagementPage() {
   const [employee, setEmployee] = useState(() => loadCurrentEmployee());
-  const [employeeDirectory, setEmployeeDirectory] = useState(() => loadEmployeeDirectory());
-  const [workspace, setWorkspace] = useState(() => loadWorkspace());
+  const [employeeDirectory, setEmployeeDirectory] = useState([]);
+  const [workspace, setWorkspace] = useState(() => ({
+    id: "meeting-management",
+    name: "Meeting Management",
+    columns: [],
+    rows: [],
+  }));
+  const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(true);
   const [searchText, setSearchText] = useState("");
   const [showAddColumn, setShowAddColumn] = useState(false);
   const [importPreview, setImportPreview] = useState(null);
@@ -206,19 +212,60 @@ export default function ManagementPage() {
   }, [searchText, workspace.rows]);
 
   useEffect(() => {
-    if (!hasMounted.current) {
-      hasMounted.current = true;
-      return;
+    let cancelled = false;
+
+    async function loadSharedData() {
+      try {
+        setIsLoadingWorkspace(true);
+        const [nextWorkspace, employees] = await Promise.all([
+          loadWorkspace(),
+          loadEmployeeDirectory(),
+        ]);
+        if (cancelled) return;
+        setWorkspace(nextWorkspace);
+        setEmployeeDirectory(employees);
+      } catch (error) {
+        if (!cancelled) {
+          setNotice({
+            type: "error",
+            message: error instanceof Error ? error.message : "Could not load shared data.",
+          });
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingWorkspace(false);
+          window.setTimeout(() => {
+            hasMounted.current = true;
+          }, 0);
+        }
+      }
     }
 
+    loadSharedData();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hasMounted.current || isLoadingWorkspace || !employee?.id) return undefined;
+
     setSaveState((current) => ({ ...current, label: "Saving..." }));
-    const timeout = window.setTimeout(() => {
-      saveWorkspace(workspace);
-      setSaveState({ label: "Saved", time: new Date() });
-    }, 350);
+    const timeout = window.setTimeout(async () => {
+      try {
+        await saveWorkspace(workspace, employee.id);
+        setSaveState({ label: "Saved", time: new Date() });
+      } catch (error) {
+        setSaveState((current) => ({ ...current, label: "Save failed" }));
+        setNotice({
+          type: "error",
+          message: error instanceof Error ? error.message : "Could not save the workspace.",
+        });
+      }
+    }, 700);
 
     return () => window.clearTimeout(timeout);
-  }, [workspace]);
+  }, [workspace, employee?.id, isLoadingWorkspace]);
 
   useEffect(() => {
     if (!notice) return undefined;
@@ -226,10 +273,17 @@ export default function ManagementPage() {
     return () => window.clearTimeout(timeout);
   }, [notice]);
 
-  function handleEmployeeSubmit(nextEmployee) {
-    saveCurrentEmployee(nextEmployee);
-    setEmployee(nextEmployee);
-    setEmployeeDirectory(loadEmployeeDirectory());
+  async function handleEmployeeSubmit(nextEmployee) {
+    try {
+      const savedEmployee = await saveCurrentEmployee(nextEmployee);
+      setEmployee(savedEmployee);
+      setEmployeeDirectory(await loadEmployeeDirectory());
+    } catch (error) {
+      setNotice({
+        type: "error",
+        message: error instanceof Error ? error.message : "Could not save employee information.",
+      });
+    }
   }
 
   function switchEmployee() {
@@ -286,9 +340,8 @@ export default function ManagementPage() {
     const accepted = window.confirm("Reset the entire management sheet? This removes all rows and custom columns stored in this browser.");
     if (!accepted) return;
 
-    localStorage.removeItem("mme_management_workspace_v1");
-    setWorkspace(loadWorkspace());
-    setNotice({ type: "success", message: "Management sheet reset." });
+    setWorkspace((current) => ({ ...current, rows: [] }));
+    setNotice({ type: "success", message: "Management sheet cleared. It will be saved to MySQL automatically." });
   }
 
   async function handleFileSelection(event) {
@@ -364,6 +417,17 @@ export default function ManagementPage() {
       message: `${importPreview.rows.length} rows imported from ${importPreview.fileName}.`,
     });
     setImportPreview(null);
+  }
+
+  if (isLoadingWorkspace) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-[#fff9fc] text-mme-purple">
+        <div className="text-center">
+          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-mme-pink border-t-mme-purple" />
+          <p className="mt-4 font-black">Loading shared management data...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
