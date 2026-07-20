@@ -7,6 +7,7 @@ import morgan from "morgan";
 import { verifyDatabaseConnection } from "./config/db.js";
 import employeeRoutes from "./routes/employees.js";
 import workspaceRoutes from "./routes/workspace.js";
+import calendarRoutes from "./routes/calendar.js";
 import {
   errorHandler,
   notFoundHandler,
@@ -52,6 +53,7 @@ app.get("/api/health", async (req, res, next) => {
 
 app.use("/api/employees", employeeRoutes);
 app.use("/api/workspace", workspaceRoutes);
+app.use("/api/calendar",  calendarRoutes);
 
 /*
  * This must come after every valid route.
