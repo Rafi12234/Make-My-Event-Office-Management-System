@@ -489,9 +489,9 @@ export default function ManagementPage() {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <button onClick={() => setNotice({ type: "info", message: "Calendar page will be connected in the next phase." })} className="inline-flex items-center gap-2 rounded-xl border border-mme-pink/70 bg-white px-4 py-2.5 text-sm font-black text-mme-purple hover:bg-mme-blush/30">
+              <Link to="/calendar" className="inline-flex items-center gap-2 rounded-xl border border-mme-pink/70 bg-white px-4 py-2.5 text-sm font-black text-mme-purple hover:bg-mme-blush/30">
                 <CalendarDays size={17} /> Calendar
-              </button>
+              </Link>
               <button onClick={resetWorkspace} className="inline-flex items-center gap-2 rounded-xl border border-mme-pink/70 bg-white px-4 py-2.5 text-sm font-black text-mme-purple hover:bg-mme-blush/30">
                 <RotateCcw size={17} /> Reset demo
               </button>
