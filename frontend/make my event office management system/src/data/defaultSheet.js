@@ -7,10 +7,16 @@ export const DEFAULT_COLUMNS = [
     required: true,
   },
   {
-    id: "company_name",
-    name: "Company Name",
-    type: "text",
-    width: 210,
+    id: "venue",
+    name: "Venue",
+    type: "venue",
+    width: 220,
+  },
+  {
+    id: "shift",
+    name: "Shift",
+    type: "shift",
+    width: 130,
   },
   {
     id: "client_email",
@@ -20,9 +26,9 @@ export const DEFAULT_COLUMNS = [
   },
   {
     id: "client_phone",
-    name: "Client Phone",
+    name: "Client Phone Number",
     type: "phone",
-    width: 170,
+    width: 190,
   },
   {
     id: "current_meeting_time",
@@ -32,7 +38,7 @@ export const DEFAULT_COLUMNS = [
   },
   {
     id: "meeting_short_note",
-    name: "Meeting / Call Short Note",
+    name: "Meeting Call Short Note",
     type: "long_text",
     width: 300,
   },
@@ -68,6 +74,17 @@ export const DEFAULT_COLUMNS = [
   },
 ];
 
+export const VENUE_OPTIONS = [
+  "Sena Prangan",
+  "Sena Malancha",
+  "Army Officers Club",
+  "Butterfly Garden",
+  "Elite Convention Hall",
+  "Dhaka Ladies Club",
+];
+
+export const SHIFT_OPTIONS = ["Day", "Night"];
+
 export const STATUS_OPTIONS = [
   "New",
   "Contacted",
@@ -90,6 +107,8 @@ export const COLUMN_TYPE_OPTIONS = [
   { value: "time", label: "Time" },
   { value: "datetime", label: "Date and time" },
   { value: "employee", label: "Employee" },
+  { value: "venue", label: "Venue" },
+  { value: "shift", label: "Shift" },
   { value: "status", label: "Status" },
   { value: "priority", label: "Priority" },
   { value: "checkbox", label: "Checkbox" },
