@@ -153,7 +153,22 @@ function pickField(rowData, hints) {
   return "";
 }
 
-const clientName   = (r) => pickField(r, ["client_name",   "client",  "name"]);
+const clientName = (r) => {
+  for (const key of ["client_name", "clientname", "client name"]) {
+    if (r[key]) return String(r[key]);
+  }
+  for (const [k, v] of Object.entries(r || {})) {
+    const lower = k.toLowerCase();
+    if (
+      (lower.includes("client") || lower === "name") &&
+      !lower.includes("phone") &&
+      !lower.includes("email") &&
+      !lower.includes("company") &&
+      v
+    ) return String(v);
+  }
+  return "";
+};
 const assignedEmp  = (r) => pickField(r, ["assigned_employee", "assigned", "employee"]);
 const statusVal    = (r) => pickField(r, ["status"]);
 const priorityVal  = (r) => pickField(r, ["priority"]);
@@ -198,7 +213,7 @@ function formatColValue(type, value) {
 
 function WorksheetEventCard({ event, columns }) {
   const st     = eventStyle(event.eventType);
-  const cName  = clientName(event.rowData);
+  const cName  = event.clientName || clientName(event.rowData);
   const status = statusVal(event.rowData);
   const pri    = priorityVal(event.rowData);
 
@@ -869,7 +884,7 @@ export default function CalendarPage() {
                         {visible.map((ev) => {
                           const st = eventStyle(ev.eventType);
                           if (ev.source === "worksheet") {
-                            const cname = clientName(ev.rowData) || ev.columnName;
+                            const cname = ev.clientName || ev.columnName;
                             const venue = venueVal(ev.rowData);
                             const shift = shiftVal(ev.rowData);
                             return (
@@ -879,10 +894,10 @@ export default function CalendarPage() {
                               >
                                 <div className="flex items-center gap-1">
                                   <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${st.dot}`} />
-                                  <span className="truncate text-[10px] font-bold leading-none">{cname}</span>
+                                  <span className="truncate text-[11px] font-bold leading-none">{cname}</span>
                                 </div>
                                 {(venue || shift) && (
-                                  <p className="mt-0.5 truncate text-[9px] opacity-65">
+                                  <p className="mt-0.5 truncate text-[10px] opacity-65">
                                     {[venue, shift].filter(Boolean).join(" · ")}
                                   </p>
                                 )}
@@ -895,7 +910,7 @@ export default function CalendarPage() {
                               className={`flex items-center gap-1 rounded-md border px-1.5 py-0.5 ${st.pill}`}
                             >
                               <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${st.dot}`} />
-                              <span className="hidden truncate text-[10px] font-bold leading-none sm:block">{ev.title}</span>
+                              <span className="hidden truncate text-[11px] font-bold leading-none sm:block">{ev.title}</span>
                             </div>
                           );
                         })}
