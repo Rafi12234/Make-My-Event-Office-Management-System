@@ -16,6 +16,8 @@ const FRONTEND_TO_DB_TYPE = {
   employee: "employee",
   status: "status",
   priority: "priority",
+  venue: "venue",
+  shift: "shift",
 };
 
 const DB_TO_FRONTEND_TYPE = {
