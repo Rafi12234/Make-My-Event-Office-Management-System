@@ -12,6 +12,7 @@ import {
   RotateCcw,
   Save,
   Search,
+  SlidersHorizontal,
   Trash2,
   Upload,
   UserRound,
@@ -217,6 +218,16 @@ export default function ManagementPage() {
   const [saveState, setSaveState] = useState({ label: "Saved", time: new Date() });
   const fileInputRef = useRef(null);
   const hasMounted = useRef(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState({
+    dateFrom: "",
+    dateTo: "",
+    shifts: new Set(),
+    assignees: new Set(),
+    venues: new Set(),
+    statuses: new Set(),
+    priorities: new Set(),
+  });
 
   const employeeNames = useMemo(() => {
     const names = employeeDirectory.map((item) => item.fullName);
@@ -225,13 +236,85 @@ export default function ManagementPage() {
   }, [employee, employeeDirectory]);
 
   const filteredRows = useMemo(() => {
-    const query = searchText.trim().toLowerCase();
-    if (!query) return workspace.rows;
+    let rows = workspace.rows;
 
-    return workspace.rows.filter((row) =>
-      Object.values(row.values).some((value) => String(value ?? "").toLowerCase().includes(query)),
-    );
-  }, [searchText, workspace.rows]);
+    const query = searchText.trim().toLowerCase();
+    if (query) {
+      rows = rows.filter((row) =>
+        Object.values(row.values).some((value) => String(value ?? "").toLowerCase().includes(query)),
+      );
+    }
+
+    const col = (type) => workspace.columns.find((c) => c.type === type);
+
+    if (filters.dateFrom || filters.dateTo) {
+      const dtCol = workspace.columns.find((c) => c.name.toLowerCase().includes("current meeting")) || col("datetime");
+      rows = rows.filter((row) => {
+        const raw = dtCol ? String(row.values[dtCol.id] ?? "").replace(" ", "T") : "";
+        const date = raw.slice(0, 10);
+        if (!date) return false;
+        if (filters.dateFrom && date < filters.dateFrom) return false;
+        if (filters.dateTo && date > filters.dateTo) return false;
+        return true;
+      });
+    }
+
+    if (filters.shifts.size > 0) {
+      const c = col("shift");
+      rows = rows.filter((row) => filters.shifts.has(c ? row.values[c.id] ?? "" : ""));
+    }
+    if (filters.venues.size > 0) {
+      const c = col("venue");
+      rows = rows.filter((row) => filters.venues.has(c ? row.values[c.id] ?? "" : ""));
+    }
+    if (filters.assignees.size > 0) {
+      const c = col("employee");
+      rows = rows.filter((row) => filters.assignees.has(c ? row.values[c.id] ?? "" : ""));
+    }
+    if (filters.statuses.size > 0) {
+      const c = col("status");
+      rows = rows.filter((row) => filters.statuses.has(c ? row.values[c.id] ?? "" : ""));
+    }
+    if (filters.priorities.size > 0) {
+      const c = col("priority");
+      rows = rows.filter((row) => filters.priorities.has(c ? row.values[c.id] ?? "" : ""));
+    }
+
+    return rows;
+  }, [searchText, workspace.rows, workspace.columns, filters]);
+
+  const activeFilterCount = useMemo(
+    () =>
+      (filters.dateFrom ? 1 : 0) +
+      (filters.dateTo ? 1 : 0) +
+      filters.shifts.size +
+      filters.assignees.size +
+      filters.venues.size +
+      filters.statuses.size +
+      filters.priorities.size,
+    [filters],
+  );
+
+  function toggleFilter(key, value) {
+    setFilters((prev) => {
+      const next = new Set(prev[key]);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return { ...prev, [key]: next };
+    });
+  }
+
+  function clearFilters() {
+    setFilters({
+      dateFrom: "",
+      dateTo: "",
+      shifts: new Set(),
+      assignees: new Set(),
+      venues: new Set(),
+      statuses: new Set(),
+      priorities: new Set(),
+    });
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -533,10 +616,30 @@ export default function ManagementPage() {
                   {isImporting ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-mme-pink border-t-mme-purple" /> : <FileSpreadsheet size={17} />}
                   {isImporting ? "Reading file..." : "Upload Excel"}
                 </button>
+                <button
+                  onClick={() => setShowFilters((v) => !v)}
+                  className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-black transition ${
+                    showFilters || activeFilterCount > 0
+                      ? "border-mme-purple bg-mme-purple text-white"
+                      : "border-mme-purple/20 bg-white text-mme-purple hover:bg-mme-blush/30"
+                  }`}
+                >
+                  <SlidersHorizontal size={17} />
+                  Filters
+                  {activeFilterCount > 0 && (
+                    <span className={`rounded-full px-1.5 py-0.5 text-xs font-black ${
+                      showFilters || activeFilterCount > 0 ? "bg-white/20 text-white" : "bg-mme-purple/10 text-mme-purple"
+                    }`}>{activeFilterCount}</span>
+                  )}
+                </button>
               </div>
 
               <div className="flex items-center gap-3">
-                <p className="hidden text-xs font-bold text-mme-purple/45 sm:block">{workspace.rows.length} total rows · {workspace.columns.length} columns</p>
+                <p className="hidden text-xs font-bold text-mme-purple/45 sm:block">
+                  {filteredRows.length !== workspace.rows.length
+                    ? `${filteredRows.length} of ${workspace.rows.length} rows`
+                    : `${workspace.rows.length} total rows`} · {workspace.columns.length} columns
+                </p>
                 <div className="relative min-w-0 flex-1 lg:w-72 lg:flex-none">
                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-mme-plum" size={17} />
                   <input value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="Search all cells..." className="w-full rounded-xl border border-mme-pink/70 bg-[#fff9fc] py-2.5 pl-10 pr-9 text-sm outline-none focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/20" />
@@ -544,6 +647,141 @@ export default function ManagementPage() {
                 </div>
               </div>
             </div>
+
+            {/* ── Filter Panel ── */}
+            {showFilters && (
+              <div className="border-b border-mme-pink/50 bg-[#fff9fc] px-5 py-5">
+                <div className="flex flex-wrap gap-x-8 gap-y-5">
+
+                  {/* Date Range */}
+                  <div>
+                    <p className="mb-2.5 text-[10px] font-black uppercase tracking-[0.18em] text-mme-plum">Date Range (Meeting)</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        type="date"
+                        value={filters.dateFrom}
+                        onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value }))}
+                        className="rounded-xl border border-mme-pink px-3 py-2 text-sm text-mme-purple outline-none focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/20"
+                      />
+                      <span className="text-xs font-bold text-mme-purple/40">to</span>
+                      <input
+                        type="date"
+                        value={filters.dateTo}
+                        onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))}
+                        className="rounded-xl border border-mme-pink px-3 py-2 text-sm text-mme-purple outline-none focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/20"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Shift */}
+                  <div>
+                    <p className="mb-2.5 text-[10px] font-black uppercase tracking-[0.18em] text-mme-plum">Shift</p>
+                    <div className="flex gap-4">
+                      {SHIFT_OPTIONS.map((opt) => (
+                        <label key={opt} className="flex cursor-pointer items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={filters.shifts.has(opt)}
+                            onChange={() => toggleFilter("shifts", opt)}
+                            className="h-4 w-4 accent-mme-purple"
+                          />
+                          <span className="text-sm font-bold text-mme-purple">{opt}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Venue */}
+                  <div>
+                    <p className="mb-2.5 text-[10px] font-black uppercase tracking-[0.18em] text-mme-plum">Venue</p>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+                      {VENUE_OPTIONS.map((opt) => (
+                        <label key={opt} className="flex cursor-pointer items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={filters.venues.has(opt)}
+                            onChange={() => toggleFilter("venues", opt)}
+                            className="h-4 w-4 accent-mme-purple"
+                          />
+                          <span className="text-sm font-bold text-mme-purple">{opt}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Assigned Employee */}
+                  <div className="min-w-44">
+                    <p className="mb-2.5 text-[10px] font-black uppercase tracking-[0.18em] text-mme-plum">Assigned Employee</p>
+                    <div className="max-h-36 space-y-2 overflow-y-auto pr-1">
+                      {employeeNames.length === 0 ? (
+                        <p className="text-xs text-mme-purple/40">No employees yet</p>
+                      ) : (
+                        employeeNames.map((name) => (
+                          <label key={name} className="flex cursor-pointer items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={filters.assignees.has(name)}
+                              onChange={() => toggleFilter("assignees", name)}
+                              className="h-4 w-4 accent-mme-purple"
+                            />
+                            <span className="text-sm font-bold text-mme-purple">{name}</span>
+                          </label>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Status */}
+                  <div>
+                    <p className="mb-2.5 text-[10px] font-black uppercase tracking-[0.18em] text-mme-plum">Status</p>
+                    <div className="space-y-2">
+                      {STATUS_OPTIONS.map((opt) => (
+                        <label key={opt} className="flex cursor-pointer items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={filters.statuses.has(opt)}
+                            onChange={() => toggleFilter("statuses", opt)}
+                            className="h-4 w-4 accent-mme-purple"
+                          />
+                          <span className="text-sm font-bold text-mme-purple">{opt}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Priority */}
+                  <div>
+                    <p className="mb-2.5 text-[10px] font-black uppercase tracking-[0.18em] text-mme-plum">Priority</p>
+                    <div className="space-y-2">
+                      {PRIORITY_OPTIONS.map((opt) => (
+                        <label key={opt} className="flex cursor-pointer items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={filters.priorities.has(opt)}
+                            onChange={() => toggleFilter("priorities", opt)}
+                            className="h-4 w-4 accent-mme-purple"
+                          />
+                          <span className="text-sm font-bold text-mme-purple">{opt}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                </div>
+
+                {activeFilterCount > 0 && (
+                  <div className="mt-4 flex items-center gap-3">
+                    <button
+                      onClick={clearFilters}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-mme-purple/20 px-3 py-1.5 text-xs font-black text-mme-purple hover:bg-mme-blush/30"
+                    >
+                      <X size={13} /> Clear all filters
+                    </button>
+                    <span className="text-xs text-mme-purple/50">{activeFilterCount} filter{activeFilterCount > 1 ? "s" : ""} active · {filteredRows.length} row{filteredRows.length !== 1 ? "s" : ""} shown</span>
+                  </div>
+                )}
+              </div>
+            )}
 
             {workspace.rows.length === 0 ? (
               <EmptyState onAddRow={addRow} onUpload={() => fileInputRef.current?.click()} />
@@ -595,7 +833,18 @@ export default function ManagementPage() {
                     <div>
                       <Search className="mx-auto text-mme-mauve" size={34} />
                       <p className="mt-4 font-black text-mme-purple">No matching rows</p>
-                      <button onClick={() => setSearchText("")} className="mt-3 text-sm font-black text-mme-plum hover:text-mme-purple">Clear search</button>
+                      <div className="mt-3 flex flex-wrap justify-center gap-3">
+                        {searchText && (
+                          <button onClick={() => setSearchText("")} className="text-sm font-black text-mme-plum hover:text-mme-purple">
+                            Clear search
+                          </button>
+                        )}
+                        {activeFilterCount > 0 && (
+                          <button onClick={clearFilters} className="text-sm font-black text-mme-plum hover:text-mme-purple">
+                            Clear filters ({activeFilterCount})
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
