@@ -22,7 +22,9 @@ import EmployeeIdentityModal from "../components/EmployeeIdentityModal";
 import ExcelImportModal from "../components/ExcelImportModal";
 import {
   PRIORITY_OPTIONS,
+  SHIFT_OPTIONS,
   STATUS_OPTIONS,
+  VENUE_OPTIONS,
   createEmptyRow,
 } from "../data/defaultSheet";
 import {
@@ -42,6 +44,8 @@ function inferColumnType(header, rows) {
     .map((row) => String(row[header] ?? "").trim())
     .filter(Boolean);
 
+  if (name.includes("venue") || name.includes("hall") || name.includes("location")) return "venue";
+  if (name.includes("shift")) return "shift";
   if (name.includes("email")) return "email";
   if (name.includes("phone") || name.includes("number") || name.includes("mobile")) return "phone";
   if (name.includes("assigned") || name.includes("employee")) return "employee";
@@ -82,6 +86,24 @@ function CellEditor({ column, value, onChange, employeeNames }) {
           className="h-5 w-5 accent-mme-purple"
         />
       </label>
+    );
+  }
+
+  if (column.type === "venue") {
+    return (
+      <select value={value || ""} onChange={(event) => onChange(event.target.value)} className={baseClass}>
+        <option value="">Select venue</option>
+        {VENUE_OPTIONS.map((option) => <option key={option}>{option}</option>)}
+      </select>
+    );
+  }
+
+  if (column.type === "shift") {
+    return (
+      <select value={value || ""} onChange={(event) => onChange(event.target.value)} className={baseClass}>
+        <option value="">Select shift</option>
+        {SHIFT_OPTIONS.map((option) => <option key={option}>{option}</option>)}
+      </select>
     );
   }
 
