@@ -138,11 +138,19 @@ router.get("/", async (req, res, next) => {
 
           const dateColMap = new Map(dateColumns.map((c) => [c.id, c]));
 
+          // Find the "Client Name" column once so every event can carry the resolved name
+          const clientNameCol = allColumns.find(
+            (c) => c.column_name.toLowerCase() === "client name" ||
+                   (c.data_type === "text" && c.column_name.toLowerCase().includes("client") && !c.column_name.toLowerCase().includes("email") && !c.column_name.toLowerCase().includes("phone")),
+          );
+
           for (const cell of dateCells) {
-            const dateCol = dateColMap.get(cell.column_id);
-            const rawVal  = cell.value_datetime || cell.value_date;
-            const dateStr = extractDate(rawVal);
-            const timeStr = cell.value_datetime ? extractTime(cell.value_datetime) : null;
+            const dateCol  = dateColMap.get(cell.column_id);
+            const rawVal   = cell.value_datetime || cell.value_date;
+            const dateStr  = extractDate(rawVal);
+            const timeStr  = cell.value_datetime ? extractTime(cell.value_datetime) : null;
+            const rowData  = cellsByRow.get(cell.row_id) || {};
+            const resolvedClientName = clientNameCol ? (rowData[clientNameCol.column_key] || "") : "";
 
             events.push({
               id:         `ws_${cell.id}`,
@@ -152,7 +160,8 @@ router.get("/", async (req, res, next) => {
               columnKey:  dateCol.column_key,
               columnName: dateCol.column_name,
               rowKey:     cell.row_key,
-              rowData:    cellsByRow.get(cell.row_id) || {},
+              clientName: resolvedClientName,
+              rowData,
               eventType:  inferEventType(dateCol.column_name),
             });
           }
