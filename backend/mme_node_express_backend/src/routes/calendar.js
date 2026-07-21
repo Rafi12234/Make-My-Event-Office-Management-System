@@ -56,6 +56,7 @@ router.get("/", async (req, res, next) => {
   const connection = await pool.getConnection();
   try {
     const events = [];
+    let worksheetColumns = [];
 
     // ── Worksheet events ──────────────────────────────────────
     const [sheets] = await connection.execute(
@@ -66,6 +67,21 @@ router.get("/", async (req, res, next) => {
 
     if (sheets.length) {
       const sheetId = sheets[0].id;
+
+      // Always fetch all column definitions (for worksheetColumns + rowData building)
+      const [allColumns] = await connection.execute(
+        `SELECT id, column_key, column_name, data_type
+         FROM sheet_columns
+         WHERE sheet_id = ? AND is_active = TRUE
+         ORDER BY display_order ASC, id ASC`,
+        [sheetId],
+      );
+
+      worksheetColumns = allColumns.map((c) => ({
+        key: c.column_key,
+        name: c.column_name,
+        type: c.data_type,
+      }));
 
       const [dateColumns] = await connection.execute(
         `SELECT id, column_key, column_name, data_type
@@ -95,12 +111,6 @@ router.get("/", async (req, res, next) => {
         );
 
         if (dateCells.length) {
-          const [allColumns] = await connection.execute(
-            `SELECT id, column_key, column_name, data_type
-             FROM sheet_columns WHERE sheet_id = ? AND is_active = TRUE`,
-            [sheetId],
-          );
-
           const rowIds        = [...new Set(dateCells.map((c) => c.row_id))];
           const rowHolders    = rowIds.map(() => "?").join(",");
           const [allCells]    = await connection.query(
@@ -191,7 +201,7 @@ router.get("/", async (req, res, next) => {
       return d !== 0 ? d : (a.time || "").localeCompare(b.time || "");
     });
 
-    res.json({ data: { year, month, events } });
+    res.json({ data: { year, month, events, worksheetColumns } });
   } catch (error) {
     next(error);
   } finally {

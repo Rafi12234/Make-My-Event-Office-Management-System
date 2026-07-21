@@ -3,7 +3,6 @@ import { Link } from "react-router";
 import {
   AlertCircle,
   ArrowLeft,
-  Building2,
   CalendarDays,
   Check,
   ChevronDown,
@@ -12,7 +11,6 @@ import {
   Clock,
   Pencil,
   Plus,
-  StickyNote,
   Trash2,
   User,
   UserRound,
@@ -156,10 +154,11 @@ function pickField(rowData, hints) {
 }
 
 const clientName   = (r) => pickField(r, ["client_name",   "client",  "name"]);
-const companyName  = (r) => pickField(r, ["company_name",  "company", "organization"]);
 const assignedEmp  = (r) => pickField(r, ["assigned_employee", "assigned", "employee"]);
 const statusVal    = (r) => pickField(r, ["status"]);
 const priorityVal  = (r) => pickField(r, ["priority"]);
+const venueVal     = (r) => pickField(r, ["venue", "hall", "location"]);
+const shiftVal     = (r) => pickField(r, ["shift"]);
 
 function mainNote(rowData, columnKey) {
   const isNext = columnKey && columnKey.toLowerCase().includes("next");
@@ -175,20 +174,45 @@ function prevNote(rowData, columnKey) {
   return pickField(rowData, ["meeting_short_note", "note", "notes"]);
 }
 
+function formatColValue(type, value) {
+  if (value === null || value === undefined || value === "") return null;
+  const s = String(value);
+  if (!s.trim()) return null;
+  if (type === "datetime") {
+    const clean = s.replace("T", " ");
+    const [datePart, timePart] = clean.split(" ");
+    if (timePart) {
+      const [h, m] = timePart.split(":").map(Number);
+      const ampm = h >= 12 ? "PM" : "AM";
+      return `${datePart} \u00b7 ${h % 12 || 12}:${pad(m)} ${ampm}`;
+    }
+    return datePart || s;
+  }
+  if (type === "date") return s.slice(0, 10);
+  if (type === "time") return to12h(s.slice(0, 5));
+  if (type === "boolean") return value ? "Yes" : "No";
+  return s;
+}
+
 // ─── Worksheet event card ─────────────────────────────────────────
 
-function WorksheetEventCard({ event }) {
-  const st      = eventStyle(event.eventType);
-  const cName   = clientName(event.rowData);
-  const coName  = companyName(event.rowData);
-  const emp     = assignedEmp(event.rowData);
-  const status  = statusVal(event.rowData);
-  const pri     = priorityVal(event.rowData);
-  const note    = mainNote(event.rowData, event.columnKey);
-  const prev    = prevNote(event.rowData, event.columnKey);
+function WorksheetEventCard({ event, columns }) {
+  const st     = eventStyle(event.eventType);
+  const cName  = clientName(event.rowData);
+  const status = statusVal(event.rowData);
+  const pri    = priorityVal(event.rowData);
+
+  const skipKeys = new Set(["client_name", "client", "status", "priority"]);
+  const detailFields = (columns || []).filter(
+    (col) =>
+      !skipKeys.has(col.key) &&
+      event.rowData[col.key] != null &&
+      String(event.rowData[col.key]).trim() !== "",
+  );
 
   return (
     <div className={`rounded-2xl border p-4 ${st.pill}`}>
+      {/* Header: event type badge + meeting time */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${st.dot}`} />
@@ -201,47 +225,48 @@ function WorksheetEventCard({ event }) {
         )}
       </div>
 
-      {(cName || coName) && (
-        <div className="mt-2.5">
-          {cName  && <p className="text-sm font-black leading-tight">{cName}</p>}
-          {coName && (
-            <p className="mt-0.5 flex items-center gap-1.5 text-xs font-semibold opacity-70">
-              <Building2 size={11} />{coName}
-            </p>
+      {/* Client name */}
+      {cName && <p className="mt-2.5 text-sm font-black leading-tight">{cName}</p>}
+
+      {/* Status + Priority badges */}
+      {(status || pri) && (
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
+          {status && (
+            <span className={`rounded-lg px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${statusStyle(status)}`}>
+              {status}
+            </span>
+          )}
+          {pri && (
+            <span className={`rounded-lg px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${priorityStyle(pri)}`}>
+              {pri}
+            </span>
           )}
         </div>
       )}
 
-      {(status || pri) && (
-        <div className="mt-2.5 flex flex-wrap gap-1.5">
-          {status && <span className={`rounded-lg px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${statusStyle(status)}`}>{status}</span>}
-          {pri    && <span className={`rounded-lg px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${priorityStyle(pri)}`}>{pri}</span>}
+      {/* All other column fields */}
+      {detailFields.length > 0 && (
+        <div className="mt-3 space-y-2 border-t border-current/15 pt-3">
+          {detailFields.map((col) => {
+            const formatted = formatColValue(col.type, event.rowData[col.key]);
+            if (!formatted) return null;
+            const isLong = col.type === "long_text" || formatted.length > 38;
+            if (isLong) {
+              return (
+                <div key={col.key}>
+                  <p className="mb-1 text-[10px] font-black uppercase tracking-wider opacity-55">{col.name}</p>
+                  <p className="text-xs leading-5 opacity-80">{formatted}</p>
+                </div>
+              );
+            }
+            return (
+              <div key={col.key} className="flex items-baseline gap-2">
+                <span className="w-28 shrink-0 text-[10px] font-black uppercase tracking-wide opacity-55">{col.name}</span>
+                <span className="break-all text-xs opacity-80">{formatted}</span>
+              </div>
+            );
+          }).filter(Boolean)}
         </div>
-      )}
-
-      {note && (
-        <div className="mt-2.5">
-          <p className="mb-1 flex items-center gap-1 text-[10px] font-black uppercase tracking-wider opacity-60">
-            <StickyNote size={10} />
-            {event.columnKey && event.columnKey.toLowerCase().includes("next") ? "Agenda" : "Meeting Notes"}
-          </p>
-          <p className="line-clamp-3 text-xs leading-5 opacity-80">{note}</p>
-        </div>
-      )}
-
-      {prev && prev !== note && (
-        <div className="mt-2 border-t border-current/15 pt-2">
-          <p className="mb-1 flex items-center gap-1 text-[10px] font-black uppercase tracking-wider opacity-60">
-            <StickyNote size={10} /> Previously Discussed
-          </p>
-          <p className="line-clamp-2 text-xs leading-5 opacity-70">{prev}</p>
-        </div>
-      )}
-
-      {emp && (
-        <p className="mt-2.5 flex items-center gap-1.5 text-xs font-semibold opacity-70">
-          <User size={11} />{emp}
-        </p>
       )}
     </div>
   );
@@ -421,7 +446,7 @@ function EventForm({ initialDate, initialData, onSubmit, onClose, isEdit }) {
 
 // ─── Day detail modal ─────────────────────────────────────────────
 
-function DayModal({ date, events, onClose, onAdd, onEdit, onDelete, employee, onNeedEmployee }) {
+function DayModal({ date, events, onClose, onAdd, onEdit, onDelete, employee, onNeedEmployee, worksheetColumns }) {
   const [showForm,     setShowForm]     = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
 
@@ -505,7 +530,7 @@ function DayModal({ date, events, onClose, onAdd, onEdit, onDelete, employee, on
                     From Management Sheet
                   </h3>
                   <div className="space-y-3">
-                    {wsEvents.map((ev) => <WorksheetEventCard key={ev.id} event={ev} />)}
+                    {wsEvents.map((ev) => <WorksheetEventCard key={ev.id} event={ev} columns={worksheetColumns} />)}
                   </div>
                 </section>
               )}
@@ -556,8 +581,9 @@ export default function CalendarPage() {
   const now  = new Date();
   const [year,         setYear]         = useState(now.getFullYear());
   const [month,        setMonth]        = useState(now.getMonth() + 1);
-  const [events,       setEvents]       = useState([]);
-  const [isLoading,    setIsLoading]    = useState(true);
+  const [events,           setEvents]           = useState([]);
+  const [worksheetColumns, setWorksheetColumns] = useState([]);
+  const [isLoading,        setIsLoading]        = useState(true);
   const [selectedDate, setSelectedDate] = useState(null);
   const [notice,       setNotice]       = useState(null);
   const [employee,     setEmployee]     = useState(() => loadCurrentEmployee());
@@ -588,6 +614,7 @@ export default function CalendarPage() {
     try {
       const result = await loadCalendarMonth(year, month);
       setEvents(result.events || []);
+      setWorksheetColumns(result.worksheetColumns || []);
     } catch (err) {
       showNotice("error", err.message || "Could not load calendar events.");
     } finally {
@@ -840,17 +867,35 @@ export default function CalendarPage() {
                       {/* Event pills */}
                       <div className="mt-1 space-y-0.5">
                         {visible.map((ev) => {
-                          const st    = eventStyle(ev.eventType);
-                          const label = ev.source === "worksheet"
-                            ? (clientName(ev.rowData) || ev.columnName)
-                            : ev.title;
+                          const st = eventStyle(ev.eventType);
+                          if (ev.source === "worksheet") {
+                            const cname = clientName(ev.rowData) || ev.columnName;
+                            const venue = venueVal(ev.rowData);
+                            const shift = shiftVal(ev.rowData);
+                            return (
+                              <div
+                                key={ev.id}
+                                className={`hidden rounded-md border px-1.5 py-1 sm:block ${st.pill}`}
+                              >
+                                <div className="flex items-center gap-1">
+                                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${st.dot}`} />
+                                  <span className="truncate text-[10px] font-bold leading-none">{cname}</span>
+                                </div>
+                                {(venue || shift) && (
+                                  <p className="mt-0.5 truncate text-[9px] opacity-65">
+                                    {[venue, shift].filter(Boolean).join(" · ")}
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          }
                           return (
                             <div
                               key={ev.id}
                               className={`flex items-center gap-1 rounded-md border px-1.5 py-0.5 ${st.pill}`}
                             >
                               <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${st.dot}`} />
-                              <span className="hidden truncate text-[10px] font-bold leading-none sm:block">{label}</span>
+                              <span className="hidden truncate text-[10px] font-bold leading-none sm:block">{ev.title}</span>
                             </div>
                           );
                         })}
@@ -908,6 +953,7 @@ export default function CalendarPage() {
           onDelete={handleDelete}
           employee={employee}
           onNeedEmployee={() => setShowIdentity(true)}
+          worksheetColumns={worksheetColumns}
         />
       )}
 
