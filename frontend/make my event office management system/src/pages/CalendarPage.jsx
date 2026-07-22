@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import {
   AlertCircle,
   ArrowLeft,
@@ -594,15 +594,14 @@ function DayModal({ date, events, onClose, onAdd, onEdit, onDelete, employee, on
 
 export default function CalendarPage() {
   const now  = new Date();
-  const [year,         setYear]         = useState(now.getFullYear());
-  const [month,        setMonth]        = useState(now.getMonth() + 1);
+  const navigate = useNavigate();
+  const [year,             setYear]             = useState(now.getFullYear());
+  const [month,            setMonth]            = useState(now.getMonth() + 1);
   const [events,           setEvents]           = useState([]);
   const [worksheetColumns, setWorksheetColumns] = useState([]);
   const [isLoading,        setIsLoading]        = useState(true);
-  const [selectedDate, setSelectedDate] = useState(null);
-  const [notice,       setNotice]       = useState(null);
-  const [employee,     setEmployee]     = useState(() => loadCurrentEmployee());
-  const [showIdentity, setShowIdentity] = useState(false);
+  const [notice,           setNotice]           = useState(null);
+  const [employee,         setEmployee]         = useState(() => loadCurrentEmployee());
 
   const calendarDays = useMemo(() => buildCalendarDays(year, month), [year, month]);
   const TODAY        = todayISO();
@@ -619,8 +618,8 @@ export default function CalendarPage() {
   }, [events]);
 
   const selectedEvents = useMemo(
-    () => (selectedDate ? byDate.get(selectedDate) || [] : []),
-    [selectedDate, byDate],
+    () => [],
+    [],
   );
 
   // ── Load events ────────────────────────────────────────────────
@@ -665,49 +664,8 @@ export default function CalendarPage() {
   }
 
   // ── Employee ───────────────────────────────────────────────────
-  async function handleIdentify(nextEmployee) {
-    try {
-      const saved = await saveCurrentEmployee(nextEmployee);
-      setEmployee(saved);
-      setShowIdentity(false);
-    } catch (err) {
-      showNotice("error", err.message || "Could not save employee.");
-    }
-  }
 
   // ── Event CRUD ─────────────────────────────────────────────────
-  async function handleAdd(formData) {
-    try {
-      await createCalendarEvent({ ...formData, employeeId: employee?.id });
-      await fetchEvents();
-      showNotice("success", "Event added successfully.");
-    } catch (err) {
-      showNotice("error", err.message || "Could not add event.");
-      throw err;
-    }
-  }
-
-  async function handleEdit(id, formData) {
-    try {
-      await updateCalendarEvent(id, { ...formData, employeeId: employee?.id });
-      await fetchEvents();
-      showNotice("success", "Event updated.");
-    } catch (err) {
-      showNotice("error", err.message || "Could not update event.");
-      throw err;
-    }
-  }
-
-  async function handleDelete(id) {
-    if (!window.confirm("Delete this event? This cannot be undone.")) return;
-    try {
-      await deleteCalendarEvent(id);
-      await fetchEvents();
-      showNotice("success", "Event deleted.");
-    } catch (err) {
-      showNotice("error", err.message || "Could not delete event.");
-    }
-  }
 
   const totalEvents = events.length;
   const wsCount     = events.filter((e) => e.source === "worksheet").length;
@@ -716,7 +674,6 @@ export default function CalendarPage() {
   // ── Render ─────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-[#fff9fc] text-mme-purple">
-      {showIdentity && <EmployeeIdentityModal onSubmit={handleIdentify} />}
 
       {/* ── Header ──────────────────────────────────────────────── */}
       <header className="sticky top-0 z-40 border-b border-mme-pink/50 bg-white/95 backdrop-blur-xl">
@@ -751,14 +708,7 @@ export default function CalendarPage() {
                 </div>
                 <ChevronDown size={15} className="hidden text-mme-plum sm:block" />
               </button>
-            ) : (
-              <button
-                onClick={() => setShowIdentity(true)}
-                className="flex items-center gap-2 rounded-2xl border border-mme-pink/70 bg-white px-4 py-2.5 text-sm font-black text-mme-purple hover:bg-mme-blush/30 transition"
-              >
-                <UserRound size={16} /> Identify
-              </button>
-            )}
+            ) : null}
           </div>
         </div>
       </header>
@@ -848,7 +798,6 @@ export default function CalendarPage() {
                 {calendarDays.map((info, idx) => {
                   const dayEvs     = byDate.get(info.date) || [];
                   const isToday    = info.date === TODAY;
-                  const isSelected = info.date === selectedDate;
                   const visible    = dayEvs.slice(0, 3);
                   const extra      = Math.max(0, dayEvs.length - 3);
                   const isLastCol  = (idx + 1) % 7 === 0;
@@ -856,13 +805,13 @@ export default function CalendarPage() {
                   return (
                     <button
                       key={info.date}
-                      onClick={() => setSelectedDate(info.date)}
+                      onClick={() => navigate(`/calendar/day/${info.date}`)}
                       className={[
                         "group relative min-h-20 p-1.5 text-left transition sm:min-h-27.5 sm:p-2.5",
                         "border-b border-mme-pink/25",
                         isLastCol ? "" : "border-r border-mme-pink/25",
                         info.isCurrentMonth ? "bg-white hover:bg-mme-blush/15" : "bg-[#fdf8fc] hover:bg-mme-blush/10",
-                        isSelected ? "ring-2 ring-inset ring-mme-purple/40 bg-mme-blush/20" : "",
+                        "",
                       ].join(" ")}
                     >
                       {/* Day number */}
@@ -951,26 +900,11 @@ export default function CalendarPage() {
                   {label}
                 </span>
               ))}
-              <span className="ml-auto text-[10px] text-mme-purple/40">Click any date to view or add events</span>
+              <span className="ml-auto text-[10px] text-mme-purple/40">Click any date to open the day view</span>
             </div>
           </div>
         </section>
       </main>
-
-      {/* Day detail modal */}
-      {selectedDate && (
-        <DayModal
-          date={selectedDate}
-          events={selectedEvents}
-          onClose={() => setSelectedDate(null)}
-          onAdd={handleAdd}
-          onEdit={handleEdit}
-          onDelete={handleDelete}
-          employee={employee}
-          onNeedEmployee={() => setShowIdentity(true)}
-          worksheetColumns={worksheetColumns}
-        />
-      )}
 
       {/* Toast notice */}
       {notice && (
