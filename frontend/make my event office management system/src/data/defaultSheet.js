@@ -1,5 +1,6 @@
 export const DEFAULT_COLUMNS = [
   {
+    
     id: "client_name",
     name: "Client Name",
     type: "text",
