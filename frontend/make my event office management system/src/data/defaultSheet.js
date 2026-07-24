@@ -72,6 +72,18 @@ export const DEFAULT_COLUMNS = [
     type: "priority",
     width: 135,
   },
+  {
+    id: "floor",
+    name: "Floor/Hall",
+    type: "text",
+    width: 150,
+  },
+  {
+    id: "estimated_budget",
+    name: "Estimated Budget",
+    type: "currency",
+    width: 185,
+  },
 ];
 
 export const VENUE_OPTIONS = [
@@ -111,6 +123,7 @@ export const COLUMN_TYPE_OPTIONS = [
   { value: "shift", label: "Shift" },
   { value: "status", label: "Status" },
   { value: "priority", label: "Priority" },
+  { value: "currency", label: "Currency / Budget" },
   { value: "checkbox", label: "Checkbox" },
 ];
 

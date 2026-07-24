@@ -18,12 +18,12 @@ const FRONTEND_TO_DB_TYPE = {
   priority: "priority",
   venue: "venue",
   shift: "shift",
+  currency: "currency",
 };
 
 const DB_TO_FRONTEND_TYPE = {
   integer: "number",
   decimal: "number",
-  currency: "number",
   boolean: "checkbox",
 };
 
