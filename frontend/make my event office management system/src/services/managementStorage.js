@@ -1,7 +1,7 @@
 import { DEFAULT_COLUMNS } from "../data/defaultSheet";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
-const EMPLOYEE_STORAGE_KEY = "mme_current_employee_v2";
+const EMPLOYEE_STORAGE_KEY = "mme_current_employee_v3";
 
 async function apiRequest(path, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -23,25 +23,25 @@ async function apiRequest(path, options = {}) {
 
 export function loadCurrentEmployee() {
   try {
-    const raw = localStorage.getItem(EMPLOYEE_STORAGE_KEY);
+    const raw = sessionStorage.getItem(EMPLOYEE_STORAGE_KEY);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
   }
 }
 
-export async function saveCurrentEmployee(employee) {
+export async function saveCurrentEmployee({ email, password }) {
   const savedEmployee = await apiRequest("/employees/identify", {
     method: "POST",
-    body: JSON.stringify(employee),
+    body: JSON.stringify({ email, password }),
   });
 
-  localStorage.setItem(EMPLOYEE_STORAGE_KEY, JSON.stringify(savedEmployee));
+  sessionStorage.setItem(EMPLOYEE_STORAGE_KEY, JSON.stringify(savedEmployee));
   return savedEmployee;
 }
 
 export function clearCurrentEmployee() {
-  localStorage.removeItem(EMPLOYEE_STORAGE_KEY);
+  sessionStorage.removeItem(EMPLOYEE_STORAGE_KEY);
 }
 
 export async function loadEmployeeDirectory() {

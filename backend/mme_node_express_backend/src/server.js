@@ -8,6 +8,8 @@ import { verifyDatabaseConnection } from "./config/db.js";
 import employeeRoutes from "./routes/employees.js";
 import workspaceRoutes from "./routes/workspace.js";
 import calendarRoutes from "./routes/calendar.js";
+import authRoutes from "./routes/auth.js";
+import adminRoutes from "./routes/admin.js";
 import {
   errorHandler,
   notFoundHandler,
@@ -54,6 +56,8 @@ app.get("/api/health", async (req, res, next) => {
 app.use("/api/employees", employeeRoutes);
 app.use("/api/workspace", workspaceRoutes);
 app.use("/api/calendar",  calendarRoutes);
+app.use("/api/auth",      authRoutes);
+app.use("/api/admin",     adminRoutes);
 
 /*
  * This must come after every valid route.

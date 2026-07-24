@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import {
-  ArrowLeft,
   CalendarDays,
   Check,
-  ChevronDown,
   Columns3,
   FileSpreadsheet,
   LayoutGrid,
+  LogOut,
   Plus,
   RotateCcw,
   Save,
@@ -210,6 +209,7 @@ function EmptyState({ onAddRow, onUpload }) {
 }
 
 export default function ManagementPage() {
+  const navigate = useNavigate();
   const [employee, setEmployee] = useState(() => loadCurrentEmployee());
   const [employeeDirectory, setEmployeeDirectory] = useState([]);
   const [workspace, setWorkspace] = useState(() => ({
@@ -428,22 +428,31 @@ export default function ManagementPage() {
     return () => window.clearTimeout(timeout);
   }, [notice]);
 
-  async function handleEmployeeSubmit(nextEmployee) {
-    try {
-      const savedEmployee = await saveCurrentEmployee(nextEmployee);
-      setEmployee(savedEmployee);
-      setEmployeeDirectory(await loadEmployeeDirectory());
-    } catch (error) {
-      setNotice({
-        type: "error",
-        message: error instanceof Error ? error.message : "Could not save employee information.",
-      });
+  // Trap the browser history while an employee is logged in so the back
+  // button cannot silently exit the workspace without logging out.
+  useEffect(() => {
+    if (!employee) return undefined;
+
+    window.history.pushState(null, "", window.location.href);
+
+    function handlePopState() {
+      window.history.pushState(null, "", window.location.href);
     }
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [employee]);
+
+  async function handleEmployeeSubmit(credentials) {
+    const savedEmployee = await saveCurrentEmployee(credentials);
+    setEmployee(savedEmployee);
+    setEmployeeDirectory(await loadEmployeeDirectory());
   }
 
-  function switchEmployee() {
+  function handleLogout() {
     clearCurrentEmployee();
     setEmployee(null);
+    navigate("/", { replace: true });
   }
 
   function addRow() {
@@ -625,9 +634,6 @@ export default function ManagementPage() {
       <header className="sticky top-0 z-40 border-b border-mme-pink/50 bg-white/95 backdrop-blur-xl">
         <div className="flex min-h-18 items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-4">
-            <Link to="/" className="hidden rounded-xl p-2 text-mme-purple/60 hover:bg-mme-blush/40 sm:block" title="Back to landing page">
-              <ArrowLeft size={20} />
-            </Link>
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-mme-purple font-black text-white shadow-lg shadow-mme-purple/20">M</div>
             <div className="min-w-0">
               <p className="truncate text-base font-black text-mme-purple sm:text-lg">Make My Event</p>
@@ -651,13 +657,13 @@ export default function ManagementPage() {
               {isSaving ? "Saving..." : hasUnsavedChanges ? "Save Changes" : "Saved"}
             </button>
 
-            <button onClick={switchEmployee} className="flex items-center gap-2 rounded-2xl border border-mme-pink/70 bg-white px-3 py-2.5 text-left transition hover:bg-mme-blush/30 sm:px-4">
+            <button onClick={handleLogout} title="Logout" className="flex items-center gap-2 rounded-2xl border border-mme-pink/70 bg-white px-3 py-2.5 text-left transition hover:bg-red-50 hover:border-red-200 sm:px-4">
               <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-mme-blush text-mme-purple"><UserRound size={16} /></div>
               <div className="hidden sm:block">
                 <p className="max-w-36 truncate text-xs font-black text-mme-purple">{employee?.fullName || "Employee"}</p>
-                <p className="max-w-36 truncate text-[10px] text-mme-purple/50">Switch employee</p>
+                <p className="max-w-36 truncate text-[10px] text-red-400 font-semibold">Logout</p>
               </div>
-              <ChevronDown size={15} className="hidden text-mme-plum sm:block" />
+              <LogOut size={15} className="text-red-400" />
             </button>
           </div>
         </div>
