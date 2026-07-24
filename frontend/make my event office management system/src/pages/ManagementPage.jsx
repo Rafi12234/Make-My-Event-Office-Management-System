@@ -65,14 +65,6 @@ function normalizeHeader(value) {
   return String(value).trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-function formatSaveTime(date) {
-  return new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-  }).format(date);
-}
-
 function CellEditor({ column, value, onChange, employeeNames }) {
   const baseClass =
     "h-full min-h-11 w-full border-0 bg-transparent px-3 py-2.5 text-sm text-mme-purple outline-none transition placeholder:text-mme-purple/25 focus:bg-mme-blush/25 focus:ring-2 focus:ring-inset focus:ring-mme-plum/40";
@@ -123,6 +115,23 @@ function CellEditor({ column, value, onChange, employeeNames }) {
         <option value="">Select priority</option>
         {PRIORITY_OPTIONS.map((option) => <option key={option}>{option}</option>)}
       </select>
+    );
+  }
+
+  if (column.type === "currency") {
+    return (
+      <div className="flex h-full min-h-11 items-center">
+        <span className="pl-3 text-sm font-bold text-mme-purple/40">৳</span>
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          value={value ?? ""}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder="0.00"
+          className={`${baseClass} pl-1.5`}
+        />
+      </div>
     );
   }
 
@@ -215,10 +224,16 @@ export default function ManagementPage() {
   const [importPreview, setImportPreview] = useState(null);
   const [isImporting, setIsImporting] = useState(false);
   const [notice, setNotice] = useState(null);
-  const [saveState, setSaveState] = useState({ label: "Saved", time: new Date() });
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef(null);
   const hasMounted = useRef(false);
+  const [rowHeights, setRowHeights] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("mme_row_heights_v1") || "{}"); }
+    catch { return {}; }
+  });
   const [showFilters, setShowFilters] = useState(false);
+  const [resizeCursor, setResizeCursor] = useState(null);
   const [filters, setFilters] = useState({
     dateFrom: "",
     dateTo: "",
@@ -316,6 +331,56 @@ export default function ManagementPage() {
     });
   }
 
+  function startColumnResize(e, columnId) {
+    e.preventDefault();
+    const col = workspace.columns.find((c) => c.id === columnId);
+    if (!col) return;
+    const startX = e.clientX;
+    const startWidth = col.width;
+    setResizeCursor("col-resize");
+    function onMove(ev) {
+      const newWidth = Math.max(60, startWidth + (ev.clientX - startX));
+      setWorkspace((prev) => ({
+        ...prev,
+        columns: prev.columns.map((c) => (c.id === columnId ? { ...c, width: newWidth } : c)),
+      }));
+    }
+    function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      setResizeCursor(null);
+    }
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }
+
+  function startRowResize(e, rowId) {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startHeight = rowHeights[rowId] || 44;
+    setResizeCursor("row-resize");
+    function onMove(ev) {
+      const newHeight = Math.max(44, startHeight + (ev.clientY - startY));
+      setRowHeights((prev) => {
+        const next = { ...prev, [rowId]: newHeight };
+        localStorage.setItem("mme_row_heights_v1", JSON.stringify(next));
+        return next;
+      });
+    }
+    function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      setResizeCursor(null);
+    }
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }
+
+  useEffect(() => {
+    document.body.style.cursor = resizeCursor ?? "";
+    document.body.style.userSelect = resizeCursor ? "none" : "";
+  }, [resizeCursor]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -353,24 +418,9 @@ export default function ManagementPage() {
   }, []);
 
   useEffect(() => {
-    if (!hasMounted.current || isLoadingWorkspace || !employee?.id) return undefined;
-
-    setSaveState((current) => ({ ...current, label: "Saving..." }));
-    const timeout = window.setTimeout(async () => {
-      try {
-        await saveWorkspace(workspace, employee.id);
-        setSaveState({ label: "Saved", time: new Date() });
-      } catch (error) {
-        setSaveState((current) => ({ ...current, label: "Save failed" }));
-        setNotice({
-          type: "error",
-          message: error instanceof Error ? error.message : "Could not save the workspace.",
-        });
-      }
-    }, 700);
-
-    return () => window.clearTimeout(timeout);
-  }, [workspace, employee?.id, isLoadingWorkspace]);
+    if (!hasMounted.current) return;
+    setHasUnsavedChanges(true);
+  }, [workspace]);
 
   useEffect(() => {
     if (!notice) return undefined;
@@ -410,6 +460,12 @@ export default function ManagementPage() {
         .filter((row) => row.id !== rowId)
         .map((row, index) => ({ ...row, rowNumber: index + 1 })),
     }));
+    setRowHeights((prev) => {
+      const next = { ...prev };
+      delete next[rowId];
+      localStorage.setItem("mme_row_heights_v1", JSON.stringify(next));
+      return next;
+    });
   }
 
   function updateCell(rowId, columnId, value) {
@@ -446,7 +502,24 @@ export default function ManagementPage() {
     if (!accepted) return;
 
     setWorkspace((current) => ({ ...current, rows: [] }));
-    setNotice({ type: "success", message: "Management sheet cleared. It will be saved to MySQL automatically." });
+    setNotice({ type: "success", message: "Management sheet cleared. Press Save Changes to persist." });
+  }
+
+  async function handleSaveChanges() {
+    if (!employee?.id || isSaving) return;
+    setIsSaving(true);
+    try {
+      await saveWorkspace(workspace, employee.id);
+      setHasUnsavedChanges(false);
+      setNotice({ type: "success", message: "All changes saved successfully." });
+    } catch (error) {
+      setNotice({
+        type: "error",
+        message: error instanceof Error ? error.message : "Could not save changes.",
+      });
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   async function handleFileSelection(event) {
@@ -563,10 +636,20 @@ export default function ManagementPage() {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
-            <div className="hidden items-center gap-2 rounded-xl border border-mme-pink/60 bg-[#fff9fc] px-3 py-2 text-xs font-bold text-mme-purple/65 md:flex">
-              {saveState.label === "Saved" ? <Check size={15} className="text-mme-plum" /> : <Save size={15} className="animate-pulse text-mme-plum" />}
-              {saveState.label}{saveState.label === "Saved" ? ` ${formatSaveTime(saveState.time)}` : ""}
-            </div>
+            <button
+              onClick={handleSaveChanges}
+              disabled={!hasUnsavedChanges || isSaving || !employee?.id}
+              className={`hidden items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold transition md:flex ${
+                hasUnsavedChanges && !isSaving
+                  ? "border-mme-purple bg-mme-purple text-white shadow-md shadow-mme-purple/20 hover:bg-[#4b2c55] cursor-pointer"
+                  : "pointer-events-none border-mme-pink/60 bg-[#fff9fc] text-mme-purple/40 opacity-60 cursor-not-allowed"
+              }`}
+            >
+              {isSaving
+                ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current/30 border-t-current" />
+                : hasUnsavedChanges ? <Save size={15} /> : <Check size={15} className="text-mme-plum" />}
+              {isSaving ? "Saving..." : hasUnsavedChanges ? "Save Changes" : "Saved"}
+            </button>
 
             <button onClick={switchEmployee} className="flex items-center gap-2 rounded-2xl border border-mme-pink/70 bg-white px-3 py-2.5 text-left transition hover:bg-mme-blush/30 sm:px-4">
               <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-mme-blush text-mme-purple"><UserRound size={16} /></div>
@@ -795,36 +878,63 @@ export default function ManagementPage() {
                         <th
                           key={column.id}
                           style={{ width: column.width, minWidth: column.width }}
-                          className="border-b border-r border-white/15 bg-mme-purple px-3 py-3 align-top text-xs font-black text-white"
+                          className="relative border-b border-r border-white/15 bg-mme-purple px-3 py-3 align-top text-xs font-black text-white"
                         >
-                          <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-start justify-between gap-2 pr-1">
                             <span>{column.name}{column.required ? " *" : ""}</span>
                             <span className="rounded-md bg-white/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-mme-pink">{column.type.replace("_", " ")}</span>
                           </div>
+                          <div
+                            onMouseDown={(e) => startColumnResize(e, column.id)}
+                            className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize hover:bg-white/40"
+                          />
                         </th>
                       ))}
                       <th className="sticky right-0 z-30 w-16 min-w-16 border-b border-l border-white/15 bg-mme-purple px-2 py-3 text-center text-xs font-black text-white">Action</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredRows.map((row) => (
-                      <tr key={row.id} className="group">
-                        <td className="sticky left-0 z-10 border-b border-r border-mme-pink/50 bg-[#fff9fc] px-2 text-center text-xs font-black text-mme-purple/45 group-hover:bg-mme-blush/35">{row.rowNumber}</td>
-                        {workspace.columns.map((column) => (
-                          <td key={column.id} style={{ width: column.width, minWidth: column.width }} className="border-b border-r border-mme-pink/45 bg-white align-top group-hover:bg-[#fffbfd]">
-                            <CellEditor
-                              column={column}
-                              value={row.values[column.id]}
-                              onChange={(value) => updateCell(row.id, column.id, value)}
-                              employeeNames={employeeNames}
-                            />
+                    {filteredRows.map((row) => {
+                      const rowH = rowHeights[row.id];
+                      return (
+                        <tr key={row.id} className="group" style={rowH ? { height: `${rowH}px` } : undefined}>
+                          <td
+                            className="sticky left-0 z-10 border-b border-r border-mme-pink/50 bg-[#fff9fc] text-center text-xs font-black text-mme-purple/45 group-hover:bg-mme-blush/35"
+                            style={rowH ? { height: `${rowH}px` } : undefined}
+                          >
+                            <div className="relative flex w-full min-h-11 items-center justify-center px-2" style={rowH ? { height: `${rowH}px` } : undefined}>
+                              {row.rowNumber}
+                              <div
+                                onMouseDown={(e) => startRowResize(e, row.id)}
+                                className="absolute bottom-0 left-0 right-0 h-1.5 cursor-row-resize hover:bg-mme-purple/30"
+                              />
+                            </div>
                           </td>
-                        ))}
-                        <td className="sticky right-0 z-10 border-b border-l border-mme-pink/50 bg-white px-2 text-center group-hover:bg-[#fffbfd]">
-                          <button onClick={() => deleteRow(row.id)} className="rounded-xl p-2 text-mme-purple/35 transition hover:bg-red-50 hover:text-red-500" title="Delete row"><Trash2 size={17} /></button>
-                        </td>
-                      </tr>
-                    ))}
+                          {workspace.columns.map((column) => (
+                            <td
+                              key={column.id}
+                              style={{ width: column.width, minWidth: column.width, ...(rowH ? { height: `${rowH}px` } : {}) }}
+                              className="border-b border-r border-mme-pink/45 bg-white align-top group-hover:bg-[#fffbfd]"
+                            >
+                              <CellEditor
+                                column={column}
+                                value={row.values[column.id]}
+                                onChange={(value) => updateCell(row.id, column.id, value)}
+                                employeeNames={employeeNames}
+                              />
+                            </td>
+                          ))}
+                          <td
+                            className="sticky right-0 z-10 border-b border-l border-mme-pink/50 bg-white px-2 text-center group-hover:bg-[#fffbfd]"
+                            style={rowH ? { height: `${rowH}px` } : undefined}
+                          >
+                            <div className="flex min-h-11 items-center justify-center" style={rowH ? { height: `${rowH}px` } : undefined}>
+                              <button onClick={() => deleteRow(row.id)} className="rounded-xl p-2 text-mme-purple/35 transition hover:bg-red-50 hover:text-red-500" title="Delete row"><Trash2 size={17} /></button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
 
@@ -852,7 +962,7 @@ export default function ManagementPage() {
             )}
 
             <div className="flex flex-col justify-between gap-2 border-t border-mme-pink/50 bg-[#fff9fc] px-4 py-3 text-xs text-mme-purple/50 sm:flex-row sm:items-center">
-              <p>Tip: move horizontally to view all columns. Changes save automatically.</p>
+              <p>Drag column edges to resize width · Drag row edges to resize height · Press <strong>Save Changes</strong> to persist edits to the database.</p>
               <p className="font-bold">Supported imports: .xlsx and .csv</p>
             </div>
           </div>
