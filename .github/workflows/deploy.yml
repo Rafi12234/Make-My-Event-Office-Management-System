@@ -48,10 +48,11 @@ jobs:
 
       - name: Install and build frontend
         run: |
-          FRONTEND_DIR="frontend/make my event office management system"
-          cd "$FRONTEND_DIR"
-          npm install --include=dev
-          ./node_modules/.bin/vite build
+          cd "frontend/make my event office management system"
+          npm install --legacy-peer-deps --no-audit --no-fund --prefer-online
+          node node_modules/vite/bin/vite.js build
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
 
       # Copy dist to a space-free path so SCP handles it reliably
       - name: Stage frontend dist
