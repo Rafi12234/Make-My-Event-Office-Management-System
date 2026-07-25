@@ -50,11 +50,13 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: 'frontend/make my event office management system'
-        run: npm ci
+        run: npm install
+        env:
+          NODE_ENV: development
 
       - name: Build frontend for production
         working-directory: 'frontend/make my event office management system'
-        run: npm run build
+        run: npx vite build
         # VITE_API_BASE_URL is read from .env.production (already committed)
 
       # Copy dist to a space-free path so SCP handles it reliably
