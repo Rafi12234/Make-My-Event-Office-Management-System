@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+﻿import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import {
   ArrowLeft,
@@ -77,7 +77,7 @@ function FormField({
     <div>
       <label
         htmlFor={name}
-        className="mb-2 block text-sm font-extrabold text-mme-purple"
+        className="mb-2 block text-sm font-extrabold text-black"
       >
         {label}
 
@@ -87,7 +87,7 @@ function FormField({
       <div className="relative">
         <Icon
           size={18}
-          className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-mme-plum"
+          className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#333333]"
         />
 
         <input
@@ -99,10 +99,10 @@ function FormField({
           placeholder={placeholder}
           required={required}
           autoComplete={autoComplete}
-          className={`w-full rounded-2xl border bg-white py-3.5 pl-12 pr-4 text-sm font-medium text-mme-purple outline-none transition placeholder:text-mme-purple/35 ${
+          className={`w-full rounded-2xl border bg-white py-3.5 pl-12 pr-4 text-sm font-medium text-black outline-none transition placeholder:text-black/35 ${
             error
               ? "border-red-400 ring-4 ring-red-100"
-              : "border-mme-pink/80 focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/25"
+              : "border-[#d6d6d6]/80 focus:border-[#333333] focus:ring-4 focus:ring-[#d6d6d6]/25"
           }`}
         />
       </div>
@@ -130,7 +130,7 @@ function PasswordField({
     <div>
       <label
         htmlFor={name}
-        className="mb-2 block text-sm font-extrabold text-mme-purple"
+        className="mb-2 block text-sm font-extrabold text-black"
       >
         {label}
 
@@ -140,7 +140,7 @@ function PasswordField({
       <div className="relative">
         <LockKeyhole
           size={18}
-          className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-mme-plum"
+          className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#333333]"
         />
 
         <input
@@ -152,17 +152,17 @@ function PasswordField({
           placeholder={placeholder}
           required={required}
           autoComplete={autoComplete}
-          className={`w-full rounded-2xl border bg-white py-3.5 pl-12 pr-12 text-sm font-medium text-mme-purple outline-none transition placeholder:text-mme-purple/35 ${
+          className={`w-full rounded-2xl border bg-white py-3.5 pl-12 pr-12 text-sm font-medium text-black outline-none transition placeholder:text-black/35 ${
             error
               ? "border-red-400 ring-4 ring-red-100"
-              : "border-mme-pink/80 focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/25"
+              : "border-[#d6d6d6]/80 focus:border-[#333333] focus:ring-4 focus:ring-[#d6d6d6]/25"
           }`}
         />
 
         <button
           type="button"
           onClick={onTogglePassword}
-          className="absolute right-4 top-1/2 -translate-y-1/2 rounded-lg p-1 text-mme-purple/50 transition hover:bg-mme-blush/50 hover:text-mme-purple"
+          className="absolute right-4 top-1/2 -translate-y-1/2 rounded-lg p-1 text-black/50 transition hover:bg-[#f4f4f4]/50 hover:text-black"
           aria-label={showPassword ? "Hide password" : "Show password"}
         >
           {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -178,42 +178,42 @@ function PasswordField({
 
 function RegistrationSuccess({ email, onRegisterAnother }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#FFF9FC] px-5 py-12">
-      <div className="relative w-full max-w-xl overflow-hidden rounded-[32px] border border-mme-pink/60 bg-white p-7 text-center shadow-[0_30px_90px_rgba(91,55,101,0.16)] sm:p-12">
-        <div className="absolute -left-16 -top-16 h-48 w-48 rounded-full bg-mme-blush/65 blur-3xl" />
-        <div className="absolute -bottom-16 -right-16 h-48 w-48 rounded-full bg-mme-mauve/30 blur-3xl" />
+    <div className="flex min-h-screen items-center justify-center bg-[#ffffff] px-5 py-12">
+      <div className="relative w-full max-w-xl overflow-hidden rounded-[32px] border border-[#d6d6d6]/60 bg-white p-7 text-center shadow-[0_30px_90px_rgba(0,0,0,0.12)] sm:p-12">
+        <div className="absolute -left-16 -top-16 h-48 w-48 rounded-full bg-[#f4f4f4]/65 blur-3xl" />
+        <div className="absolute -bottom-16 -right-16 h-48 w-48 rounded-full bg-[#a9a9a9]/30 blur-3xl" />
 
         <div className="relative">
-          <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-mme-blush text-mme-purple">
+          <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-[#f4f4f4] text-black">
             <Clock3 size={38} />
           </div>
 
-          <p className="mt-7 text-sm font-black uppercase tracking-[0.2em] text-mme-plum">
+          <p className="mt-7 text-sm font-black uppercase tracking-[0.2em] text-[#333333]">
             Registration submitted
           </p>
 
-          <h1 className="mt-3 text-3xl font-black text-mme-purple sm:text-4xl">
+          <h1 className="mt-3 text-3xl font-black text-black sm:text-4xl">
             Waiting for admin approval
           </h1>
 
-          <p className="mx-auto mt-5 max-w-md leading-7 text-mme-purple/65">
+          <p className="mx-auto mt-5 max-w-md leading-7 text-black/65">
             Your employee registration has been submitted successfully. An
             administrator must review and approve your account before you can
             log in.
           </p>
 
-          <div className="mt-7 rounded-2xl border border-mme-pink/70 bg-mme-blush/25 p-5">
-            <p className="text-xs font-extrabold uppercase tracking-wider text-mme-plum">
+          <div className="mt-7 rounded-2xl border border-[#d6d6d6]/70 bg-[#f4f4f4]/25 p-5">
+            <p className="text-xs font-extrabold uppercase tracking-wider text-[#333333]">
               Registered email
             </p>
 
-            <p className="mt-2 break-all font-black text-mme-purple">{email}</p>
+            <p className="mt-2 break-all font-black text-black">{email}</p>
           </div>
 
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <Link
               to="/"
-              className="flex-1 rounded-2xl bg-mme-purple px-6 py-3.5 text-center text-sm font-black text-white transition hover:-translate-y-0.5 hover:bg-[#4b2c55]"
+              className="flex-1 rounded-2xl bg-black px-6 py-3.5 text-center text-sm font-black text-white transition hover:-translate-y-0.5 hover:bg-[#222222]"
             >
               Return to home
             </Link>
@@ -221,13 +221,13 @@ function RegistrationSuccess({ email, onRegisterAnother }) {
             <button
               type="button"
               onClick={onRegisterAnother}
-              className="flex-1 rounded-2xl border border-mme-purple/20 bg-white px-6 py-3.5 text-sm font-black text-mme-purple transition hover:-translate-y-0.5 hover:bg-mme-blush/30"
+              className="flex-1 rounded-2xl border border-black/20 bg-white px-6 py-3.5 text-sm font-black text-black transition hover:-translate-y-0.5 hover:bg-[#f4f4f4]/30"
             >
               Register another
             </button>
           </div>
 
-          <p className="mt-6 text-xs leading-5 text-mme-purple/50">
+          <p className="mt-6 text-xs leading-5 text-black/50">
             You will be able to log in only after your registration status
             becomes approved.
           </p>
@@ -413,29 +413,29 @@ function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#FFF9FC] text-mme-purple">
+    <div className="min-h-screen bg-[#ffffff] text-black">
       <div className="grid min-h-screen lg:grid-cols-[0.8fr_1.2fr]">
         {/* Left information area */}
-        <aside className="relative hidden overflow-hidden bg-mme-purple p-10 text-white lg:flex lg:flex-col lg:justify-between xl:p-14">
-          <div className="absolute -left-24 top-20 h-80 w-80 rounded-full bg-mme-mauve/25 blur-3xl" />
-          <div className="absolute -bottom-20 -right-16 h-96 w-96 rounded-full bg-mme-pink/15 blur-3xl" />
+        <aside className="relative hidden overflow-hidden bg-black p-10 text-white lg:flex lg:flex-col lg:justify-between xl:p-14">
+          <div className="absolute -left-24 top-20 h-80 w-80 rounded-full bg-[#a9a9a9]/25 blur-3xl" />
+          <div className="absolute -bottom-20 -right-16 h-96 w-96 rounded-full bg-[#d6d6d6]/15 blur-3xl" />
 
           <div className="relative">
             <Link to="/" className="inline-flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-xl font-black text-mme-purple shadow-xl">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-xl font-black text-black shadow-xl">
                 M
               </div>
 
               <div>
                 <p className="text-xl font-black leading-none">Make My Event</p>
-                <p className="mt-1 text-[11px] font-bold uppercase tracking-[0.2em] text-mme-pink">
+                <p className="mt-1 text-[11px] font-bold uppercase tracking-[0.2em] text-[#d6d6d6]">
                   Office Management
                 </p>
               </div>
             </Link>
 
             <div className="mt-20 max-w-lg">
-              <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-xs font-black uppercase tracking-[0.16em] text-mme-pink backdrop-blur-md">
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-xs font-black uppercase tracking-[0.16em] text-[#d6d6d6] backdrop-blur-md">
                 <Sparkles size={15} />
                 Employee registration
               </div>
@@ -475,7 +475,7 @@ function RegisterPage() {
 
                 return (
                   <div key={item.title} className="flex items-start gap-4">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-mme-pink">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-[#d6d6d6]">
                       <Icon size={21} />
                     </div>
 
@@ -494,7 +494,7 @@ function RegisterPage() {
 
           <div className="relative mt-12 rounded-2xl border border-white/15 bg-white/10 p-5 backdrop-blur-md">
             <div className="flex items-center gap-3">
-              <CheckCircle2 size={20} className="text-mme-pink" />
+              <CheckCircle2 size={20} className="text-[#d6d6d6]" />
 
               <p className="text-sm font-bold">
                 Your office information remains protected.
@@ -505,57 +505,57 @@ function RegisterPage() {
 
         {/* Registration form */}
         <main className="relative flex min-h-screen items-center px-5 py-8 sm:px-8 lg:px-12 xl:px-20">
-          <div className="absolute right-0 top-0 h-72 w-72 rounded-full bg-mme-blush/50 blur-3xl" />
+          <div className="absolute right-0 top-0 h-72 w-72 rounded-full bg-[#f4f4f4]/50 blur-3xl" />
 
           <div className="relative mx-auto w-full max-w-3xl">
             <div className="mb-8 flex items-center justify-between">
               <Link
                 to="/"
-                className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-black text-mme-purple/65 transition hover:bg-mme-blush/40 hover:text-mme-purple"
+                className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-black text-black/65 transition hover:bg-[#f4f4f4]/40 hover:text-black"
               >
                 <ArrowLeft size={18} />
                 Back to home
               </Link>
 
               <div className="flex items-center gap-2 lg:hidden">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-mme-purple font-black text-white">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-black font-black text-white">
                   M
                 </div>
 
-                <p className="hidden font-black text-mme-purple sm:block">
+                <p className="hidden font-black text-black sm:block">
                   Make My Event
                 </p>
               </div>
             </div>
 
-            <div className="rounded-[30px] border border-mme-pink/60 bg-white p-5 shadow-[0_30px_80px_rgba(91,55,101,0.12)] sm:p-8 xl:p-10">
+            <div className="rounded-[30px] border border-[#d6d6d6]/60 bg-white p-5 shadow-[0_30px_80px_rgba(0,0,0,0.12)] sm:p-8 xl:p-10">
               <div>
-                <p className="text-sm font-black uppercase tracking-[0.18em] text-mme-plum">
+                <p className="text-sm font-black uppercase tracking-[0.18em] text-[#333333]">
                   Create employee account
                 </p>
 
-                <h1 className="mt-3 text-3xl font-black tracking-tight text-mme-purple sm:text-4xl">
+                <h1 className="mt-3 text-3xl font-black tracking-tight text-black sm:text-4xl">
                   Employee registration
                 </h1>
 
-                <p className="mt-3 leading-7 text-mme-purple/60">
+                <p className="mt-3 leading-7 text-black/60">
                   Enter your official employee information. Fields marked with
                   an asterisk are required.
                 </p>
               </div>
 
-              <div className="mt-7 flex items-start gap-3 rounded-2xl border border-mme-pink/70 bg-mme-blush/25 p-4">
+              <div className="mt-7 flex items-start gap-3 rounded-2xl border border-[#d6d6d6]/70 bg-[#f4f4f4]/25 p-4">
                 <ShieldCheck
                   size={21}
-                  className="mt-0.5 shrink-0 text-mme-plum"
+                  className="mt-0.5 shrink-0 text-[#333333]"
                 />
 
                 <div>
-                  <p className="text-sm font-black text-mme-purple">
+                  <p className="text-sm font-black text-black">
                     Administrator approval required
                   </p>
 
-                  <p className="mt-1 text-xs leading-5 text-mme-purple/60">
+                  <p className="mt-1 text-xs leading-5 text-black/60">
                     Registration does not provide immediate access. You can log
                     in only after an administrator approves your account.
                   </p>
@@ -617,7 +617,7 @@ function RegisterPage() {
                   <div>
                     <label
                       htmlFor="departmentId"
-                      className="mb-2 block text-sm font-extrabold text-mme-purple"
+                      className="mb-2 block text-sm font-extrabold text-black"
                     >
                       Department
                       <span className="ml-1 text-red-500">*</span>
@@ -626,7 +626,7 @@ function RegisterPage() {
                     <div className="relative">
                       <Building2
                         size={18}
-                        className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-mme-plum"
+                        className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#333333]"
                       />
 
                       <select
@@ -634,10 +634,10 @@ function RegisterPage() {
                         name="departmentId"
                         value={formData.departmentId}
                         onChange={handleInputChange}
-                        className={`w-full appearance-none rounded-2xl border bg-white py-3.5 pl-12 pr-10 text-sm font-medium text-mme-purple outline-none transition ${
+                        className={`w-full appearance-none rounded-2xl border bg-white py-3.5 pl-12 pr-10 text-sm font-medium text-black outline-none transition ${
                           errors.departmentId
                             ? "border-red-400 ring-4 ring-red-100"
-                            : "border-mme-pink/80 focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/25"
+                            : "border-[#d6d6d6]/80 focus:border-[#333333] focus:ring-4 focus:ring-[#d6d6d6]/25"
                         }`}
                       >
                         <option value="">Select department</option>
@@ -649,7 +649,7 @@ function RegisterPage() {
                         ))}
                       </select>
 
-                      <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-mme-plum">
+                      <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-[#333333]">
                         ▾
                       </div>
                     </div>
@@ -705,13 +705,13 @@ function RegisterPage() {
                 </div>
 
                 {formData.password && (
-                  <div className="mt-4 rounded-2xl bg-[#FFF9FC] p-4">
+                  <div className="mt-4 rounded-2xl bg-[#ffffff] p-4">
                     <div className="flex items-center justify-between">
-                      <p className="text-xs font-extrabold text-mme-purple/65">
+                      <p className="text-xs font-extrabold text-black/65">
                         Password strength
                       </p>
 
-                      <p className="text-xs font-black text-mme-plum">
+                      <p className="text-xs font-black text-[#333333]">
                         {passwordStrengthText}
                       </p>
                     </div>
@@ -722,14 +722,14 @@ function RegisterPage() {
                           key={item}
                           className={`h-1.5 rounded-full transition ${
                             item <= passwordStrength
-                              ? "bg-mme-plum"
-                              : "bg-mme-pink/45"
+                              ? "bg-[#333333]"
+                              : "bg-[#d6d6d6]/45"
                           }`}
                         />
                       ))}
                     </div>
 
-                    <p className="mt-3 text-[11px] leading-5 text-mme-purple/50">
+                    <p className="mt-3 text-[11px] leading-5 text-black/50">
                       Use uppercase and lowercase letters, numbers and a special
                       character for a stronger password.
                     </p>
@@ -746,11 +746,11 @@ function RegisterPage() {
                       className="peer sr-only"
                     />
 
-                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-mme-mauve bg-white text-white transition peer-checked:border-mme-purple peer-checked:bg-mme-purple">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-[#a9a9a9] bg-white text-white transition peer-checked:border-black peer-checked:bg-black">
                       {formData.acceptedTerms && <Check size={14} />}
                     </span>
 
-                    <span className="text-sm leading-6 text-mme-purple/65">
+                    <span className="text-sm leading-6 text-black/65">
                       I confirm that the information provided is correct and
                       belongs to me as an employee of Make My Event.
                     </span>
@@ -772,7 +772,7 @@ function RegisterPage() {
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="mt-7 flex w-full items-center justify-center gap-2 rounded-2xl bg-mme-purple px-6 py-4 text-sm font-black text-white shadow-xl shadow-mme-purple/20 transition hover:-translate-y-0.5 hover:bg-[#4b2c55] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+                  className="mt-7 flex w-full items-center justify-center gap-2 rounded-2xl bg-black px-6 py-4 text-sm font-black text-white shadow-xl shadow-black/20 transition hover:-translate-y-0.5 hover:bg-[#222222] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
                 >
                   {isSubmitting ? (
                     <>
@@ -787,11 +787,11 @@ function RegisterPage() {
                   )}
                 </button>
 
-                <p className="mt-6 text-center text-sm text-mme-purple/60">
+                <p className="mt-6 text-center text-sm text-black/60">
                   Already registered?{" "}
                   <Link
                     to="/login"
-                    className="font-black text-mme-plum transition hover:text-mme-purple"
+                    className="font-black text-[#333333] transition hover:text-black"
                   >
                     Log in here
                   </Link>
@@ -799,7 +799,7 @@ function RegisterPage() {
               </form>
             </div>
 
-            <p className="mt-6 text-center text-xs text-mme-purple/45">
+            <p className="mt-6 text-center text-xs text-black/45">
               © {new Date().getFullYear()} Make My Event Office Management
               System
             </p>
