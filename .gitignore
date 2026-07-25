@@ -20,8 +20,8 @@ node_modules/
 # .env.production is intentionally committed (public API URL only)
 
 # ── Build outputs ──
-dist/
-**/dist/
+# Frontend dist IS committed so CI can upload without rebuilding
+!frontend/make my event office management system/dist/
 build/
 
 # ── Deploy artifacts ──
