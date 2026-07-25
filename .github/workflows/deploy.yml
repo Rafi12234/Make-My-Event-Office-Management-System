@@ -392,6 +392,27 @@ jobs:
           REMOTE_SCRIPT
 
       # ---------------------------------------------------------
+      # 10b. TEMPORARY diagnostics — confirm what the deploy actually touched
+      # ---------------------------------------------------------
+      - name: Diagnose live deployment target
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USERNAME: ${{ secrets.SSH_USERNAME }}
+          SSH_PORT: ${{ vars.SSH_PORT }}
+        run: |
+          ssh \
+            -i "$HOME/.ssh/mme_deploy_key" \
+            -p "$SSH_PORT" \
+            -o StrictHostKeyChecking=yes \
+            "$SSH_USERNAME@$SSH_HOST" \
+            "echo '--- whoami/host ---'; whoami; hostname; echo \$HOME; date -u;
+             echo '--- APP_DIR listing ---'; ls -la '${APP_DIR}';
+             echo '--- public/index.html stat ---'; stat '${APP_DIR}/public/index.html';
+             echo '--- public/assets listing ---'; ls -la '${APP_DIR}/public/assets' | head -10;
+             echo '--- md5 of index.html ---'; md5sum '${APP_DIR}/public/index.html';
+             echo '--- grep theme marker ---'; grep -c 'No login is required' '${APP_DIR}/public/index.html' || true"
+
+      # ---------------------------------------------------------
       # 11. Wait for Passenger to restart
       # ---------------------------------------------------------
       - name: Wait for application restart
