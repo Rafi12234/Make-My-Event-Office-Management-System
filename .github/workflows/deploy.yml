@@ -1,0 +1,127 @@
+# ─────────────────────────────────────────────────────────────
+#  CI/CD — Build & Deploy to cPanel
+#  Triggers: every push to main, or manually via Actions tab
+# ─────────────────────────────────────────────────────────────
+#
+#  Required GitHub SECRETS  (Settings → Secrets & variables → Actions → Secrets)
+#  ─────────────────────────────────────────────────────────
+#  SSH_HOST         Server hostname or IP  (e.g. datapulseglobal.com)
+#  SSH_USERNAME     cPanel account username
+#  SSH_PRIVATE_KEY  Full content of the private deploy key (-----BEGIN...)
+#  DB_HOST          Usually: localhost
+#  DB_USER          cPanel MySQL username  (e.g. datapulseglobal_mme_user)
+#  DB_PASSWORD      MySQL user password
+#
+#  Required GitHub VARIABLES  (Settings → Secrets & variables → Actions → Variables)
+#  ─────────────────────────────────────────────────────────
+#  SSH_PORT         SSH port — 22 or 2222 (check with your host)
+#  DB_NAME          cPanel database name  (e.g. datapulseglobal_mme)
+#  FRONTEND_URL     https://mme-office.datapulseglobal.com
+#  FRONTEND_PATH    Absolute path to subdomain root on server
+#                   e.g. /home/datapulseglobal/public_html/mme-office
+#  BACKEND_PATH     Absolute path to Node.js app folder on server
+#                   e.g. /home/datapulseglobal/mme-backend
+# ─────────────────────────────────────────────────────────────
+
+name: Deploy to cPanel
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Build frontend ────────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'frontend/make my event office management system/package-lock.json'
+
+      - name: Install frontend dependencies
+        working-directory: 'frontend/make my event office management system'
+        run: npm ci
+
+      - name: Build frontend for production
+        working-directory: 'frontend/make my event office management system'
+        run: npm run build
+        # VITE_API_BASE_URL is read from .env.production (already committed)
+
+      # Copy dist to a space-free path so SCP handles it reliably
+      - name: Stage frontend dist
+        run: cp -r "frontend/make my event office management system/dist" ./frontend-dist
+
+      # ── 3. Deploy frontend to subdomain root ─────────────
+      - name: Upload frontend files
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ vars.SSH_PORT }}
+          source: "frontend-dist/*"
+          target: ${{ vars.FRONTEND_PATH }}
+          strip_components: 1
+          overwrite: true
+
+      # ── 4. Deploy backend source files ───────────────────
+      - name: Upload backend source files
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ vars.SSH_PORT }}
+          source: "backend/mme_node_express_backend/*"
+          target: ${{ vars.BACKEND_PATH }}
+          strip_components: 2
+          overwrite: true
+
+      # ── 5. Write .env, install deps, restart app ─────────
+      - name: Configure & restart backend
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          # Pass DB credentials as real env vars (safe with special characters)
+          _DB_HOST: ${{ secrets.DB_HOST }}
+          _DB_USER: ${{ secrets.DB_USER }}
+          _DB_PASS: ${{ secrets.DB_PASSWORD }}
+          _DB_NAME: ${{ vars.DB_NAME }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ vars.SSH_PORT }}
+          envs: _DB_HOST,_DB_USER,_DB_PASS,_DB_NAME
+          script: |
+            set -e
+            BACKEND="${{ vars.BACKEND_PATH }}"
+
+            echo "→ Writing .env ..."
+            {
+              printf 'DB_HOST=%s\n'      "$_DB_HOST"
+              printf 'DB_USER=%s\n'      "$_DB_USER"
+              printf 'DB_PASSWORD=%s\n'  "$_DB_PASS"
+              printf 'DB_NAME=%s\n'      "$_DB_NAME"
+              printf 'FRONTEND_URL=%s\n' "${{ vars.FRONTEND_URL }}"
+              printf 'NODE_ENV=production\n'
+            } > "${BACKEND}/.env"
+
+            echo "→ Installing production dependencies ..."
+            cd "${BACKEND}"
+            npm install --omit=dev
+
+            echo "→ Restarting Node.js app (Passenger) ..."
+            mkdir -p tmp
+            touch tmp/restart.txt
+
+            echo "✅ Deployment complete!"
