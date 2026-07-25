@@ -1,0 +1,36 @@
+# ── OS generated files ──
+.DS_Store
+Thumbs.db
+
+# ── Editor ──
+.vscode/settings.json
+*.suo
+*.user
+
+# ── Dependencies (never commit) ──
+node_modules/
+**/node_modules/
+
+# ── Environment secrets ──
+.env
+.env.local
+.env.*.local
+**/.env
+**/.env.local
+# .env.production is intentionally committed (public API URL only)
+
+# ── Build outputs ──
+# Frontend dist IS committed so CI can upload without rebuilding
+!frontend/make my event office management system/dist/
+build/
+
+# ── Deploy artifacts ──
+frontend-dist/
+deploy-frontend.zip
+deploy-backend.zip
+*.tar.gz
+
+# ── SSH Keys / Secrets ──
+*.pem
+*.key
+github_deploy_key*
