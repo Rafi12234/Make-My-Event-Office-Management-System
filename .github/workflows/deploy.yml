@@ -1,6 +1,6 @@
 name: Deploy MME Office to cPanel
 
-on:
+"on":
   push:
     branches:
       - main
@@ -27,42 +27,65 @@ jobs:
   deploy:
     name: Build and Deploy
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       # ---------------------------------------------------------
-      # 1. Get the latest source code
+      # 1. Download the latest source code
       # ---------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
       # ---------------------------------------------------------
-      # 2. Use Node.js 20
+      # 2. Use the same Node.js version as cPanel
       # ---------------------------------------------------------
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "20.20.2"
+          cache: npm
+          cache-dependency-path: |
+            backend/mme_node_express_backend/package-lock.json
+            frontend/make my event office management system/package-lock.json
 
       # ---------------------------------------------------------
-      # 3. Validate backend dependencies
+      # 3. Install and validate backend dependencies
       # ---------------------------------------------------------
       - name: Validate backend
         working-directory: ${{ env.BACKEND_DIR }}
-        run: npm ci --no-audit --no-fund
+        run: |
+          npm config set registry https://registry.npmjs.org/
+
+          npm ci --no-audit --no-fund
+
+          node --check app.js
+          node --check src/server.js
+
+          echo "Backend validation completed."
 
       # ---------------------------------------------------------
-      # 4. Build the latest React frontend
+      # 4. Install frontend dependencies and build React
       # ---------------------------------------------------------
       - name: Build frontend
         working-directory: ${{ env.FRONTEND_DIR }}
         env:
           VITE_API_BASE_URL: ${{ env.VITE_API_BASE_URL }}
         run: |
-          npm ci --no-audit --no-fund
+          npm config set registry https://registry.npmjs.org/
+
+          npm ci --include=dev --no-audit --no-fund
+
+          if [ ! -x "node_modules/.bin/vite" ]; then
+            echo "Vite was not installed."
+            exit 1
+          fi
+
           npm run build
 
+          echo "Frontend build completed."
+
       # ---------------------------------------------------------
-      # 5. Verify required deployment files
+      # 5. Confirm all required deployment files exist
       # ---------------------------------------------------------
       - name: Validate deployment files
         run: |
@@ -83,7 +106,7 @@ jobs:
           echo "Deployment files validated."
 
       # ---------------------------------------------------------
-      # 6. Create backend and frontend archives
+      # 6. Create backend and frontend deployment archives
       # ---------------------------------------------------------
       - name: Create deployment archives
         run: |
@@ -119,6 +142,7 @@ jobs:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USERNAME: ${{ secrets.SSH_USERNAME }}
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+
           SSH_PORT: ${{ vars.SSH_PORT }}
           NODE_ACTIVATE: ${{ vars.NODE_ACTIVATE }}
         run: |
@@ -128,8 +152,7 @@ jobs:
           test -n "$SSH_PORT"
           test -n "$NODE_ACTIVATE"
 
-          mkdir -p "$HOME/.ssh"
-          chmod 700 "$HOME/.ssh"
+          install -m 700 -d "$HOME/.ssh"
 
           printf '%s\n' "$SSH_PRIVATE_KEY" \
             | tr -d '\r' \
@@ -138,6 +161,8 @@ jobs:
           chmod 600 "$HOME/.ssh/mme_deploy_key"
 
           for attempt in 1 2 3; do
+            echo "Getting SSH host key: attempt $attempt"
+
             if ssh-keyscan \
               -p "$SSH_PORT" \
               -H "$SSH_HOST" \
@@ -145,7 +170,6 @@ jobs:
               break
             fi
 
-            echo "ssh-keyscan attempt $attempt failed."
             sleep 3
           done
 
@@ -153,15 +177,16 @@ jobs:
 
           test -s "$HOME/.ssh/known_hosts"
 
-          echo "SSH configured."
+          echo "SSH configuration completed."
 
       # ---------------------------------------------------------
-      # 8. Test SSH and cPanel application paths
+      # 8. Test GitHub Actions to cPanel SSH connection
       # ---------------------------------------------------------
       - name: Test SSH connection
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USERNAME: ${{ secrets.SSH_USERNAME }}
+
           SSH_PORT: ${{ vars.SSH_PORT }}
           NODE_ACTIVATE: ${{ vars.NODE_ACTIVATE }}
         run: |
@@ -178,7 +203,7 @@ jobs:
              echo 'SSH and cPanel application verified'"
 
       # ---------------------------------------------------------
-      # 9. Upload archives
+      # 9. Upload backend and frontend archives
       # ---------------------------------------------------------
       - name: Upload deployment archives
         env:
@@ -197,12 +222,13 @@ jobs:
           echo "Deployment archives uploaded."
 
       # ---------------------------------------------------------
-      # 10. Deploy files and restart Passenger
+      # 10. Deploy backend and frontend to cPanel
       # ---------------------------------------------------------
       - name: Deploy application
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USERNAME: ${{ secrets.SSH_USERNAME }}
+
           SSH_PORT: ${{ vars.SSH_PORT }}
           NODE_ACTIVATE: ${{ vars.NODE_ACTIVATE }}
         run: |
@@ -223,11 +249,23 @@ jobs:
 
           STAGE_DIR="$HOME/.mme-deployment-$RELEASE_ID"
 
-          echo "Preparing deployment..."
+          cleanup() {
+            rm -rf "$STAGE_DIR"
+
+            rm -f \
+              "$BACKEND_ARCHIVE" \
+              "$FRONTEND_ARCHIVE"
+          }
+
+          trap cleanup EXIT
+
+          echo "Checking uploaded archives..."
 
           test -f "$BACKEND_ARCHIVE"
           test -f "$FRONTEND_ARCHIVE"
           test -f "$NODE_ACTIVATE"
+
+          echo "Creating temporary deployment folder..."
 
           rm -rf "$STAGE_DIR"
 
@@ -245,7 +283,7 @@ jobs:
           tar -xzf "$FRONTEND_ARCHIVE" \
             -C "$STAGE_DIR/frontend"
 
-          echo "Validating extracted files..."
+          echo "Validating extracted application..."
 
           test -f "$STAGE_DIR/backend/app.js"
           test -f "$STAGE_DIR/backend/package.json"
@@ -261,13 +299,16 @@ jobs:
 
           echo "Updating backend package files..."
 
-          cp "$STAGE_DIR/backend/app.js" \
+          cp \
+            "$STAGE_DIR/backend/app.js" \
             "$APP_DIR/app.js"
 
-          cp "$STAGE_DIR/backend/package.json" \
+          cp \
+            "$STAGE_DIR/backend/package.json" \
             "$APP_DIR/package.json"
 
-          cp "$STAGE_DIR/backend/package-lock.json" \
+          cp \
+            "$STAGE_DIR/backend/package-lock.json" \
             "$APP_DIR/package-lock.json"
 
           echo "Activating cPanel Node.js environment..."
@@ -278,14 +319,16 @@ jobs:
 
           cd "$APP_DIR"
 
-          echo "Installing production dependencies..."
+          echo "Installing production backend dependencies..."
+
+          npm config set registry https://registry.npmjs.org/
 
           npm install \
             --omit=dev \
             --no-audit \
             --no-fund
 
-          echo "Preparing new backend source..."
+          echo "Preparing updated backend source..."
 
           rm -rf "$APP_DIR/src.next"
 
@@ -295,7 +338,7 @@ jobs:
 
           test -f "$APP_DIR/src.next/server.js"
 
-          echo "Preparing new frontend build..."
+          echo "Preparing updated frontend build..."
 
           rm -rf "$APP_DIR/public.next"
 
@@ -304,6 +347,7 @@ jobs:
             "$APP_DIR/public.next"
 
           test -f "$APP_DIR/public.next/index.html"
+          test -d "$APP_DIR/public.next/assets"
 
           echo "Replacing backend source..."
 
@@ -337,32 +381,24 @@ jobs:
               "$APP_DIR/database"
           fi
 
-          echo "Restarting cPanel Passenger application..."
+          echo "Restarting Passenger application..."
 
           mkdir -p "$APP_DIR/tmp"
 
           touch "$APP_DIR/tmp/restart.txt"
 
-          echo "Cleaning deployment files..."
-
-          rm -rf "$STAGE_DIR"
-
-          rm -f \
-            "$BACKEND_ARCHIVE" \
-            "$FRONTEND_ARCHIVE"
-
-          echo "Deployment completed."
+          echo "Deployment completed successfully."
 
           REMOTE_SCRIPT
 
       # ---------------------------------------------------------
-      # 11. Wait for Passenger
+      # 11. Wait for Passenger to restart
       # ---------------------------------------------------------
       - name: Wait for application restart
         run: sleep 12
 
       # ---------------------------------------------------------
-      # 12. Verify backend and database connection
+      # 12. Verify backend and MySQL connection
       # ---------------------------------------------------------
       - name: Verify backend health
         run: |
@@ -386,6 +422,7 @@ jobs:
                 '
 
               echo "Backend health check passed."
+
               exit 0
             fi
 
@@ -393,6 +430,7 @@ jobs:
           done
 
           echo "Backend health check failed."
+
           exit 1
 
       # ---------------------------------------------------------
