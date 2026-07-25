@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import {
   AlertCircle,
@@ -51,36 +51,39 @@ const PRIORITY_VALUES = ["Low", "Medium", "High", "Urgent"];
 // ─── Style helpers ───────────────────────────────────────────────
 
 function eventStyle(type) {
-  const map = {
-    meeting:  { pill: "bg-violet-100 text-violet-700 border-violet-200",   dot: "bg-violet-500" },
-    upcoming: { pill: "bg-emerald-100 text-emerald-700 border-emerald-200", dot: "bg-emerald-500" },
-    followup: { pill: "bg-amber-100 text-amber-700 border-amber-200",       dot: "bg-amber-500" },
-    deadline: { pill: "bg-red-100 text-red-700 border-red-200",             dot: "bg-red-500" },
-    task:     { pill: "bg-sky-100 text-sky-700 border-sky-200",             dot: "bg-sky-500" },
-    other:    { pill: "bg-slate-100 text-slate-600 border-slate-200",       dot: "bg-slate-400" },
+  const dots = {
+    meeting:  "bg-black",
+    upcoming: "bg-[#333333]",
+    followup: "bg-[#555555]",
+    deadline: "bg-[#a9a9a9]",
+    task:     "bg-[#666666]",
+    other:    "bg-[#a9a9a9]",
   };
-  return map[type] || map.other;
+  return {
+    pill: "bg-[#f4f4f4] text-black border-[#d6d6d6]",
+    dot:  dots[type] || dots.other,
+  };
 }
 
 function priorityStyle(p) {
   const map = {
-    Urgent: "bg-red-100 text-red-700",
-    High:   "bg-orange-100 text-orange-700",
-    Medium: "bg-blue-100 text-blue-700",
-    Low:    "bg-gray-100 text-gray-600",
+    Urgent: "bg-black text-white",
+    High:   "bg-[#333333] text-white",
+    Medium: "bg-[#a9a9a9] text-white",
+    Low:    "bg-[#f4f4f4] text-black",
   };
   return map[p] || map.Medium;
 }
 
 function statusStyle(s) {
-  if (!s) return "bg-gray-100 text-gray-600";
-  if (s === "Completed")                 return "bg-green-100 text-green-700";
-  if (s === "Cancelled")                 return "bg-red-100 text-red-600";
-  if (s === "In Progress")               return "bg-blue-100 text-blue-700";
-  if (s === "New")                       return "bg-purple-100 text-purple-700";
-  if (s.includes("Meeting"))            return "bg-violet-100 text-violet-700";
-  if (s.includes("Follow"))             return "bg-amber-100 text-amber-700";
-  return "bg-gray-100 text-gray-600";
+  if (!s)                    return "bg-[#f4f4f4] text-black";
+  if (s === "Completed")     return "bg-black text-white";
+  if (s === "Cancelled")     return "bg-[#a9a9a9] text-white";
+  if (s === "In Progress")   return "bg-[#333333] text-white";
+  if (s === "New")           return "bg-[#f4f4f4] text-black";
+  if (s.includes("Meeting")) return "bg-[#f4f4f4] text-black";
+  if (s.includes("Follow"))  return "bg-[#f4f4f4] text-black";
+  return "bg-[#f4f4f4] text-black";
 }
 
 // ─── Calendar grid builder ───────────────────────────────────────
@@ -292,17 +295,17 @@ function WorksheetEventCard({ event, columns }) {
 function ManualEventCard({ event, onEdit, onDelete }) {
   const st = eventStyle(event.eventType);
   return (
-    <div className="rounded-2xl border border-mme-pink/50 bg-white p-4 shadow-sm">
+    <div className="rounded-2xl border border-[#d6d6d6]/50 bg-white p-4 shadow-sm">
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${st.dot}`} />
-          <span className="truncate text-sm font-black text-mme-purple">{event.title}</span>
+          <span className="truncate text-sm font-black text-black">{event.title}</span>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
-          <button onClick={() => onEdit(event)} title="Edit" className="rounded-lg p-1.5 text-mme-purple/40 hover:bg-mme-blush/50 hover:text-mme-purple transition">
+          <button onClick={() => onEdit(event)} title="Edit" className="rounded-lg p-1.5 text-black/40 hover:bg-[#f4f4f4]/50 hover:text-black transition">
             <Pencil size={13} />
           </button>
-          <button onClick={() => onDelete(event)} title="Delete" className="rounded-lg p-1.5 text-mme-purple/40 hover:bg-red-50 hover:text-red-500 transition">
+          <button onClick={() => onDelete(event)} title="Delete" className="rounded-lg p-1.5 text-black/40 hover:bg-red-50 hover:text-red-500 transition">
             <Trash2 size={13} />
           </button>
         </div>
@@ -310,7 +313,7 @@ function ManualEventCard({ event, onEdit, onDelete }) {
 
       <div className="mt-1.5 flex flex-wrap items-center gap-2">
         {event.time && (
-          <span className="flex items-center gap-1 text-xs font-bold text-mme-purple/60">
+          <span className="flex items-center gap-1 text-xs font-bold text-black/60">
             <Clock size={11} />{to12h(event.time)}
           </span>
         )}
@@ -330,17 +333,17 @@ function ManualEventCard({ event, onEdit, onDelete }) {
       </div>
 
       {(event.clientName || event.companyName) && (
-        <p className="mt-1.5 text-xs font-semibold text-mme-purple/70">
+        <p className="mt-1.5 text-xs font-semibold text-black/70">
           {[event.clientName, event.companyName].filter(Boolean).join(" · ")}
         </p>
       )}
 
       {event.description && (
-        <p className="mt-2 line-clamp-2 text-xs leading-5 text-mme-purple/60">{event.description}</p>
+        <p className="mt-2 line-clamp-2 text-xs leading-5 text-black/60">{event.description}</p>
       )}
 
       {event.assignedEmployee && (
-        <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-mme-purple/60">
+        <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-black/60">
           <User size={11} />{event.assignedEmployee}
         </p>
       )}
@@ -390,8 +393,8 @@ function EventForm({ initialDate, initialData, onSubmit, onClose, isEdit }) {
     }
   }
 
-  const input  = "w-full rounded-xl border border-mme-pink/70 bg-[#fff9fc] px-3 py-2.5 text-sm text-mme-purple outline-none focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/20 transition";
-  const label  = "mb-1.5 block text-[10px] font-black uppercase tracking-widest text-mme-purple/60";
+  const input  = "w-full rounded-xl border border-[#d6d6d6]/70 bg-[#ffffff] px-3 py-2.5 text-sm text-black outline-none focus:border-[#333333] focus:ring-4 focus:ring-[#d6d6d6]/20 transition";
+  const label  = "mb-1.5 block text-[10px] font-black uppercase tracking-widest text-black/60";
 
   return (
     <form onSubmit={submit} className="space-y-3.5">
@@ -445,10 +448,10 @@ function EventForm({ initialDate, initialData, onSubmit, onClose, isEdit }) {
       </div>
 
       <div className="flex items-center justify-end gap-2 pt-1">
-        <button type="button" onClick={onClose} className="rounded-xl border border-mme-pink/70 px-4 py-2.5 text-sm font-black text-mme-purple hover:bg-mme-blush/30 transition">
+        <button type="button" onClick={onClose} className="rounded-xl border border-[#d6d6d6]/70 px-4 py-2.5 text-sm font-black text-black hover:bg-[#f4f4f4]/30 transition">
           Cancel
         </button>
-        <button type="submit" disabled={submitting} className="inline-flex items-center gap-2 rounded-xl bg-mme-purple px-5 py-2.5 text-sm font-black text-white shadow-md shadow-mme-purple/20 hover:bg-[#4b2c55] disabled:opacity-60 transition">
+        <button type="submit" disabled={submitting} className="inline-flex items-center gap-2 rounded-xl bg-black px-5 py-2.5 text-sm font-black text-white shadow-md shadow-black/20 hover:bg-[#222222] disabled:opacity-60 transition">
           {submitting
             ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
             : <Check size={15} />}
@@ -492,19 +495,19 @@ function DayModal({ date, events, onClose, onAdd, onEdit, onDelete, employee, on
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-mme-purple/45 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/45 backdrop-blur-sm" onClick={onClose} />
 
       {/* Panel */}
-      <div className="relative z-10 flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-[28px] border border-mme-pink/40 bg-white shadow-[0_40px_120px_rgba(91,55,101,0.25)]">
+      <div className="relative z-10 flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-[28px] border border-[#d6d6d6]/40 bg-white shadow-[0_40px_120px_rgba(0,0,0,0.12)]">
 
         {/* Header */}
-        <div className="flex shrink-0 items-center justify-between gap-3 bg-linear-to-r from-mme-purple to-mme-plum px-5 py-4 text-white">
+        <div className="flex shrink-0 items-center justify-between gap-3 bg-linear-to-r from-black to-[#333333] px-5 py-4 text-white">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15">
               <CalendarDays size={19} />
             </div>
             <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-mme-blush">Selected date</p>
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#f4f4f4]">Selected date</p>
               <p className="text-sm font-black leading-tight">{formatDisplayDate(date)}</p>
             </div>
           </div>
@@ -524,7 +527,7 @@ function DayModal({ date, events, onClose, onAdd, onEdit, onDelete, employee, on
         <div className="flex-1 overflow-y-auto px-5 py-5">
           {showForm ? (
             <>
-              <p className="mb-4 text-sm font-black text-mme-purple">
+              <p className="mb-4 text-sm font-black text-black">
                 {editingEvent ? "Edit Scheduled Event" : "New Event"}
               </p>
               <EventForm
@@ -540,8 +543,8 @@ function DayModal({ date, events, onClose, onAdd, onEdit, onDelete, employee, on
               {/* Worksheet events */}
               {wsEvents.length > 0 && (
                 <section>
-                  <h3 className="mb-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-mme-plum">
-                    <span className="flex h-5 w-5 items-center justify-center rounded-md bg-mme-blush text-[9px] font-black text-mme-purple">S</span>
+                  <h3 className="mb-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-[#333333]">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-md bg-[#f4f4f4] text-[9px] font-black text-black">S</span>
                     From Management Sheet
                   </h3>
                   <div className="space-y-3">
@@ -553,8 +556,8 @@ function DayModal({ date, events, onClose, onAdd, onEdit, onDelete, employee, on
               {/* Manual events */}
               {mnEvents.length > 0 && (
                 <section className={wsEvents.length > 0 ? "mt-5" : ""}>
-                  <h3 className="mb-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-mme-plum">
-                    <span className="flex h-5 w-5 items-center justify-center rounded-md bg-mme-blush text-[9px] font-black text-mme-purple">M</span>
+                  <h3 className="mb-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-[#333333]">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-md bg-[#f4f4f4] text-[9px] font-black text-black">M</span>
                     Scheduled Events
                   </h3>
                   <div className="space-y-3">
@@ -573,11 +576,11 @@ function DayModal({ date, events, onClose, onAdd, onEdit, onDelete, employee, on
               {/* Empty state */}
               {wsEvents.length === 0 && mnEvents.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-mme-blush text-mme-purple">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-[#f4f4f4] text-black">
                     <CalendarDays size={28} />
                   </div>
-                  <p className="mt-4 font-black text-mme-purple">No events on this day</p>
-                  <p className="mt-1.5 max-w-xs text-sm text-mme-purple/50">
+                  <p className="mt-4 font-black text-black">No events on this day</p>
+                  <p className="mt-1.5 max-w-xs text-sm text-black/50">
                     Click <strong>Add Event</strong> to schedule a meeting, follow-up, or task. Events from the management sheet appear automatically.
                   </p>
                 </div>
@@ -673,21 +676,21 @@ export default function CalendarPage() {
 
   // ── Render ─────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#fff9fc] text-mme-purple">
+    <div className="min-h-screen bg-[#ffffff] text-black">
 
       {/* ── Header ──────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-40 border-b border-mme-pink/50 bg-white/95 backdrop-blur-xl">
+      <header className="sticky top-0 z-40 border-b border-[#d6d6d6]/50 bg-white/95 backdrop-blur-xl">
         <div className="flex min-h-18 items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-4">
-            <Link to="/management" className="hidden rounded-xl p-2 text-mme-purple/60 hover:bg-mme-blush/40 sm:block" title="Back to management">
+            <Link to="/management" className="hidden rounded-xl p-2 text-black/60 hover:bg-[#f4f4f4]/40 sm:block" title="Back to management">
               <ArrowLeft size={20} />
             </Link>
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-mme-purple font-black text-white shadow-lg shadow-mme-purple/20">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-black font-black text-white shadow-lg shadow-black/20">
               M
             </div>
             <div className="min-w-0">
-              <p className="truncate text-base font-black text-mme-purple sm:text-lg">Make My Event</p>
-              <p className="truncate text-[10px] font-bold uppercase tracking-[0.18em] text-mme-plum sm:text-xs">
+              <p className="truncate text-base font-black text-black sm:text-lg">Make My Event</p>
+              <p className="truncate text-[10px] font-bold uppercase tracking-[0.18em] text-[#333333] sm:text-xs">
                 Office Calendar
               </p>
             </div>
@@ -697,16 +700,16 @@ export default function CalendarPage() {
             {employee ? (
               <button
                 onClick={() => { clearCurrentEmployee(); setEmployee(null); }}
-                className="flex items-center gap-2 rounded-2xl border border-mme-pink/70 bg-white px-3 py-2.5 text-left transition hover:bg-mme-blush/30 sm:px-4"
+                className="flex items-center gap-2 rounded-2xl border border-[#d6d6d6]/70 bg-white px-3 py-2.5 text-left transition hover:bg-[#f4f4f4]/30 sm:px-4"
               >
-                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-mme-blush text-mme-purple">
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#f4f4f4] text-black">
                   <UserRound size={16} />
                 </div>
                 <div className="hidden sm:block">
-                  <p className="max-w-36 truncate text-xs font-black text-mme-purple">{employee.fullName}</p>
-                  <p className="text-[10px] text-mme-purple/50">Switch employee</p>
+                  <p className="max-w-36 truncate text-xs font-black text-black">{employee.fullName}</p>
+                  <p className="text-[10px] text-black/50">Switch employee</p>
                 </div>
-                <ChevronDown size={15} className="hidden text-mme-plum sm:block" />
+                <ChevronDown size={15} className="hidden text-[#333333] sm:block" />
               </button>
             ) : null}
           </div>
@@ -720,13 +723,13 @@ export default function CalendarPage() {
           {/* Title + stats */}
           <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.2em] text-mme-plum">
+              <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.2em] text-[#333333]">
                 <CalendarDays size={15} /> Shared calendar
               </div>
               <h1 className="mt-1.5 text-2xl font-black sm:text-3xl">
                 {MONTH_NAMES[month - 1]} {year}
               </h1>
-              <p className="mt-1.5 text-sm text-mme-purple/60">
+              <p className="mt-1.5 text-sm text-black/60">
                 {totalEvents === 0
                   ? "No events this month"
                   : `${totalEvents} event${totalEvents !== 1 ? "s" : ""} — ${wsCount} from management sheet · ${manualCount} scheduled`}
@@ -734,17 +737,17 @@ export default function CalendarPage() {
             </div>
             <Link
               to="/management"
-              className="inline-flex items-center gap-2 self-start rounded-xl border border-mme-pink/70 bg-white px-4 py-2.5 text-sm font-black text-mme-purple hover:bg-mme-blush/30 transition sm:self-auto"
+              className="inline-flex items-center gap-2 self-start rounded-xl border border-[#d6d6d6]/70 bg-white px-4 py-2.5 text-sm font-black text-black hover:bg-[#f4f4f4]/30 transition sm:self-auto"
             >
               <ArrowLeft size={16} /> Management Sheet
             </Link>
           </div>
 
           {/* Calendar card */}
-          <div className="overflow-hidden rounded-3xl border border-mme-pink/60 bg-white shadow-[0_20px_60px_rgba(91,55,101,0.09)]">
+          <div className="overflow-hidden rounded-3xl border border-[#d6d6d6]/60 bg-white shadow-[0_20px_60px_rgba(0,0,0,0.12)]">
 
             {/* Month navigation bar */}
-            <div className="flex items-center justify-between border-b border-mme-pink/30 bg-linear-to-r from-mme-purple to-mme-plum px-4 py-3.5 text-white sm:px-6">
+            <div className="flex items-center justify-between border-b border-[#d6d6d6]/30 bg-linear-to-r from-black to-[#333333] px-4 py-3.5 text-white sm:px-6">
               <button
                 onClick={prevMonth}
                 className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 hover:bg-white/20 transition"
@@ -758,7 +761,7 @@ export default function CalendarPage() {
                 </p>
                 <button
                   onClick={goToday}
-                  className="mt-0.5 text-[10px] font-black uppercase tracking-widest text-mme-blush/80 hover:text-white transition"
+                  className="mt-0.5 text-[10px] font-black uppercase tracking-widest text-[#f4f4f4]/80 hover:text-white transition"
                 >
                   Jump to today
                 </button>
@@ -773,11 +776,11 @@ export default function CalendarPage() {
             </div>
 
             {/* Day-of-week headers */}
-            <div className="grid grid-cols-7 border-b border-mme-pink/30 bg-mme-blush/25">
+            <div className="grid grid-cols-7 border-b border-[#d6d6d6]/30 bg-[#f4f4f4]/25">
               {DAY_LABELS.map((d, i) => (
                 <div
                   key={d}
-                  className={`py-2.5 text-center text-[10px] font-black uppercase tracking-widest text-mme-plum ${i < 6 ? "border-r border-mme-pink/20" : ""}`}
+                  className={`py-2.5 text-center text-[10px] font-black uppercase tracking-widest text-[#333333] ${i < 6 ? "border-r border-[#d6d6d6]/20" : ""}`}
                 >
                   <span className="hidden sm:inline">{d}</span>
                   <span className="sm:hidden">{d[0]}</span>
@@ -789,8 +792,8 @@ export default function CalendarPage() {
             {isLoading ? (
               <div className="grid min-h-96 place-items-center">
                 <div className="text-center">
-                  <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-mme-pink border-t-mme-purple" />
-                  <p className="mt-3 text-sm font-bold text-mme-purple/50">Loading calendar…</p>
+                  <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-[#d6d6d6] border-t-black" />
+                  <p className="mt-3 text-sm font-bold text-black/50">Loading calendar…</p>
                 </div>
               </div>
             ) : (
@@ -808,9 +811,9 @@ export default function CalendarPage() {
                       onClick={() => navigate(`/calendar/day/${info.date}`)}
                       className={[
                         "group relative min-h-20 p-1.5 text-left transition sm:min-h-27.5 sm:p-2.5",
-                        "border-b border-mme-pink/25",
-                        isLastCol ? "" : "border-r border-mme-pink/25",
-                        info.isCurrentMonth ? "bg-white hover:bg-mme-blush/15" : "bg-[#fdf8fc] hover:bg-mme-blush/10",
+                        "border-b border-[#d6d6d6]/25",
+                        isLastCol ? "" : "border-r border-[#d6d6d6]/25",
+                        info.isCurrentMonth ? "bg-white hover:bg-[#f4f4f4]/15" : "bg-[#fdf8fc] hover:bg-[#f4f4f4]/10",
                         "",
                       ].join(" ")}
                     >
@@ -819,9 +822,9 @@ export default function CalendarPage() {
                         <span
                           className={[
                             "flex h-6 w-6 items-center justify-center rounded-full text-xs font-black",
-                            isToday ? "bg-mme-purple text-white shadow-sm" : "",
-                            !isToday && info.isCurrentMonth ? "text-mme-purple" : "",
-                            !isToday && !info.isCurrentMonth ? "text-mme-purple/25" : "",
+                            isToday ? "bg-black text-white shadow-sm" : "",
+                            !isToday && info.isCurrentMonth ? "text-black" : "",
+                            !isToday && !info.isCurrentMonth ? "text-black/25" : "",
                           ].join(" ")}
                         >
                           {info.day}
@@ -874,7 +877,7 @@ export default function CalendarPage() {
                         )}
 
                         {extra > 0 && (
-                          <p className="hidden px-1.5 text-[9px] font-black text-mme-plum/60 sm:block">
+                          <p className="hidden px-1.5 text-[9px] font-black text-[#333333]/60 sm:block">
                             +{extra} more
                           </p>
                         )}
@@ -886,8 +889,8 @@ export default function CalendarPage() {
             )}
 
             {/* Legend */}
-            <div className="flex flex-wrap items-center gap-3 border-t border-mme-pink/40 bg-[#fff9fc] px-5 py-3">
-              <span className="text-[10px] font-black uppercase tracking-widest text-mme-plum/50">Legend:</span>
+            <div className="flex flex-wrap items-center gap-3 border-t border-[#d6d6d6]/40 bg-[#ffffff] px-5 py-3">
+              <span className="text-[10px] font-black uppercase tracking-widest text-[#333333]/50">Legend:</span>
               {[
                 { type: "meeting",  label: "Current Meeting" },
                 { type: "upcoming", label: "Next Meeting" },
@@ -895,12 +898,12 @@ export default function CalendarPage() {
                 { type: "deadline", label: "Deadline" },
                 { type: "task",     label: "Task" },
               ].map(({ type, label }) => (
-                <span key={type} className="flex items-center gap-1.5 text-[10px] font-bold text-mme-purple/60">
+                <span key={type} className="flex items-center gap-1.5 text-[10px] font-bold text-black/60">
                   <span className={`h-2 w-2 rounded-full ${eventStyle(type).dot}`} />
                   {label}
                 </span>
               ))}
-              <span className="ml-auto text-[10px] text-mme-purple/40">Click any date to open the day view</span>
+              <span className="ml-auto text-[10px] text-black/40">Click any date to open the day view</span>
             </div>
           </div>
         </section>
@@ -912,12 +915,12 @@ export default function CalendarPage() {
           className={`fixed bottom-5 right-5 z-120 flex max-w-sm items-start gap-3 rounded-2xl border px-5 py-4 shadow-2xl ${
             notice.type === "error"
               ? "border-red-200 bg-red-50 text-red-700"
-              : "border-mme-pink bg-white text-mme-purple"
+              : "border-[#d6d6d6] bg-white text-black"
           }`}
         >
           {notice.type === "error"
             ? <AlertCircle className="mt-0.5 shrink-0" size={17} />
-            : <Check className="mt-0.5 shrink-0 text-mme-plum" size={17} />}
+            : <Check className="mt-0.5 shrink-0 text-[#333333]" size={17} />}
           <p className="text-sm font-bold leading-6">{notice.message}</p>
           <button onClick={() => setNotice(null)} className="ml-1 opacity-50 hover:opacity-100">
             <X size={15} />

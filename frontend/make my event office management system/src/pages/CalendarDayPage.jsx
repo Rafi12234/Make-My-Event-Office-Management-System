@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+﻿import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import {
   ArrowLeft,
@@ -100,31 +100,37 @@ function formatColValue(type, value) {
 // ─── Style helpers ─────────────────────────────────────────────────
 
 function eventStyle(type) {
-  const map = {
-    meeting:  { pill: "bg-violet-100 text-violet-700 border-violet-200",    dot: "bg-violet-500",  header: "bg-violet-50",  ring: "ring-violet-200" },
-    upcoming: { pill: "bg-emerald-100 text-emerald-700 border-emerald-200", dot: "bg-emerald-500", header: "bg-emerald-50", ring: "ring-emerald-200" },
-    followup: { pill: "bg-amber-100 text-amber-700 border-amber-200",       dot: "bg-amber-500",   header: "bg-amber-50",   ring: "ring-amber-200" },
-    deadline: { pill: "bg-red-100 text-red-700 border-red-200",             dot: "bg-red-500",     header: "bg-red-50",     ring: "ring-red-200" },
-    task:     { pill: "bg-sky-100 text-sky-700 border-sky-200",             dot: "bg-sky-500",     header: "bg-sky-50",     ring: "ring-sky-200" },
-    other:    { pill: "bg-slate-100 text-slate-600 border-slate-200",       dot: "bg-slate-400",   header: "bg-slate-50",   ring: "ring-slate-200" },
+  const base = { pill: "bg-[#f4f4f4] text-black border-[#d6d6d6]", header: "bg-[#f4f4f4]", ring: "ring-[#d6d6d6]" };
+  const dots = {
+    meeting:  "bg-black",
+    upcoming: "bg-[#333333]",
+    followup: "bg-[#555555]",
+    deadline: "bg-[#a9a9a9]",
+    task:     "bg-[#666666]",
+    other:    "bg-[#a9a9a9]",
   };
-  return map[type] || map.other;
+  return { ...base, dot: dots[type] || dots.other };
 }
 
 function priorityStyle(p) {
-  const map = { Urgent: "bg-red-100 text-red-700", High: "bg-orange-100 text-orange-700", Medium: "bg-blue-100 text-blue-700", Low: "bg-gray-100 text-gray-600" };
+  const map = {
+    Urgent: "bg-black text-white",
+    High:   "bg-[#333333] text-white",
+    Medium: "bg-[#a9a9a9] text-white",
+    Low:    "bg-[#f4f4f4] text-black",
+  };
   return map[p] || map.Medium;
 }
 
 function statusStyle(s) {
-  if (!s) return "bg-gray-100 text-gray-600";
-  if (s === "Completed")       return "bg-green-100 text-green-700";
-  if (s === "Cancelled")       return "bg-red-100 text-red-600";
-  if (s === "In Progress")     return "bg-blue-100 text-blue-700";
-  if (s === "New")             return "bg-purple-100 text-purple-700";
-  if (s.includes("Meeting"))   return "bg-violet-100 text-violet-700";
-  if (s.includes("Follow"))    return "bg-amber-100 text-amber-700";
-  return "bg-gray-100 text-gray-600";
+  if (!s)                    return "bg-[#f4f4f4] text-black";
+  if (s === "Completed")     return "bg-black text-white";
+  if (s === "Cancelled")     return "bg-[#a9a9a9] text-white";
+  if (s === "In Progress")   return "bg-[#333333] text-white";
+  if (s === "New")           return "bg-[#f4f4f4] text-black";
+  if (s.includes("Meeting")) return "bg-[#f4f4f4] text-black";
+  if (s.includes("Follow"))  return "bg-[#f4f4f4] text-black";
+  return "bg-[#f4f4f4] text-black";
 }
 
 // ─── Worksheet event detail card ────────────────────────────────────
@@ -196,15 +202,15 @@ function WorksheetEventDetailCard({ event, columns }) {
 function ManualEventDetailCard({ event, onEdit, onDelete }) {
   const st = eventStyle(event.eventType);
   return (
-    <div className="overflow-hidden rounded-2xl border border-mme-pink/50 bg-white shadow-sm">
+    <div className="overflow-hidden rounded-2xl border border-[#d6d6d6]/50 bg-white shadow-sm">
       <div className="flex items-start justify-between gap-3 p-5">
         <div className="flex min-w-0 items-start gap-3">
           <span className={`mt-1 h-3 w-3 shrink-0 rounded-full ${st.dot}`} />
           <div className="min-w-0">
-            <p className="font-black text-mme-purple">{event.title}</p>
+            <p className="font-black text-black">{event.title}</p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               {event.time && (
-                <span className="flex items-center gap-1 text-xs font-bold text-mme-purple/60">
+                <span className="flex items-center gap-1 text-xs font-bold text-black/60">
                   <Clock size={11} /> {to12h(event.time)}
                 </span>
               )}
@@ -225,27 +231,27 @@ function ManualEventDetailCard({ event, onEdit, onDelete }) {
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
-          <button onClick={() => onEdit(event)} title="Edit" className="rounded-xl p-2 text-mme-purple/40 transition hover:bg-mme-blush/50 hover:text-mme-purple">
+          <button onClick={() => onEdit(event)} title="Edit" className="rounded-xl p-2 text-black/40 transition hover:bg-[#f4f4f4]/50 hover:text-black">
             <Pencil size={15} />
           </button>
-          <button onClick={() => onDelete(event.dbId)} title="Delete" className="rounded-xl p-2 text-mme-purple/40 transition hover:bg-red-50 hover:text-red-500">
+          <button onClick={() => onDelete(event.dbId)} title="Delete" className="rounded-xl p-2 text-black/40 transition hover:bg-red-50 hover:text-red-500">
             <Trash2 size={15} />
           </button>
         </div>
       </div>
 
       {(event.clientName || event.companyName || event.description || event.assignedEmployee) && (
-        <div className="space-y-2 border-t border-mme-pink/30 px-5 py-4">
+        <div className="space-y-2 border-t border-[#d6d6d6]/30 px-5 py-4">
           {(event.clientName || event.companyName) && (
-            <p className="text-sm font-semibold text-mme-purple/70">
+            <p className="text-sm font-semibold text-black/70">
               {[event.clientName, event.companyName].filter(Boolean).join(" · ")}
             </p>
           )}
           {event.description && (
-            <p className="text-sm leading-6 text-mme-purple/60">{event.description}</p>
+            <p className="text-sm leading-6 text-black/60">{event.description}</p>
           )}
           {event.assignedEmployee && (
-            <p className="flex items-center gap-1.5 text-sm font-semibold text-mme-purple/60">
+            <p className="flex items-center gap-1.5 text-sm font-semibold text-black/60">
               <User size={13} /> {event.assignedEmployee}
             </p>
           )}
@@ -297,8 +303,8 @@ function EventForm({ initialDate, initialData, onSubmit, onClose, isEdit }) {
     finally { setSubmitting(false); }
   }
 
-  const inp = "w-full rounded-xl border border-mme-pink/70 bg-white px-3 py-2.5 text-sm text-mme-purple outline-none focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/20 transition";
-  const lbl = "mb-1.5 block text-[10px] font-black uppercase tracking-widest text-mme-purple/60";
+  const inp = "w-full rounded-xl border border-[#d6d6d6]/70 bg-white px-3 py-2.5 text-sm text-black outline-none focus:border-[#333333] focus:ring-4 focus:ring-[#d6d6d6]/20 transition";
+  const lbl = "mb-1.5 block text-[10px] font-black uppercase tracking-widest text-black/60";
 
   return (
     <form onSubmit={submit} className="space-y-4">
@@ -352,10 +358,10 @@ function EventForm({ initialDate, initialData, onSubmit, onClose, isEdit }) {
       </div>
 
       <div className="flex items-center justify-end gap-2 pt-1">
-        <button type="button" onClick={onClose} className="rounded-xl border border-mme-pink/70 px-4 py-2.5 text-sm font-black text-mme-purple transition hover:bg-mme-blush/30">
+        <button type="button" onClick={onClose} className="rounded-xl border border-[#d6d6d6]/70 px-4 py-2.5 text-sm font-black text-black transition hover:bg-[#f4f4f4]/30">
           Cancel
         </button>
-        <button type="submit" disabled={submitting} className="inline-flex items-center gap-2 rounded-xl bg-mme-purple px-5 py-2.5 text-sm font-black text-white shadow-md shadow-mme-purple/20 transition hover:bg-[#4b2c55] disabled:opacity-60">
+        <button type="submit" disabled={submitting} className="inline-flex items-center gap-2 rounded-xl bg-black px-5 py-2.5 text-sm font-black text-white shadow-md shadow-black/20 transition hover:bg-[#222222] disabled:opacity-60">
           {submitting ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" /> : <Check size={15} />}
           {isEdit ? "Update Event" : "Add Event"}
         </button>
@@ -472,26 +478,26 @@ export default function CalendarDayPage() {
 
   // ── Render ──────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#fff9fc] text-mme-purple">
+    <div className="min-h-screen bg-[#ffffff] text-black">
       {showIdentity && <EmployeeIdentityModal onSubmit={handleIdentify} />}
 
       {/* ── Header ─────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-40 border-b border-mme-pink/50 bg-white/95 backdrop-blur-xl">
+      <header className="sticky top-0 z-40 border-b border-[#d6d6d6]/50 bg-white/95 backdrop-blur-xl">
         <div className="flex min-h-18 items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
             <button
               onClick={() => navigate("/calendar")}
-              className="rounded-xl p-2 text-mme-purple/60 transition hover:bg-mme-blush/40"
+              className="rounded-xl p-2 text-black/60 transition hover:bg-[#f4f4f4]/40"
               title="Back to calendar"
             >
               <ArrowLeft size={20} />
             </button>
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-mme-purple font-black text-white shadow-lg shadow-mme-purple/20">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-black font-black text-white shadow-lg shadow-black/20">
               M
             </div>
             <div className="min-w-0">
-              <p className="truncate text-base font-black text-mme-purple sm:text-lg">Make My Event</p>
-              <p className="truncate text-[10px] font-bold uppercase tracking-[0.18em] text-mme-plum sm:text-xs">
+              <p className="truncate text-base font-black text-black sm:text-lg">Make My Event</p>
+              <p className="truncate text-[10px] font-bold uppercase tracking-[0.18em] text-[#333333] sm:text-xs">
                 Day View
               </p>
             </div>
@@ -501,20 +507,20 @@ export default function CalendarDayPage() {
             {employee ? (
               <button
                 onClick={() => { clearCurrentEmployee(); setEmployee(null); }}
-                className="flex items-center gap-2 rounded-2xl border border-mme-pink/70 bg-white px-3 py-2.5 text-left transition hover:bg-mme-blush/30 sm:px-4"
+                className="flex items-center gap-2 rounded-2xl border border-[#d6d6d6]/70 bg-white px-3 py-2.5 text-left transition hover:bg-[#f4f4f4]/30 sm:px-4"
               >
-                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-mme-blush text-mme-purple">
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#f4f4f4] text-black">
                   <UserRound size={16} />
                 </div>
                 <div className="hidden sm:block">
-                  <p className="max-w-36 truncate text-xs font-black text-mme-purple">{employee.fullName}</p>
-                  <p className="text-[10px] text-mme-purple/50">Switch employee</p>
+                  <p className="max-w-36 truncate text-xs font-black text-black">{employee.fullName}</p>
+                  <p className="text-[10px] text-black/50">Switch employee</p>
                 </div>
               </button>
             ) : (
               <button
                 onClick={() => setShowIdentity(true)}
-                className="flex items-center gap-2 rounded-2xl border border-mme-pink/70 bg-white px-4 py-2.5 text-sm font-black text-mme-purple transition hover:bg-mme-blush/30"
+                className="flex items-center gap-2 rounded-2xl border border-[#d6d6d6]/70 bg-white px-4 py-2.5 text-sm font-black text-black transition hover:bg-[#f4f4f4]/30"
               >
                 <UserRound size={16} /> Identify
               </button>
@@ -531,19 +537,19 @@ export default function CalendarDayPage() {
           <div className="flex items-center gap-4">
             <button
               onClick={() => navigate(`/calendar/day/${shiftDate(date, -1)}`)}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-mme-pink/70 bg-white transition hover:bg-mme-blush/30"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#d6d6d6]/70 bg-white transition hover:bg-[#f4f4f4]/30"
               title="Previous day"
             >
               <ChevronLeft size={18} />
             </button>
 
             <div>
-              <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-mme-plum">
+              <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-[#333333]">
                 <CalendarDays size={13} />
                 {isToday ? "Today" : "Day view"}
               </div>
               <h1 className="mt-1 text-2xl font-black sm:text-3xl">{formatDisplayDate(date)}</h1>
-              <p className="mt-1 text-sm text-mme-purple/55">
+              <p className="mt-1 text-sm text-black/55">
                 {isLoading
                   ? "Loading…"
                   : dayEvents.length === 0
@@ -554,7 +560,7 @@ export default function CalendarDayPage() {
 
             <button
               onClick={() => navigate(`/calendar/day/${shiftDate(date, 1)}`)}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-mme-pink/70 bg-white transition hover:bg-mme-blush/30"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#d6d6d6]/70 bg-white transition hover:bg-[#f4f4f4]/30"
               title="Next day"
             >
               <ChevronRight size={18} />
@@ -563,7 +569,7 @@ export default function CalendarDayPage() {
 
           <Link
             to="/calendar"
-            className="inline-flex items-center gap-2 self-start rounded-xl border border-mme-pink/70 bg-white px-4 py-2.5 text-sm font-black text-mme-purple transition hover:bg-mme-blush/30 sm:self-auto"
+            className="inline-flex items-center gap-2 self-start rounded-xl border border-[#d6d6d6]/70 bg-white px-4 py-2.5 text-sm font-black text-black transition hover:bg-[#f4f4f4]/30 sm:self-auto"
           >
             <CalendarDays size={16} /> Month View
           </Link>
@@ -572,8 +578,8 @@ export default function CalendarDayPage() {
         {isLoading ? (
           <div className="flex min-h-80 items-center justify-center">
             <div className="text-center">
-              <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-mme-pink border-t-mme-purple" />
-              <p className="mt-4 font-black text-mme-purple/50">Loading events…</p>
+              <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-[#d6d6d6] border-t-black" />
+              <p className="mt-4 font-black text-black/50">Loading events…</p>
             </div>
           </div>
         ) : (
@@ -582,25 +588,25 @@ export default function CalendarDayPage() {
             {/* ── Left: Management sheet events (2/3) ─────────── */}
             <div className="lg:col-span-2">
               <div className="mb-4 flex items-center gap-2.5">
-                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-mme-blush text-[10px] font-black text-mme-purple">S</span>
-                <h2 className="text-sm font-black uppercase tracking-[0.15em] text-mme-purple">
+                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-[#f4f4f4] text-[10px] font-black text-black">S</span>
+                <h2 className="text-sm font-black uppercase tracking-[0.15em] text-black">
                   From Management Sheet
                 </h2>
                 {wsEvents.length > 0 && (
-                  <span className="rounded-full bg-mme-purple/10 px-2.5 py-0.5 text-xs font-black text-mme-purple">
+                  <span className="rounded-full bg-black/10 px-2.5 py-0.5 text-xs font-black text-black">
                     {wsEvents.length}
                   </span>
                 )}
               </div>
 
               {wsEvents.length === 0 ? (
-                <div className="flex min-h-52 flex-col items-center justify-center rounded-3xl border border-dashed border-mme-pink/60 bg-white/60 p-8 text-center">
-                  <CalendarDays className="text-mme-mauve/40" size={38} />
-                  <p className="mt-3 font-black text-mme-purple/45">No management sheet events</p>
-                  <p className="mt-1.5 max-w-xs text-sm text-mme-purple/30">
+                <div className="flex min-h-52 flex-col items-center justify-center rounded-3xl border border-dashed border-[#d6d6d6]/60 bg-white/60 p-8 text-center">
+                  <CalendarDays className="text-[#a9a9a9]/40" size={38} />
+                  <p className="mt-3 font-black text-black/45">No management sheet events</p>
+                  <p className="mt-1.5 max-w-xs text-sm text-black/30">
                     Meetings scheduled on this date in the management sheet will appear here automatically.
                   </p>
-                  <Link to="/management" className="mt-4 text-sm font-black text-mme-plum transition hover:text-mme-purple">
+                  <Link to="/management" className="mt-4 text-sm font-black text-[#333333] transition hover:text-black">
                     Open Management Sheet →
                   </Link>
                 </div>
@@ -617,10 +623,10 @@ export default function CalendarDayPage() {
             <div>
               <div className="mb-4 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2.5">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-mme-blush text-[10px] font-black text-mme-purple">M</span>
-                  <h2 className="text-sm font-black uppercase tracking-[0.15em] text-mme-purple">Scheduled</h2>
+                  <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-[#f4f4f4] text-[10px] font-black text-black">M</span>
+                  <h2 className="text-sm font-black uppercase tracking-[0.15em] text-black">Scheduled</h2>
                   {mnEvents.length > 0 && (
-                    <span className="rounded-full bg-mme-purple/10 px-2.5 py-0.5 text-xs font-black text-mme-purple">
+                    <span className="rounded-full bg-black/10 px-2.5 py-0.5 text-xs font-black text-black">
                       {mnEvents.length}
                     </span>
                   )}
@@ -628,7 +634,7 @@ export default function CalendarDayPage() {
                 {!showAddForm && !editingEvent && (
                   <button
                     onClick={startAdd}
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-mme-purple px-3.5 py-2 text-xs font-black text-white shadow-sm shadow-mme-purple/20 transition hover:bg-[#4b2c55]"
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-black px-3.5 py-2 text-xs font-black text-white shadow-sm shadow-black/20 transition hover:bg-[#222222]"
                   >
                     <Plus size={14} /> Add Event
                   </button>
@@ -637,14 +643,14 @@ export default function CalendarDayPage() {
 
               {/* Add / Edit form */}
               {(showAddForm || editingEvent) && (
-                <div className="mb-5 overflow-hidden rounded-2xl border border-mme-pink/60 bg-white p-5 shadow-sm">
+                <div className="mb-5 overflow-hidden rounded-2xl border border-[#d6d6d6]/60 bg-white p-5 shadow-sm">
                   <div className="mb-4 flex items-center justify-between">
-                    <p className="text-sm font-black text-mme-purple">
+                    <p className="text-sm font-black text-black">
                       {editingEvent ? "Edit Event" : "New Event"}
                     </p>
                     <button
                       onClick={() => { setShowAddForm(false); setEditingEvent(null); }}
-                      className="rounded-lg p-1.5 text-mme-purple/40 transition hover:bg-mme-blush/40 hover:text-mme-purple"
+                      className="rounded-lg p-1.5 text-black/40 transition hover:bg-[#f4f4f4]/40 hover:text-black"
                     >
                       <X size={16} />
                     </button>
@@ -661,9 +667,9 @@ export default function CalendarDayPage() {
 
               {/* List */}
               {mnEvents.length === 0 && !showAddForm && !editingEvent ? (
-                <div className="flex min-h-40 flex-col items-center justify-center rounded-2xl border border-dashed border-mme-pink/60 bg-white/60 p-6 text-center">
-                  <p className="font-black text-mme-purple/45 text-sm">No scheduled events</p>
-                  <button onClick={startAdd} className="mt-2 text-sm font-black text-mme-plum transition hover:text-mme-purple">
+                <div className="flex min-h-40 flex-col items-center justify-center rounded-2xl border border-dashed border-[#d6d6d6]/60 bg-white/60 p-6 text-center">
+                  <p className="font-black text-black/45 text-sm">No scheduled events</p>
+                  <button onClick={startAdd} className="mt-2 text-sm font-black text-[#333333] transition hover:text-black">
                     + Schedule first event
                   </button>
                 </div>
@@ -688,11 +694,11 @@ export default function CalendarDayPage() {
       {/* ── Toast ──────────────────────────────────────────────── */}
       {notice && (
         <div className={`fixed bottom-5 right-5 z-50 flex max-w-md items-start gap-3 rounded-2xl border px-5 py-4 shadow-2xl ${
-          notice.type === "error" ? "border-red-200 bg-red-50 text-red-700" : "border-mme-pink bg-white text-mme-purple"
+          notice.type === "error" ? "border-red-200 bg-red-50 text-red-700" : "border-[#d6d6d6] bg-white text-black"
         }`}>
           {notice.type === "error"
             ? <X className="mt-0.5 shrink-0" size={18} />
-            : <Check className="mt-0.5 shrink-0 text-mme-plum" size={18} />}
+            : <Check className="mt-0.5 shrink-0 text-[#333333]" size={18} />}
           <p className="text-sm font-bold leading-6">{notice.message}</p>
           <button onClick={() => setNotice(null)} className="ml-2 opacity-50 hover:opacity-100">
             <X size={15} />
