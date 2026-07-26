@@ -10,6 +10,7 @@ import {
   FileSpreadsheet,
   LayoutGrid,
   LogOut,
+  Phone,
   Plus,
   RotateCcw,
   Save,
@@ -989,13 +990,20 @@ export default function ManagementPage() {
                               className="border-b border-r border-[#d6d6d6]/45 bg-white align-top group-hover:bg-[#fffbfd]"
                             >
                               {column.type === "meeting_manager" ? (
-                                <div className="flex h-full min-h-11 items-center justify-center p-1.5">
+                                <div className="flex h-full min-h-11 flex-wrap items-center justify-center gap-1.5 p-1.5">
                                   <button
                                     type="button"
                                     onClick={() => navigate(`/management/meetings/${row.id}`)}
                                     className="inline-flex items-center gap-1.5 rounded-xl bg-black px-3 py-2 text-xs font-black text-white hover:bg-[#222222]"
                                   >
                                     <CalendarClock size={14} /> Manage Meetings
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => navigate(`/management/calls/${row.id}`)}
+                                    className="inline-flex items-center gap-1.5 rounded-xl bg-black px-3 py-2 text-xs font-black text-white hover:bg-[#222222]"
+                                  >
+                                    <Phone size={14} /> Manage Calls
                                   </button>
                                 </div>
                               ) : column.type === "last_meeting_time" || column.type === "next_meeting_time" ? (
