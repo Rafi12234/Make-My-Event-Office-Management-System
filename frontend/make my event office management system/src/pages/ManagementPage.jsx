@@ -1,6 +1,7 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import {
+  CalendarClock,
   CalendarDays,
   Check,
   ChevronDown,
@@ -63,6 +64,13 @@ function inferColumnType(header, rows) {
 
 function normalizeHeader(value) {
   return String(value).trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function formatMeetingTimeDisplay(value, emptyLabel) {
+  if (!value) return emptyLabel;
+  const date = new Date(String(value).replace(" ", "T"));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
 function CellEditor({ column, value, onChange, employeeNames }) {
@@ -169,6 +177,7 @@ function CellEditor({ column, value, onChange, employeeNames }) {
     email: "email",
     phone: "tel",
     number: "number",
+    integer: "number",
     date: "date",
     time: "time",
     datetime: "datetime-local",
@@ -178,6 +187,8 @@ function CellEditor({ column, value, onChange, employeeNames }) {
     <input
       type={inputType}
       value={value ?? ""}
+      step={column.type === "integer" ? "1" : undefined}
+      min={column.type === "integer" ? "0" : undefined}
       onChange={(event) => onChange(event.target.value)}
       placeholder={`Enter ${column.name.toLowerCase()}`}
       className={baseClass}
@@ -267,7 +278,10 @@ export default function ManagementPage() {
     const col = (type) => workspace.columns.find((c) => c.type === type);
 
     if (filters.dateFrom || filters.dateTo) {
-      const dtCol = workspace.columns.find((c) => c.name.toLowerCase().includes("current meeting")) || col("datetime");
+      const dtCol =
+        workspace.columns.find((c) => c.type === "last_meeting_time") ||
+        workspace.columns.find((c) => c.name.toLowerCase().includes("last meeting") || c.name.toLowerCase().includes("current meeting")) ||
+        col("datetime");
       rows = rows.filter((row) => {
         const raw = dtCol ? String(row.values[dtCol.id] ?? "").replace(" ", "T") : "";
         const date = raw.slice(0, 10);
@@ -973,12 +987,36 @@ export default function ManagementPage() {
                               style={{ width: column.width, minWidth: column.width, ...(rowH ? { height: `${rowH}px` } : {}) }}
                               className="border-b border-r border-[#d6d6d6]/45 bg-white align-top group-hover:bg-[#fffbfd]"
                             >
-                              <CellEditor
-                                column={column}
-                                value={row.values[column.id]}
-                                onChange={(value) => updateCell(row.id, column.id, value)}
-                                employeeNames={employeeNames}
-                              />
+                              {column.type === "meeting_manager" ? (
+                                <div className="flex h-full min-h-11 items-center justify-center p-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => navigate(`/management/meetings/${row.id}`)}
+                                    className="inline-flex items-center gap-1.5 rounded-xl bg-black px-3 py-2 text-xs font-black text-white hover:bg-[#222222]"
+                                  >
+                                    <CalendarClock size={14} /> Manage Meetings
+                                  </button>
+                                </div>
+                              ) : column.type === "last_meeting_time" || column.type === "next_meeting_time" ? (
+                                <div
+                                  className={`flex h-full min-h-11 items-center justify-center p-1.5 text-center text-xs font-bold ${
+                                    row.values[column.id] ? "text-black/75" : "text-black/35 italic"
+                                  }`}
+                                  title="Automatically set from the Meeting Manager"
+                                >
+                                  {formatMeetingTimeDisplay(
+                                    row.values[column.id],
+                                    column.type === "last_meeting_time" ? "No Previous Meeting" : "No Upcoming Meeting",
+                                  )}
+                                </div>
+                              ) : (
+                                <CellEditor
+                                  column={column}
+                                  value={row.values[column.id]}
+                                  onChange={(value) => updateCell(row.id, column.id, value)}
+                                  employeeNames={employeeNames}
+                                />
+                              )}
                             </td>
                           ))}
                           <td
