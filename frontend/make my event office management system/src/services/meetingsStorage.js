@@ -33,17 +33,37 @@ export async function loadClientMeetings(rowKey) {
   return apiRequest(`/meetings/${rowKey}`);
 }
 
-export async function createMeeting(rowKey, { meetingDatetime, discussionNotes, employeeId }) {
+export async function createMeeting(rowKey, { meetingDatetime, employeeId }) {
   return apiRequest(`/meetings/${rowKey}`, {
     method: "POST",
-    body: JSON.stringify({ meetingDatetime, discussionNotes, employeeId }),
+    body: JSON.stringify({ meetingDatetime, employeeId }),
   });
 }
 
-export async function updateMeeting(rowKey, meetingId, { meetingDatetime, discussionNotes, employeeId }) {
+export async function updateMeeting(rowKey, meetingId, { meetingDatetime, requirements, employeeId }) {
   return apiRequest(`/meetings/${rowKey}/${meetingId}`, {
     method: "PUT",
-    body: JSON.stringify({ meetingDatetime, discussionNotes, employeeId }),
+    body: JSON.stringify({ meetingDatetime, requirements, employeeId }),
+  });
+}
+
+export async function toggleMeetingComplete(rowKey, meetingId, employeeId) {
+  return apiRequest(`/meetings/${rowKey}/${meetingId}/complete`, {
+    method: "PATCH",
+    body: JSON.stringify({ employeeId }),
+  });
+}
+
+export async function toggleImageFinalSelection(rowKey, imageId) {
+  return apiRequest(`/meetings/${rowKey}/images/${imageId}/final`, {
+    method: "PATCH",
+  });
+}
+
+export async function finalizeClient(rowKey, employeeId) {
+  return apiRequest(`/meetings/${rowKey}/finalize`, {
+    method: "POST",
+    body: JSON.stringify({ employeeId }),
   });
 }
 

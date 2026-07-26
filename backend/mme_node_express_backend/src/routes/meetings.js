@@ -113,6 +113,91 @@ function removeUploadedFiles(files) {
   }
 }
 
+// Client requirement checklist entries are sent as an array of
+// { key, label, details }. Sanitize defensively rather than trusting
+// the client blindly, without hard-coding the exact option set here
+// (that list lives in the frontend so it can change independently).
+function sanitizeRequirements(raw) {
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .filter((item) => item && typeof item === "object")
+    .slice(0, 40)
+    .map((item) => ({
+      key: String(item.key || "").slice(0, 80),
+      label: String(item.label || "").slice(0, 120),
+      details: String(item.details || "").slice(0, 2000),
+    }))
+    .filter((item) => item.key);
+}
+
+function parseRequirements(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+// Only physically deletes the uploaded file once no other meeting
+// (e.g. a "copied forward" meeting) still references the same
+// stored_file_name — images can be shared across meetings when a new
+// meeting inherits the previous meeting's images.
+async function deleteImageFileIfUnreferenced(connection, storedFileName) {
+  const [[row]] = await connection.query(
+    `SELECT COUNT(*) AS count FROM client_meeting_images WHERE stored_file_name = ?`,
+    [storedFileName],
+  );
+  if (!row.count) {
+    unlink(path.join(meetingImagesDirectory, storedFileName), () => {});
+  }
+}
+
+// When a new meeting is created, it inherits the requirements and
+// images of the most recently created meeting for the same client, so
+// employees only need to adjust what changed instead of starting over.
+async function copyForwardFromPreviousMeeting(connection, rowKey, newMeetingId, employeeId) {
+  const [[previous]] = await connection.query(
+    `SELECT id, requirements FROM client_meetings
+     WHERE linked_row_key = ? AND id != ?
+     ORDER BY id DESC LIMIT 1`,
+    [rowKey, newMeetingId],
+  );
+  if (!previous) return;
+
+  if (previous.requirements) {
+    await connection.execute(
+      `UPDATE client_meetings SET requirements = ? WHERE id = ?`,
+      [previous.requirements, newMeetingId],
+    );
+  }
+
+  const [previousImages] = await connection.execute(
+    `SELECT stored_file_name, original_file_name, file_url, file_size_bytes, uploaded_by
+     FROM client_meeting_images WHERE meeting_id = ? ORDER BY id ASC`,
+    [previous.id],
+  );
+
+  for (const image of previousImages) {
+    await connection.execute(
+      `INSERT INTO client_meeting_images
+        (meeting_id, stored_file_name, original_file_name, file_url, file_size_bytes, uploaded_by)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        newMeetingId,
+        image.stored_file_name,
+        image.original_file_name,
+        image.file_url,
+        image.file_size_bytes,
+        image.uploaded_by || employeeId,
+      ],
+    );
+  }
+}
+
 // ─── GET /api/meetings/:rowKey — list meetings + images for a client ───
 
 router.get("/:rowKey", async (req, res, next) => {
@@ -127,13 +212,16 @@ router.get("/:rowKey", async (req, res, next) => {
     const clientName = await getClientName(connection, sheetId, rowKey);
 
     const [meetings] = await connection.execute(
-      `SELECT cm.id, cm.meeting_datetime, cm.discussion_notes,
+      `SELECT cm.id, cm.meeting_datetime, cm.requirements,
+              cm.is_completed, cm.completed_at,
               cm.created_at, cm.updated_at,
               e1.full_name AS created_by_name,
-              e2.full_name AS updated_by_name
+              e2.full_name AS updated_by_name,
+              e3.full_name AS completed_by_name
        FROM client_meetings cm
        LEFT JOIN employees e1 ON e1.id = cm.created_by
        LEFT JOIN employees e2 ON e2.id = cm.updated_by
+       LEFT JOIN employees e3 ON e3.id = cm.completed_by
        WHERE cm.linked_row_key = ?
        ORDER BY cm.meeting_datetime IS NULL, cm.meeting_datetime ASC, cm.id ASC`,
       [rowKey],
@@ -144,7 +232,7 @@ router.get("/:rowKey", async (req, res, next) => {
     if (meetingIds.length) {
       const placeholders = meetingIds.map(() => "?").join(",");
       [images] = await connection.query(
-        `SELECT id, meeting_id, original_file_name, file_url, created_at
+        `SELECT id, meeting_id, original_file_name, file_url, is_final_selected, created_at
          FROM client_meeting_images
          WHERE meeting_id IN (${placeholders})
          ORDER BY id ASC`,
@@ -161,18 +249,34 @@ router.get("/:rowKey", async (req, res, next) => {
         id: image.id,
         originalFileName: image.original_file_name,
         url: image.file_url,
+        isFinalSelected: Boolean(image.is_final_selected),
         createdAt: image.created_at,
       });
     }
+
+    const [[finalization]] = await connection.query(
+      `SELECT cf.finalized_at, e.full_name AS finalized_by_name
+       FROM client_finalizations cf
+       LEFT JOIN employees e ON e.id = cf.finalized_by
+       WHERE cf.linked_row_key = ?
+       LIMIT 1`,
+      [rowKey],
+    );
 
     res.json({
       data: {
         rowKey,
         clientName,
+        finalization: finalization
+          ? { finalizedAt: finalization.finalized_at, finalizedByName: finalization.finalized_by_name }
+          : null,
         meetings: meetings.map((meeting) => ({
           id: meeting.id,
           meetingDatetime: meeting.meeting_datetime,
-          discussionNotes: meeting.discussion_notes,
+          requirements: parseRequirements(meeting.requirements),
+          isCompleted: Boolean(meeting.is_completed),
+          completedByName: meeting.completed_by_name,
+          completedAt: meeting.completed_at,
           createdByName: meeting.created_by_name,
           updatedByName: meeting.updated_by_name,
           createdAt: meeting.created_at,
@@ -199,26 +303,28 @@ router.post("/:rowKey", async (req, res, next) => {
   const meetingDatetime = req.body.meetingDatetime
     ? String(req.body.meetingDatetime).replace("T", " ")
     : null;
-  const discussionNotes = req.body.discussionNotes
-    ? String(req.body.discussionNotes)
-    : null;
   const employeeId = isValidId(req.body.employeeId);
 
+  const connection = await pool.getConnection();
   try {
-    const [result] = await pool.execute(
+    const [result] = await connection.execute(
       `INSERT INTO client_meetings
-        (linked_row_key, meeting_datetime, discussion_notes, created_by, updated_by)
-       VALUES (?, ?, ?, ?, ?)`,
-      [rowKey, meetingDatetime, discussionNotes, employeeId, employeeId],
+        (linked_row_key, meeting_datetime, created_by, updated_by)
+       VALUES (?, ?, ?, ?)`,
+      [rowKey, meetingDatetime, employeeId, employeeId],
     );
+
+    await copyForwardFromPreviousMeeting(connection, rowKey, result.insertId, employeeId);
 
     res.status(201).json({ data: { id: result.insertId } });
   } catch (error) {
     next(error);
+  } finally {
+    connection.release();
   }
 });
 
-// ─── PUT /api/meetings/:rowKey/:meetingId — update time/notes ──────
+// ─── PUT /api/meetings/:rowKey/:meetingId — update time/requirements ──
 
 router.put("/:rowKey/:meetingId", async (req, res, next) => {
   const { rowKey, meetingId } = req.params;
@@ -231,17 +337,15 @@ router.put("/:rowKey/:meetingId", async (req, res, next) => {
   const meetingDatetime = req.body.meetingDatetime
     ? String(req.body.meetingDatetime).replace("T", " ")
     : null;
-  const discussionNotes = req.body.discussionNotes
-    ? String(req.body.discussionNotes)
-    : null;
+  const requirements = sanitizeRequirements(req.body.requirements);
   const employeeId = isValidId(req.body.employeeId);
 
   try {
     const [result] = await pool.execute(
       `UPDATE client_meetings
-       SET meeting_datetime = ?, discussion_notes = ?, updated_by = ?
+       SET meeting_datetime = ?, requirements = ?, updated_by = ?
        WHERE id = ? AND linked_row_key = ?`,
-      [meetingDatetime, discussionNotes, employeeId, id, rowKey],
+      [meetingDatetime, JSON.stringify(requirements), employeeId, id, rowKey],
     );
 
     if (!result.affectedRows) {
@@ -249,6 +353,115 @@ router.put("/:rowKey/:meetingId", async (req, res, next) => {
     }
 
     res.json({ data: { id } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ─── PATCH /api/meetings/:rowKey/:meetingId/complete — toggle "Mark as Done" ───
+
+router.patch("/:rowKey/:meetingId/complete", async (req, res, next) => {
+  const { rowKey, meetingId } = req.params;
+  const id = isValidId(meetingId);
+
+  if (!isValidRowKey(rowKey) || !id) {
+    return res.status(400).json({ message: "Invalid reference." });
+  }
+
+  const employeeId = isValidId(req.body.employeeId);
+
+  const connection = await pool.getConnection();
+  try {
+    const [[meeting]] = await connection.query(
+      `SELECT is_completed FROM client_meetings WHERE id = ? AND linked_row_key = ? LIMIT 1`,
+      [id, rowKey],
+    );
+
+    if (!meeting) {
+      return res.status(404).json({ message: "Meeting not found." });
+    }
+
+    const nextCompleted = !meeting.is_completed;
+
+    await connection.execute(
+      `UPDATE client_meetings
+       SET is_completed = ?, completed_by = ?, completed_at = ?
+       WHERE id = ?`,
+      [
+        nextCompleted,
+        nextCompleted ? employeeId : null,
+        nextCompleted ? new Date() : null,
+        id,
+      ],
+    );
+
+    res.json({ data: { id, isCompleted: nextCompleted } });
+  } catch (error) {
+    next(error);
+  } finally {
+    connection.release();
+  }
+});
+
+// ─── PATCH /api/meetings/:rowKey/images/:imageId/final — toggle final image ───
+
+router.patch("/:rowKey/images/:imageId/final", async (req, res, next) => {
+  const { rowKey, imageId } = req.params;
+  const iId = isValidId(imageId);
+
+  if (!isValidRowKey(rowKey) || !iId) {
+    return res.status(400).json({ message: "Invalid reference." });
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    const [[image]] = await connection.query(
+      `SELECT cmi.id, cmi.is_final_selected
+       FROM client_meeting_images cmi
+       JOIN client_meetings cm ON cm.id = cmi.meeting_id
+       WHERE cmi.id = ? AND cm.linked_row_key = ?
+       LIMIT 1`,
+      [iId, rowKey],
+    );
+
+    if (!image) {
+      return res.status(404).json({ message: "Image not found." });
+    }
+
+    const nextSelected = !image.is_final_selected;
+
+    await connection.execute(
+      `UPDATE client_meeting_images SET is_final_selected = ? WHERE id = ?`,
+      [nextSelected, iId],
+    );
+
+    res.json({ data: { id: iId, isFinalSelected: nextSelected } });
+  } catch (error) {
+    next(error);
+  } finally {
+    connection.release();
+  }
+});
+
+// ─── POST /api/meetings/:rowKey/finalize — confirm final client selection ───
+
+router.post("/:rowKey/finalize", async (req, res, next) => {
+  const { rowKey } = req.params;
+  if (!isValidRowKey(rowKey)) {
+    return res.status(400).json({ message: "Invalid client reference." });
+  }
+
+  const employeeId = isValidId(req.body.employeeId);
+
+  try {
+    await pool.execute(
+      `INSERT INTO client_finalizations (linked_row_key, finalized_by, finalized_at)
+       VALUES (?, ?, NOW())
+       ON DUPLICATE KEY UPDATE finalized_by = VALUES(finalized_by), finalized_at = VALUES(finalized_at)`,
+      [rowKey, employeeId],
+    );
+
+    res.json({ data: { rowKey } });
   } catch (error) {
     next(error);
   }
@@ -281,7 +494,7 @@ router.delete("/:rowKey/:meetingId", async (req, res, next) => {
     }
 
     for (const image of images) {
-      unlink(path.join(meetingImagesDirectory, image.stored_file_name), () => {});
+      await deleteImageFileIfUnreferenced(connection, image.stored_file_name);
     }
 
     res.json({ data: { id } });
@@ -396,7 +609,7 @@ router.delete("/:rowKey/:meetingId/images/:imageId", async (req, res, next) => {
 
     await connection.execute(`DELETE FROM client_meeting_images WHERE id = ?`, [iId]);
 
-    unlink(path.join(meetingImagesDirectory, rows[0].stored_file_name), () => {});
+    await deleteImageFileIfUnreferenced(connection, rows[0].stored_file_name);
 
     res.json({ data: { id: iId } });
   } catch (error) {
