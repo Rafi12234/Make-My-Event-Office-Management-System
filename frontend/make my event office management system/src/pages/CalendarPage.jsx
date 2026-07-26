@@ -1,5 +1,6 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
+import mmeLogo from "../assets/mme_logo.jpg";
 import {
   AlertCircle,
   ArrowLeft,
@@ -685,9 +686,7 @@ export default function CalendarPage() {
             <Link to="/management" className="hidden rounded-xl p-2 text-black/60 hover:bg-[#f4f4f4]/40 sm:block" title="Back to management">
               <ArrowLeft size={20} />
             </Link>
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-black font-black text-white shadow-lg shadow-black/20">
-              M
-            </div>
+            <img src={mmeLogo} alt="Make My Event" className="h-11 w-11 shrink-0 rounded-2xl object-cover shadow-lg shadow-black/20" />
             <div className="min-w-0">
               <p className="truncate text-base font-black text-black sm:text-lg">Make My Event</p>
               <p className="truncate text-[10px] font-bold uppercase tracking-[0.18em] text-[#333333] sm:text-xs">
