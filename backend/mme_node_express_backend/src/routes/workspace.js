@@ -9,6 +9,7 @@ const FRONTEND_TO_DB_TYPE = {
   email: "email",
   phone: "phone",
   number: "decimal",
+  integer: "integer",
   date: "date",
   time: "time",
   datetime: "datetime",
@@ -19,10 +20,16 @@ const FRONTEND_TO_DB_TYPE = {
   venue: "venue",
   shift: "shift",
   currency: "currency",
+  meeting_manager: "meeting_manager",
+  last_meeting_time: "last_meeting_time",
+  next_meeting_time: "next_meeting_time",
 };
 
+// Columns whose stored value behaves exactly like a plain "datetime" column
+// (same value_datetime storage), just with a different semantic label.
+const DATETIME_LIKE_TYPES = new Set(["datetime", "last_meeting_time", "next_meeting_time"]);
+
 const DB_TO_FRONTEND_TYPE = {
-  integer: "number",
   decimal: "number",
   boolean: "checkbox",
 };
@@ -52,7 +59,7 @@ function cellValue(row, dataType) {
   if (["decimal", "currency"].includes(dataType)) return row.value_decimal;
   if (dataType === "date") return row.value_date;
   if (dataType === "time") return row.value_time;
-  if (dataType === "datetime") return row.value_datetime;
+  if (DATETIME_LIKE_TYPES.has(dataType)) return row.value_datetime;
   if (dataType === "boolean") return row.value_boolean === null ? "" : Boolean(row.value_boolean);
   if (dataType === "employee") return row.employee_name || row.display_value || "";
   return row.value_text ?? row.display_value ?? "";
@@ -103,6 +110,43 @@ router.get("/default", async (req, res, next) => {
       const column = columnById.get(cell.column_id);
       if (!column) continue;
       valuesByRow.get(cell.row_id)[column.column_key] = cellValue(cell, column.data_type);
+    }
+
+    // "Last Meeting Time" / "Next Meeting Time" are never persisted — they are
+    // always computed live from client_meetings so a "next" meeting whose time
+    // has passed automatically reads as the "last" meeting on the very next
+    // load, with no manual edit or save required.
+    const meetingTimeColumns = columns.filter(
+      (column) => column.data_type === "last_meeting_time" || column.data_type === "next_meeting_time",
+    );
+    if (meetingTimeColumns.length && rows.length) {
+      try {
+        const [meetingTimes] = await connection.query(
+          `SELECT sr.row_key,
+                  MAX(CASE WHEN cm.meeting_datetime <= NOW() THEN cm.meeting_datetime END) AS last_meeting_time,
+                  MIN(CASE WHEN cm.meeting_datetime > NOW() THEN cm.meeting_datetime END) AS next_meeting_time
+           FROM sheet_rows sr
+           JOIN client_meetings cm ON cm.linked_row_key = sr.row_key AND cm.meeting_datetime IS NOT NULL
+           WHERE sr.sheet_id = ?
+           GROUP BY sr.row_key`,
+          [sheet.id],
+        );
+
+        const timesByRowKey = new Map(meetingTimes.map((row) => [row.row_key, row]));
+
+        for (const column of meetingTimeColumns) {
+          for (const row of rows) {
+            const times = timesByRowKey.get(row.row_key);
+            const value =
+              column.data_type === "last_meeting_time"
+                ? times?.last_meeting_time || ""
+                : times?.next_meeting_time || "";
+            valuesByRow.get(row.id)[column.column_key] = value;
+          }
+        }
+      } catch {
+        // client_meetings table may not exist yet — leave these columns empty
+      }
     }
 
     res.json({
@@ -222,6 +266,9 @@ router.put("/default", async (req, res, next) => {
       for (const [columnKey, rawValue] of Object.entries(row.values || {})) {
         const column = columnIdsByKey.get(String(columnKey));
         if (!column) continue;
+        // "Last Meeting Time" / "Next Meeting Time" are computed live from
+        // client_meetings on every read — never persisted as manual cell data.
+        if (column.dataType === "last_meeting_time" || column.dataType === "next_meeting_time") continue;
 
         let valueText = null;
         let valueInteger = null;
@@ -233,11 +280,11 @@ router.put("/default", async (req, res, next) => {
         let valueEmployeeId = null;
         let displayValue = rawValue === null || rawValue === undefined ? "" : String(rawValue);
 
-        if (column.dataType === "integer" && displayValue !== "") valueInteger = Number.parseInt(displayValue, 10);
+        if (column.dataType === "integer" && displayValue !== "") valueInteger = Math.round(Number(displayValue));
         else if (["decimal", "currency"].includes(column.dataType) && displayValue !== "") valueDecimal = Number(displayValue);
         else if (column.dataType === "date") valueDate = displayValue || null;
         else if (column.dataType === "time") valueTime = displayValue || null;
-        else if (column.dataType === "datetime") valueDatetime = displayValue ? displayValue.replace("T", " ") : null;
+        else if (DATETIME_LIKE_TYPES.has(column.dataType)) valueDatetime = displayValue ? displayValue.replace("T", " ") : null;
         else if (column.dataType === "boolean") valueBoolean = rawValue === true || rawValue === "true" || rawValue === "1";
         else if (column.dataType === "employee" && displayValue) {
           const [employeeRows] = await connection.execute(

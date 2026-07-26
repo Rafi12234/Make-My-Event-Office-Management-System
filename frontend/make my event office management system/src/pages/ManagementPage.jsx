@@ -1,6 +1,8 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
+import mmeLogo from "../assets/mme_logo.jpg";
 import {
+  CalendarClock,
   CalendarDays,
   Check,
   ChevronDown,
@@ -63,6 +65,13 @@ function inferColumnType(header, rows) {
 
 function normalizeHeader(value) {
   return String(value).trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function formatMeetingTimeDisplay(value, emptyLabel) {
+  if (!value) return emptyLabel;
+  const date = new Date(String(value).replace(" ", "T"));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
 function CellEditor({ column, value, onChange, employeeNames }) {
@@ -169,6 +178,7 @@ function CellEditor({ column, value, onChange, employeeNames }) {
     email: "email",
     phone: "tel",
     number: "number",
+    integer: "number",
     date: "date",
     time: "time",
     datetime: "datetime-local",
@@ -178,6 +188,8 @@ function CellEditor({ column, value, onChange, employeeNames }) {
     <input
       type={inputType}
       value={value ?? ""}
+      step={column.type === "integer" ? "1" : undefined}
+      min={column.type === "integer" ? "0" : undefined}
       onChange={(event) => onChange(event.target.value)}
       placeholder={`Enter ${column.name.toLowerCase()}`}
       className={baseClass}
@@ -267,7 +279,10 @@ export default function ManagementPage() {
     const col = (type) => workspace.columns.find((c) => c.type === type);
 
     if (filters.dateFrom || filters.dateTo) {
-      const dtCol = workspace.columns.find((c) => c.name.toLowerCase().includes("current meeting")) || col("datetime");
+      const dtCol =
+        workspace.columns.find((c) => c.type === "last_meeting_time") ||
+        workspace.columns.find((c) => c.name.toLowerCase().includes("last meeting") || c.name.toLowerCase().includes("current meeting")) ||
+        col("datetime");
       rows = rows.filter((row) => {
         const raw = dtCol ? String(row.values[dtCol.id] ?? "").replace(" ", "T") : "";
         const date = raw.slice(0, 10);
@@ -650,7 +665,7 @@ export default function ManagementPage() {
       <header className="sticky top-0 z-40 border-b border-[#d6d6d6]/50 bg-white/95 backdrop-blur-xl">
         <div className="flex min-h-18 items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-4">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-black font-black text-white shadow-lg shadow-black/20">M</div>
+            <img src={mmeLogo} alt="Make My Event" className="h-11 w-11 shrink-0 rounded-2xl object-cover shadow-lg shadow-black/20" />
             <div className="min-w-0">
               <p className="truncate text-base font-black text-black sm:text-lg">Make My Event</p>
               <p className="truncate text-[10px] font-bold uppercase tracking-[0.18em] text-[#333333] sm:text-xs">Management Workspace</p>
@@ -973,12 +988,36 @@ export default function ManagementPage() {
                               style={{ width: column.width, minWidth: column.width, ...(rowH ? { height: `${rowH}px` } : {}) }}
                               className="border-b border-r border-[#d6d6d6]/45 bg-white align-top group-hover:bg-[#fffbfd]"
                             >
-                              <CellEditor
-                                column={column}
-                                value={row.values[column.id]}
-                                onChange={(value) => updateCell(row.id, column.id, value)}
-                                employeeNames={employeeNames}
-                              />
+                              {column.type === "meeting_manager" ? (
+                                <div className="flex h-full min-h-11 items-center justify-center p-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => navigate(`/management/meetings/${row.id}`)}
+                                    className="inline-flex items-center gap-1.5 rounded-xl bg-black px-3 py-2 text-xs font-black text-white hover:bg-[#222222]"
+                                  >
+                                    <CalendarClock size={14} /> Manage Meetings
+                                  </button>
+                                </div>
+                              ) : column.type === "last_meeting_time" || column.type === "next_meeting_time" ? (
+                                <div
+                                  className={`flex h-full min-h-11 items-center justify-center p-1.5 text-center text-xs font-bold ${
+                                    row.values[column.id] ? "text-black/75" : "text-black/35 italic"
+                                  }`}
+                                  title="Automatically set from the Meeting Manager"
+                                >
+                                  {formatMeetingTimeDisplay(
+                                    row.values[column.id],
+                                    column.type === "last_meeting_time" ? "No Previous Meeting" : "No Upcoming Meeting",
+                                  )}
+                                </div>
+                              ) : (
+                                <CellEditor
+                                  column={column}
+                                  value={row.values[column.id]}
+                                  onChange={(value) => updateCell(row.id, column.id, value)}
+                                  employeeNames={employeeNames}
+                                />
+                              )}
                             </td>
                           ))}
                           <td

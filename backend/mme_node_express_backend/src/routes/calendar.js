@@ -38,7 +38,7 @@ function cellValueFromRow(row, dataType) {
   if (["decimal", "currency"].includes(dataType))      return row.value_decimal;
   if (dataType === "date")                              return row.value_date || "";
   if (dataType === "time")                              return row.value_time || "";
-  if (dataType === "datetime")                          return row.value_datetime || "";
+  if (["datetime", "last_meeting_time", "next_meeting_time"].includes(dataType)) return row.value_datetime || "";
   if (dataType === "employee")                          return row.employee_name || row.display_value || "";
   return row.value_text ?? row.display_value ?? "";
 }
@@ -166,6 +166,55 @@ router.get("/", async (req, res, next) => {
             });
           }
         }
+      }
+
+      // ── Client meeting events (from the Meeting Manager) ─────
+      // "Last/Next Meeting Time" columns are no longer persisted as worksheet
+      // cells (see routes/workspace.js), so every recorded meeting is sourced
+      // directly from client_meetings here instead, keyed by its own date.
+      try {
+        const [meetingRows] = await connection.query(
+          `SELECT cm.id, cm.meeting_datetime, cm.discussion_notes, cm.linked_row_key
+           FROM client_meetings cm
+           WHERE cm.meeting_datetime IS NOT NULL
+             AND DATE(cm.meeting_datetime) BETWEEN ? AND ?`,
+          [startDate, endDate],
+        );
+
+        if (meetingRows.length) {
+          const rowKeys    = [...new Set(meetingRows.map((m) => m.linked_row_key))];
+          const keyHolders = rowKeys.map(() => "?").join(",");
+
+          const [clientNameRows] = await connection.query(
+            `SELECT sr.row_key, sc.value_text, sc.display_value
+             FROM sheet_rows sr
+             JOIN sheet_cells sc ON sc.row_id = sr.id
+             JOIN sheet_columns col ON col.id = sc.column_id
+             WHERE sr.sheet_id = ? AND sr.row_key IN (${keyHolders})
+               AND LOWER(col.column_name) = 'client name'`,
+            [sheetId, ...rowKeys],
+          );
+          const clientNameByRowKey = new Map(
+            clientNameRows.map((r) => [r.row_key, r.value_text || r.display_value || ""]),
+          );
+
+          for (const meeting of meetingRows) {
+            const clientName = clientNameByRowKey.get(meeting.linked_row_key) || "";
+            events.push({
+              id:          `cm_${meeting.id}`,
+              source:      "client_meeting",
+              date:        extractDate(meeting.meeting_datetime),
+              time:        extractTime(meeting.meeting_datetime),
+              title:       clientName ? `Meeting with ${clientName}` : "Client meeting",
+              description: meeting.discussion_notes || null,
+              rowKey:      meeting.linked_row_key,
+              clientName,
+              eventType:   "meeting",
+            });
+          }
+        }
+      } catch {
+        // client_meetings table may not exist yet — skip gracefully
       }
     }
 

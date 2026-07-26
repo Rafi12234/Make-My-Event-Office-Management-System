@@ -13,6 +13,7 @@ import workspaceRoutes from "./routes/workspace.js";
 import calendarRoutes from "./routes/calendar.js";
 import authRoutes from "./routes/auth.js";
 import adminRoutes from "./routes/admin.js";
+import meetingRoutes, { uploadsRootDirectory } from "./routes/meetings.js";
 
 import {
   errorHandler,
@@ -82,6 +83,26 @@ app.use(morgan("dev"));
 
 /*
 |--------------------------------------------------------------------------
+| Uploaded meeting images
+|--------------------------------------------------------------------------
+|
+| Served from a dedicated backend-owned "uploads" directory, separate
+| from the frontend build's "public/assets" folder. This directory is
+| never touched by the CI/CD deploy step, so uploaded images persist
+| across deploys (unlike public/assets, which is wiped/rebuilt every
+| deploy from the Vite build output).
+|
+*/
+
+app.use(
+  "/uploads",
+  express.static(uploadsRootDirectory, {
+    maxAge: "7d",
+  }),
+);
+
+/*
+|--------------------------------------------------------------------------
 | Health-check route
 |--------------------------------------------------------------------------
 */
@@ -111,6 +132,7 @@ app.use("/api/workspace", workspaceRoutes);
 app.use("/api/calendar", calendarRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/meetings", meetingRoutes);
 
 /*
 |--------------------------------------------------------------------------
