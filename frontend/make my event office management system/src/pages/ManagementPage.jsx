@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import {
   CalendarDays,
   Check,
+  ChevronDown,
   Columns3,
   FileSpreadsheet,
   LayoutGrid,
@@ -66,7 +67,7 @@ function normalizeHeader(value) {
 
 function CellEditor({ column, value, onChange, employeeNames }) {
   const baseClass =
-    "h-full min-h-11 w-full border-0 bg-transparent px-3 py-2.5 text-sm text-mme-purple outline-none transition placeholder:text-mme-purple/25 focus:bg-mme-blush/25 focus:ring-2 focus:ring-inset focus:ring-mme-plum/40";
+    "h-full min-h-11 w-full border-0 bg-transparent px-3 py-2.5 text-sm text-black outline-none transition placeholder:text-black/25 focus:bg-[#f4f4f4]/25 focus:ring-2 focus:ring-inset focus:ring-[#333333]/40";
 
   if (column.type === "checkbox") {
     return (
@@ -75,7 +76,7 @@ function CellEditor({ column, value, onChange, employeeNames }) {
           type="checkbox"
           checked={value === true || value === "true" || value === "1"}
           onChange={(event) => onChange(event.target.checked)}
-          className="h-5 w-5 accent-mme-purple"
+          className="h-5 w-5 accent-black"
         />
       </label>
     );
@@ -120,7 +121,7 @@ function CellEditor({ column, value, onChange, employeeNames }) {
   if (column.type === "currency") {
     return (
       <div className="flex h-full min-h-11 items-center">
-        <span className="pl-3 text-sm font-bold text-mme-purple/40">৳</span>
+        <span className="pl-3 text-sm font-bold text-black/40">৳</span>
         <input
           type="number"
           min="0"
@@ -188,18 +189,18 @@ function EmptyState({ onAddRow, onUpload }) {
   return (
     <div className="flex min-h-[420px] items-center justify-center p-8 text-center">
       <div className="max-w-lg">
-        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-[26px] bg-mme-blush text-mme-purple">
+        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-[26px] bg-[#f4f4f4] text-black">
           <LayoutGrid size={36} />
         </div>
-        <h2 className="mt-6 text-2xl font-black text-mme-purple">Your management sheet is ready</h2>
-        <p className="mt-3 leading-7 text-mme-purple/60">
+        <h2 className="mt-6 text-2xl font-black text-black">Your management sheet is ready</h2>
+        <p className="mt-3 leading-7 text-black/60">
           Add the first row manually or upload an existing Excel file. No formulas or complicated spreadsheet setup is needed.
         </p>
         <div className="mt-7 flex flex-col justify-center gap-3 sm:flex-row">
-          <button onClick={onAddRow} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-mme-purple px-6 py-3.5 font-black text-white hover:bg-[#4b2c55]">
+          <button onClick={onAddRow} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-black px-6 py-3.5 font-black text-white hover:bg-[#222222]">
             <Plus size={18} /> Add first row
           </button>
-          <button onClick={onUpload} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-mme-purple/20 bg-white px-6 py-3.5 font-black text-mme-purple hover:bg-mme-blush/30">
+          <button onClick={onUpload} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-black/20 bg-white px-6 py-3.5 font-black text-black hover:bg-[#f4f4f4]/30">
             <Upload size={18} /> Upload Excel
           </button>
         </div>
@@ -233,12 +234,15 @@ export default function ManagementPage() {
     catch { return {}; }
   });
   const [showFilters, setShowFilters] = useState(false);
+  const [hoveredSection, setHoveredSection] = useState(null);
+  const filterDropdownRef = useRef(null);
+  const [confirmDeleteRowId, setConfirmDeleteRowId] = useState(null);
   const [resizeCursor, setResizeCursor] = useState(null);
   const [filters, setFilters] = useState({
     dateFrom: "",
     dateTo: "",
     shifts: new Set(),
-    assignees: new Set(),
+    assigneeText: "",
     venues: new Set(),
     statuses: new Set(),
     priorities: new Set(),
@@ -282,9 +286,10 @@ export default function ManagementPage() {
       const c = col("venue");
       rows = rows.filter((row) => filters.venues.has(c ? row.values[c.id] ?? "" : ""));
     }
-    if (filters.assignees.size > 0) {
+    if (filters.assigneeText.trim()) {
       const c = col("employee");
-      rows = rows.filter((row) => filters.assignees.has(c ? row.values[c.id] ?? "" : ""));
+      const q = filters.assigneeText.trim().toLowerCase();
+      rows = rows.filter((row) => String(c ? row.values[c.id] ?? "" : "").toLowerCase().includes(q));
     }
     if (filters.statuses.size > 0) {
       const c = col("status");
@@ -303,7 +308,7 @@ export default function ManagementPage() {
       (filters.dateFrom ? 1 : 0) +
       (filters.dateTo ? 1 : 0) +
       filters.shifts.size +
-      filters.assignees.size +
+      (filters.assigneeText.trim() ? 1 : 0) +
       filters.venues.size +
       filters.statuses.size +
       filters.priorities.size,
@@ -324,7 +329,7 @@ export default function ManagementPage() {
       dateFrom: "",
       dateTo: "",
       shifts: new Set(),
-      assignees: new Set(),
+      assigneeText: "",
       venues: new Set(),
       statuses: new Set(),
       priorities: new Set(),
@@ -421,6 +426,17 @@ export default function ManagementPage() {
     if (!hasMounted.current) return;
     setHasUnsavedChanges(true);
   }, [workspace]);
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (filterDropdownRef.current && !filterDropdownRef.current.contains(e.target)) {
+        setShowFilters(false);
+        setHoveredSection(null);
+      }
+    }
+    if (showFilters) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showFilters]);
 
   useEffect(() => {
     if (!notice) return undefined;
@@ -608,9 +624,9 @@ export default function ManagementPage() {
 
   if (isLoadingWorkspace) {
     return (
-      <div className="grid min-h-screen place-items-center bg-[#fff9fc] text-mme-purple">
+      <div className="grid min-h-screen place-items-center bg-[#ffffff] text-black">
         <div className="text-center">
-          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-mme-pink border-t-mme-purple" />
+          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-[#d6d6d6] border-t-black" />
           <p className="mt-4 font-black">Loading shared management data...</p>
         </div>
       </div>
@@ -618,7 +634,7 @@ export default function ManagementPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#fff9fc] text-mme-purple">
+    <div className="min-h-screen bg-[#ffffff] text-black">
       {!employee && <EmployeeIdentityModal onSubmit={handleEmployeeSubmit} />}
       {showAddColumn && <AddColumnModal onClose={() => setShowAddColumn(false)} onAdd={addColumn} />}
       {importPreview && <ExcelImportModal preview={importPreview} onClose={() => setImportPreview(null)} onConfirm={confirmImport} />}
@@ -631,13 +647,13 @@ export default function ManagementPage() {
         className="hidden"
       />
 
-      <header className="sticky top-0 z-40 border-b border-mme-pink/50 bg-white/95 backdrop-blur-xl">
+      <header className="sticky top-0 z-40 border-b border-[#d6d6d6]/50 bg-white/95 backdrop-blur-xl">
         <div className="flex min-h-18 items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-4">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-mme-purple font-black text-white shadow-lg shadow-mme-purple/20">M</div>
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-black font-black text-white shadow-lg shadow-black/20">M</div>
             <div className="min-w-0">
-              <p className="truncate text-base font-black text-mme-purple sm:text-lg">Make My Event</p>
-              <p className="truncate text-[10px] font-bold uppercase tracking-[0.18em] text-mme-plum sm:text-xs">Management Workspace</p>
+              <p className="truncate text-base font-black text-black sm:text-lg">Make My Event</p>
+              <p className="truncate text-[10px] font-bold uppercase tracking-[0.18em] text-[#333333] sm:text-xs">Management Workspace</p>
             </div>
           </div>
 
@@ -647,20 +663,20 @@ export default function ManagementPage() {
               disabled={!hasUnsavedChanges || isSaving || !employee?.id}
               className={`hidden items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold transition md:flex ${
                 hasUnsavedChanges && !isSaving
-                  ? "border-mme-purple bg-mme-purple text-white shadow-md shadow-mme-purple/20 hover:bg-[#4b2c55] cursor-pointer"
-                  : "pointer-events-none border-mme-pink/60 bg-[#fff9fc] text-mme-purple/40 opacity-60 cursor-not-allowed"
+                  ? "border-black bg-black text-white shadow-md shadow-black/20 hover:bg-[#222222] cursor-pointer"
+                  : "pointer-events-none border-[#d6d6d6]/60 bg-[#ffffff] text-black/40 opacity-60 cursor-not-allowed"
               }`}
             >
               {isSaving
                 ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current/30 border-t-current" />
-                : hasUnsavedChanges ? <Save size={15} /> : <Check size={15} className="text-mme-plum" />}
+                : hasUnsavedChanges ? <Save size={15} /> : <Check size={15} className="text-[#333333]" />}
               {isSaving ? "Saving..." : hasUnsavedChanges ? "Save Changes" : "Saved"}
             </button>
 
-            <button onClick={handleLogout} title="Logout" className="flex items-center gap-2 rounded-2xl border border-mme-pink/70 bg-white px-3 py-2.5 text-left transition hover:bg-red-50 hover:border-red-200 sm:px-4">
-              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-mme-blush text-mme-purple"><UserRound size={16} /></div>
+            <button onClick={handleLogout} title="Logout" className="flex items-center gap-2 rounded-2xl border border-[#d6d6d6]/70 bg-white px-3 py-2.5 text-left transition hover:bg-red-50 hover:border-red-200 sm:px-4">
+              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#f4f4f4] text-black"><UserRound size={16} /></div>
               <div className="hidden sm:block">
-                <p className="max-w-36 truncate text-xs font-black text-mme-purple">{employee?.fullName || "Employee"}</p>
+                <p className="max-w-36 truncate text-xs font-black text-black">{employee?.fullName || "Employee"}</p>
                 <p className="max-w-36 truncate text-[10px] text-red-400 font-semibold">Logout</p>
               </div>
               <LogOut size={15} className="text-red-400" />
@@ -673,204 +689,239 @@ export default function ManagementPage() {
         <section className="mx-auto max-w-[1800px]">
           <div className="mb-5 flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
             <div>
-              <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.2em] text-mme-plum">
+              <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.2em] text-[#333333]">
                 <LayoutGrid size={15} /> Shared office data
               </div>
-              <h1 className="mt-2 text-2xl font-black text-mme-purple sm:text-3xl">{workspace.name}</h1>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-mme-purple/60">
+              <h1 className="mt-2 text-2xl font-black text-black sm:text-3xl">{workspace.name}</h1>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-black/60">
                 Edit cells directly, create rows and columns, or import a complete Excel file. Every employee works with the same sheet after backend connection.
               </p>
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <Link to="/calendar" className="inline-flex items-center gap-2 rounded-xl border border-mme-pink/70 bg-white px-4 py-2.5 text-sm font-black text-mme-purple hover:bg-mme-blush/30">
+              <Link to="/calendar" className="inline-flex items-center gap-2 rounded-xl border border-[#d6d6d6]/70 bg-white px-4 py-2.5 text-sm font-black text-black hover:bg-[#f4f4f4]/30">
                 <CalendarDays size={17} /> Calendar
               </Link>
-              <button onClick={resetWorkspace} className="inline-flex items-center gap-2 rounded-xl border border-mme-pink/70 bg-white px-4 py-2.5 text-sm font-black text-mme-purple hover:bg-mme-blush/30">
+              <button onClick={resetWorkspace} className="inline-flex items-center gap-2 rounded-xl border border-[#d6d6d6]/70 bg-white px-4 py-2.5 text-sm font-black text-black hover:bg-[#f4f4f4]/30">
                 <RotateCcw size={17} /> Reset demo
               </button>
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-[24px] border border-mme-pink/60 bg-white shadow-[0_20px_60px_rgba(91,55,101,0.09)]">
-            <div className="flex flex-col gap-3 border-b border-mme-pink/50 bg-white p-3.5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="overflow-hidden rounded-[24px] border border-[#d6d6d6]/60 bg-white shadow-[0_20px_60px_rgba(0,0,0,0.12)]">
+            <div className="flex flex-col gap-3 border-b border-[#d6d6d6]/50 bg-white p-3.5 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex flex-wrap gap-2">
-                <button onClick={addRow} className="inline-flex items-center gap-2 rounded-xl bg-mme-purple px-4 py-2.5 text-sm font-black text-white shadow-md shadow-mme-purple/15 hover:bg-[#4b2c55]">
+                <button onClick={addRow} className="inline-flex items-center gap-2 rounded-xl bg-black px-4 py-2.5 text-sm font-black text-white shadow-md shadow-black/15 hover:bg-[#222222]">
                   <Plus size={17} /> Add row
                 </button>
-                <button onClick={() => setShowAddColumn(true)} className="inline-flex items-center gap-2 rounded-xl border border-mme-purple/20 bg-white px-4 py-2.5 text-sm font-black text-mme-purple hover:bg-mme-blush/30">
+                <button onClick={() => setShowAddColumn(true)} className="inline-flex items-center gap-2 rounded-xl border border-black/20 bg-white px-4 py-2.5 text-sm font-black text-black hover:bg-[#f4f4f4]/30">
                   <Columns3 size={17} /> Add column
                 </button>
-                <button disabled={isImporting} onClick={() => fileInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-xl border border-mme-purple/20 bg-white px-4 py-2.5 text-sm font-black text-mme-purple hover:bg-mme-blush/30 disabled:opacity-60">
-                  {isImporting ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-mme-pink border-t-mme-purple" /> : <FileSpreadsheet size={17} />}
+                <button disabled={isImporting} onClick={() => fileInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-xl border border-black/20 bg-white px-4 py-2.5 text-sm font-black text-black hover:bg-[#f4f4f4]/30 disabled:opacity-60">
+                  {isImporting ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#d6d6d6] border-t-black" /> : <FileSpreadsheet size={17} />}
                   {isImporting ? "Reading file..." : "Upload Excel"}
                 </button>
-                <button
-                  onClick={() => setShowFilters((v) => !v)}
-                  className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-black transition ${
-                    showFilters || activeFilterCount > 0
-                      ? "border-mme-purple bg-mme-purple text-white"
-                      : "border-mme-purple/20 bg-white text-mme-purple hover:bg-mme-blush/30"
-                  }`}
-                >
-                  <SlidersHorizontal size={17} />
-                  Filters
-                  {activeFilterCount > 0 && (
-                    <span className={`rounded-full px-1.5 py-0.5 text-xs font-black ${
-                      showFilters || activeFilterCount > 0 ? "bg-white/20 text-white" : "bg-mme-purple/10 text-mme-purple"
-                    }`}>{activeFilterCount}</span>
+                {/* ── Filters dropdown ── */}
+                <div className="relative" ref={filterDropdownRef}>
+                  <button
+                    onClick={() => { setShowFilters((v) => !v); setHoveredSection(null); }}
+                    className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-black transition ${
+                      showFilters || activeFilterCount > 0
+                        ? "border-black bg-black text-white"
+                        : "border-black/20 bg-white text-black hover:bg-[#f4f4f4]/30"
+                    }`}
+                  >
+                    <SlidersHorizontal size={17} />
+                    Filters
+                    {activeFilterCount > 0 && (
+                      <span className={`rounded-full px-1.5 py-0.5 text-xs font-black ${
+                        showFilters || activeFilterCount > 0 ? "bg-white/20 text-white" : "bg-black/10 text-black"
+                      }`}>{activeFilterCount}</span>
+                    )}
+                    <ChevronDown size={15} className={`transition-transform ${showFilters ? "rotate-180" : ""}`} />
+                  </button>
+
+                  {showFilters && (
+                    <div className="absolute left-0 top-full z-50 mt-2 flex rounded-2xl border border-[#d6d6d6]/60 bg-white shadow-[0_20px_60px_rgba(0,0,0,0.12)]" style={{ minWidth: 520 }}>
+                      {/* Left — category list */}
+                      <div className="w-52 shrink-0 border-r border-[#d6d6d6]/40 py-2">
+                        {[
+                          { key: "date",     label: "Date Range",       hasValue: filters.dateFrom || filters.dateTo },
+                          { key: "shift",    label: "Shift",            hasValue: filters.shifts.size > 0 },
+                          { key: "venue",    label: "Venue",            hasValue: filters.venues.size > 0 },
+                          { key: "employee", label: "Assigned Employee",hasValue: !!filters.assigneeText.trim() },
+                          { key: "status",   label: "Status",           hasValue: filters.statuses.size > 0 },
+                          { key: "priority", label: "Priority",         hasValue: filters.priorities.size > 0 },
+                        ].map(({ key, label, hasValue }) => (
+                          <button
+                            key={key}
+                            onMouseEnter={() => setHoveredSection(key)}
+                            onClick={() => setHoveredSection(key)}
+                            className={`flex w-full items-center justify-between px-4 py-2.5 text-left text-sm font-bold transition ${
+                              hoveredSection === key
+                                ? "bg-black text-white"
+                                : "text-black hover:bg-[#f4f4f4]/40"
+                            }`}
+                          >
+                            <span className="flex items-center gap-2">
+                              {label}
+                              {hasValue && (
+                                <span className={`h-2 w-2 rounded-full ${hoveredSection === key ? "bg-[#d6d6d6]" : "bg-[#333333]"}`} />
+                              )}
+                            </span>
+                            <span className="text-xs opacity-60">›</span>
+                          </button>
+                        ))}
+
+                        {activeFilterCount > 0 && (
+                          <div className="mx-3 mt-2 border-t border-[#d6d6d6]/40 pt-2">
+                            <button
+                              onClick={clearFilters}
+                              className="flex w-full items-center gap-1.5 rounded-xl px-2 py-2 text-xs font-black text-red-500 hover:bg-red-50"
+                            >
+                              <X size={13} /> Clear all ({activeFilterCount})
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Right — options panel */}
+                      <div className="flex-1 p-5">
+                        {hoveredSection === null && (
+                          <div className="flex h-full min-h-32 items-center justify-center text-center">
+                            <div>
+                              <SlidersHorizontal size={28} className="mx-auto text-[#a9a9a9]" />
+                              <p className="mt-3 text-sm font-bold text-black/50">Hover a category to filter</p>
+                            </div>
+                          </div>
+                        )}
+
+                        {hoveredSection === "date" && (
+                          <div>
+                            <p className="mb-3 text-[10px] font-black uppercase tracking-[0.18em] text-[#333333]">Date Range (Meeting)</p>
+                            <div className="flex flex-col gap-3">
+                              <div>
+                                <label className="mb-1 block text-xs font-bold text-black/60">From</label>
+                                <input
+                                  type="date"
+                                  value={filters.dateFrom}
+                                  onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value }))}
+                                  className="w-full rounded-xl border border-[#d6d6d6] px-3 py-2 text-sm text-black outline-none focus:border-[#333333] focus:ring-4 focus:ring-[#d6d6d6]/20"
+                                />
+                              </div>
+                              <div>
+                                <label className="mb-1 block text-xs font-bold text-black/60">To</label>
+                                <input
+                                  type="date"
+                                  value={filters.dateTo}
+                                  onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))}
+                                  className="w-full rounded-xl border border-[#d6d6d6] px-3 py-2 text-sm text-black outline-none focus:border-[#333333] focus:ring-4 focus:ring-[#d6d6d6]/20"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {hoveredSection === "shift" && (
+                          <div>
+                            <p className="mb-3 text-[10px] font-black uppercase tracking-[0.18em] text-[#333333]">Shift</p>
+                            <div className="space-y-2">
+                              {SHIFT_OPTIONS.map((opt) => (
+                                <label key={opt} className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-[#f4f4f4]/30">
+                                  <input type="checkbox" checked={filters.shifts.has(opt)} onChange={() => toggleFilter("shifts", opt)} className="h-4 w-4 accent-black" />
+                                  <span className="text-sm font-bold text-black">{opt}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {hoveredSection === "venue" && (
+                          <div>
+                            <p className="mb-3 text-[10px] font-black uppercase tracking-[0.18em] text-[#333333]">Venue</p>
+                            <div className="grid grid-cols-2 gap-1">
+                              {VENUE_OPTIONS.map((opt) => (
+                                <label key={opt} className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-[#f4f4f4]/30">
+                                  <input type="checkbox" checked={filters.venues.has(opt)} onChange={() => toggleFilter("venues", opt)} className="h-4 w-4 accent-black" />
+                                  <span className="text-sm font-bold text-black">{opt}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {hoveredSection === "employee" && (
+                          <div>
+                            <p className="mb-3 text-[10px] font-black uppercase tracking-[0.18em] text-[#333333]">Assigned Employee</p>
+                            <div className="relative">
+                              <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#333333]" />
+                              <input
+                                type="text"
+                                value={filters.assigneeText}
+                                onChange={(e) => setFilters((f) => ({ ...f, assigneeText: e.target.value }))}
+                                placeholder="Type employee name…"
+                                autoFocus
+                                className="w-full rounded-xl border border-[#d6d6d6] py-2.5 pl-9 pr-8 text-sm font-medium text-black outline-none placeholder:text-black/35 focus:border-[#333333] focus:ring-4 focus:ring-[#d6d6d6]/20"
+                              />
+                              {filters.assigneeText && (
+                                <button
+                                  onClick={() => setFilters((f) => ({ ...f, assigneeText: "" }))}
+                                  className="absolute right-3 top-1/2 -translate-y-1/2 text-black/40 hover:text-black"
+                                >
+                                  <X size={14} />
+                                </button>
+                              )}
+                            </div>
+                            <p className="mt-2 text-xs text-black/45">Filters rows containing this name.</p>
+                          </div>
+                        )}
+
+                        {hoveredSection === "status" && (
+                          <div>
+                            <p className="mb-3 text-[10px] font-black uppercase tracking-[0.18em] text-[#333333]">Status</p>
+                            <div className="space-y-1">
+                              {STATUS_OPTIONS.map((opt) => (
+                                <label key={opt} className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-[#f4f4f4]/30">
+                                  <input type="checkbox" checked={filters.statuses.has(opt)} onChange={() => toggleFilter("statuses", opt)} className="h-4 w-4 accent-black" />
+                                  <span className="text-sm font-bold text-black">{opt}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {hoveredSection === "priority" && (
+                          <div>
+                            <p className="mb-3 text-[10px] font-black uppercase tracking-[0.18em] text-[#333333]">Priority</p>
+                            <div className="space-y-1">
+                              {PRIORITY_OPTIONS.map((opt) => (
+                                <label key={opt} className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-[#f4f4f4]/30">
+                                  <input type="checkbox" checked={filters.priorities.has(opt)} onChange={() => toggleFilter("priorities", opt)} className="h-4 w-4 accent-black" />
+                                  <span className="text-sm font-bold text-black">{opt}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   )}
-                </button>
+                </div>
               </div>
 
               <div className="flex items-center gap-3">
-                <p className="hidden text-xs font-bold text-mme-purple/45 sm:block">
+                <p className="hidden text-xs font-bold text-black/45 sm:block">
                   {filteredRows.length !== workspace.rows.length
                     ? `${filteredRows.length} of ${workspace.rows.length} rows`
                     : `${workspace.rows.length} total rows`} · {workspace.columns.length} columns
                 </p>
                 <div className="relative min-w-0 flex-1 lg:w-72 lg:flex-none">
-                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-mme-plum" size={17} />
-                  <input value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="Search all cells..." className="w-full rounded-xl border border-mme-pink/70 bg-[#fff9fc] py-2.5 pl-10 pr-9 text-sm outline-none focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/20" />
-                  {searchText && <button onClick={() => setSearchText("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-mme-purple/40 hover:text-mme-purple"><X size={15} /></button>}
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#333333]" size={17} />
+                  <input value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="Search all cells..." className="w-full rounded-xl border border-[#d6d6d6]/70 bg-[#ffffff] py-2.5 pl-10 pr-9 text-sm outline-none focus:border-[#333333] focus:ring-4 focus:ring-[#d6d6d6]/20" />
+                  {searchText && <button onClick={() => setSearchText("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-black/40 hover:text-black"><X size={15} /></button>}
                 </div>
               </div>
             </div>
-
-            {/* ── Filter Panel ── */}
-            {showFilters && (
-              <div className="border-b border-mme-pink/50 bg-[#fff9fc] px-5 py-5">
-                <div className="flex flex-wrap gap-x-8 gap-y-5">
-
-                  {/* Date Range */}
-                  <div>
-                    <p className="mb-2.5 text-[10px] font-black uppercase tracking-[0.18em] text-mme-plum">Date Range (Meeting)</p>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <input
-                        type="date"
-                        value={filters.dateFrom}
-                        onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value }))}
-                        className="rounded-xl border border-mme-pink px-3 py-2 text-sm text-mme-purple outline-none focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/20"
-                      />
-                      <span className="text-xs font-bold text-mme-purple/40">to</span>
-                      <input
-                        type="date"
-                        value={filters.dateTo}
-                        onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))}
-                        className="rounded-xl border border-mme-pink px-3 py-2 text-sm text-mme-purple outline-none focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/20"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Shift */}
-                  <div>
-                    <p className="mb-2.5 text-[10px] font-black uppercase tracking-[0.18em] text-mme-plum">Shift</p>
-                    <div className="flex gap-4">
-                      {SHIFT_OPTIONS.map((opt) => (
-                        <label key={opt} className="flex cursor-pointer items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={filters.shifts.has(opt)}
-                            onChange={() => toggleFilter("shifts", opt)}
-                            className="h-4 w-4 accent-mme-purple"
-                          />
-                          <span className="text-sm font-bold text-mme-purple">{opt}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Venue */}
-                  <div>
-                    <p className="mb-2.5 text-[10px] font-black uppercase tracking-[0.18em] text-mme-plum">Venue</p>
-                    <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-                      {VENUE_OPTIONS.map((opt) => (
-                        <label key={opt} className="flex cursor-pointer items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={filters.venues.has(opt)}
-                            onChange={() => toggleFilter("venues", opt)}
-                            className="h-4 w-4 accent-mme-purple"
-                          />
-                          <span className="text-sm font-bold text-mme-purple">{opt}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Assigned Employee */}
-                  <div className="min-w-44">
-                    <p className="mb-2.5 text-[10px] font-black uppercase tracking-[0.18em] text-mme-plum">Assigned Employee</p>
-                    <div className="max-h-36 space-y-2 overflow-y-auto pr-1">
-                      {employeeNames.length === 0 ? (
-                        <p className="text-xs text-mme-purple/40">No employees yet</p>
-                      ) : (
-                        employeeNames.map((name) => (
-                          <label key={name} className="flex cursor-pointer items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={filters.assignees.has(name)}
-                              onChange={() => toggleFilter("assignees", name)}
-                              className="h-4 w-4 accent-mme-purple"
-                            />
-                            <span className="text-sm font-bold text-mme-purple">{name}</span>
-                          </label>
-                        ))
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Status */}
-                  <div>
-                    <p className="mb-2.5 text-[10px] font-black uppercase tracking-[0.18em] text-mme-plum">Status</p>
-                    <div className="space-y-2">
-                      {STATUS_OPTIONS.map((opt) => (
-                        <label key={opt} className="flex cursor-pointer items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={filters.statuses.has(opt)}
-                            onChange={() => toggleFilter("statuses", opt)}
-                            className="h-4 w-4 accent-mme-purple"
-                          />
-                          <span className="text-sm font-bold text-mme-purple">{opt}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Priority */}
-                  <div>
-                    <p className="mb-2.5 text-[10px] font-black uppercase tracking-[0.18em] text-mme-plum">Priority</p>
-                    <div className="space-y-2">
-                      {PRIORITY_OPTIONS.map((opt) => (
-                        <label key={opt} className="flex cursor-pointer items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={filters.priorities.has(opt)}
-                            onChange={() => toggleFilter("priorities", opt)}
-                            className="h-4 w-4 accent-mme-purple"
-                          />
-                          <span className="text-sm font-bold text-mme-purple">{opt}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-
-                </div>
-
-                {activeFilterCount > 0 && (
-                  <div className="mt-4 flex items-center gap-3">
-                    <button
-                      onClick={clearFilters}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-mme-purple/20 px-3 py-1.5 text-xs font-black text-mme-purple hover:bg-mme-blush/30"
-                    >
-                      <X size={13} /> Clear all filters
-                    </button>
-                    <span className="text-xs text-mme-purple/50">{activeFilterCount} filter{activeFilterCount > 1 ? "s" : ""} active · {filteredRows.length} row{filteredRows.length !== 1 ? "s" : ""} shown</span>
-                  </div>
-                )}
-              </div>
-            )}
 
             {workspace.rows.length === 0 ? (
               <EmptyState onAddRow={addRow} onUpload={() => fileInputRef.current?.click()} />
@@ -879,16 +930,16 @@ export default function ManagementPage() {
                 <table className="border-separate border-spacing-0 text-left">
                   <thead className="sticky top-0 z-20">
                     <tr>
-                      <th className="sticky left-0 z-30 w-14 min-w-14 border-b border-r border-mme-pink/60 bg-mme-purple px-2 py-3 text-center text-xs font-black text-white">#</th>
+                      <th className="sticky left-0 z-30 w-14 min-w-14 border-b border-r border-[#d6d6d6]/60 bg-black px-2 py-3 text-center text-xs font-black text-white">#</th>
                       {workspace.columns.map((column) => (
                         <th
                           key={column.id}
                           style={{ width: column.width, minWidth: column.width }}
-                          className="relative border-b border-r border-white/15 bg-mme-purple px-3 py-3 align-top text-xs font-black text-white"
+                          className="relative border-b border-r border-white/15 bg-black px-3 py-3 align-top text-xs font-black text-white"
                         >
                           <div className="flex items-start justify-between gap-2 pr-1">
                             <span>{column.name}{column.required ? " *" : ""}</span>
-                            <span className="rounded-md bg-white/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-mme-pink">{column.type.replace("_", " ")}</span>
+                            <span className="rounded-md bg-white/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#d6d6d6]">{column.type.replace("_", " ")}</span>
                           </div>
                           <div
                             onMouseDown={(e) => startColumnResize(e, column.id)}
@@ -896,7 +947,7 @@ export default function ManagementPage() {
                           />
                         </th>
                       ))}
-                      <th className="sticky right-0 z-30 w-16 min-w-16 border-b border-l border-white/15 bg-mme-purple px-2 py-3 text-center text-xs font-black text-white">Action</th>
+                      <th className="sticky right-0 z-30 w-16 min-w-16 border-b border-l border-white/15 bg-black px-2 py-3 text-center text-xs font-black text-white">Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -905,14 +956,14 @@ export default function ManagementPage() {
                       return (
                         <tr key={row.id} className="group" style={rowH ? { height: `${rowH}px` } : undefined}>
                           <td
-                            className="sticky left-0 z-10 border-b border-r border-mme-pink/50 bg-[#fff9fc] text-center text-xs font-black text-mme-purple/45 group-hover:bg-mme-blush/35"
+                            className="sticky left-0 z-10 border-b border-r border-[#d6d6d6]/50 bg-[#ffffff] text-center text-xs font-black text-black/45 group-hover:bg-[#f4f4f4]/35"
                             style={rowH ? { height: `${rowH}px` } : undefined}
                           >
                             <div className="relative flex w-full min-h-11 items-center justify-center px-2" style={rowH ? { height: `${rowH}px` } : undefined}>
                               {row.rowNumber}
                               <div
                                 onMouseDown={(e) => startRowResize(e, row.id)}
-                                className="absolute bottom-0 left-0 right-0 h-1.5 cursor-row-resize hover:bg-mme-purple/30"
+                                className="absolute bottom-0 left-0 right-0 h-1.5 cursor-row-resize hover:bg-black/30"
                               />
                             </div>
                           </td>
@@ -920,7 +971,7 @@ export default function ManagementPage() {
                             <td
                               key={column.id}
                               style={{ width: column.width, minWidth: column.width, ...(rowH ? { height: `${rowH}px` } : {}) }}
-                              className="border-b border-r border-mme-pink/45 bg-white align-top group-hover:bg-[#fffbfd]"
+                              className="border-b border-r border-[#d6d6d6]/45 bg-white align-top group-hover:bg-[#fffbfd]"
                             >
                               <CellEditor
                                 column={column}
@@ -931,11 +982,11 @@ export default function ManagementPage() {
                             </td>
                           ))}
                           <td
-                            className="sticky right-0 z-10 border-b border-l border-mme-pink/50 bg-white px-2 text-center group-hover:bg-[#fffbfd]"
+                            className="sticky right-0 z-10 border-b border-l border-[#d6d6d6]/50 bg-white px-2 text-center group-hover:bg-[#fffbfd]"
                             style={rowH ? { height: `${rowH}px` } : undefined}
                           >
                             <div className="flex min-h-11 items-center justify-center" style={rowH ? { height: `${rowH}px` } : undefined}>
-                              <button onClick={() => deleteRow(row.id)} className="rounded-xl p-2 text-mme-purple/35 transition hover:bg-red-50 hover:text-red-500" title="Delete row"><Trash2 size={17} /></button>
+                              <button onClick={() => setConfirmDeleteRowId(row.id)} className="rounded-xl p-2 text-black/35 transition hover:bg-red-50 hover:text-red-500" title="Delete row"><Trash2 size={17} /></button>
                             </div>
                           </td>
                         </tr>
@@ -947,16 +998,16 @@ export default function ManagementPage() {
                 {filteredRows.length === 0 && (
                   <div className="grid min-h-72 place-items-center p-8 text-center">
                     <div>
-                      <Search className="mx-auto text-mme-mauve" size={34} />
-                      <p className="mt-4 font-black text-mme-purple">No matching rows</p>
+                      <Search className="mx-auto text-[#a9a9a9]" size={34} />
+                      <p className="mt-4 font-black text-black">No matching rows</p>
                       <div className="mt-3 flex flex-wrap justify-center gap-3">
                         {searchText && (
-                          <button onClick={() => setSearchText("")} className="text-sm font-black text-mme-plum hover:text-mme-purple">
+                          <button onClick={() => setSearchText("")} className="text-sm font-black text-[#333333] hover:text-black">
                             Clear search
                           </button>
                         )}
                         {activeFilterCount > 0 && (
-                          <button onClick={clearFilters} className="text-sm font-black text-mme-plum hover:text-mme-purple">
+                          <button onClick={clearFilters} className="text-sm font-black text-[#333333] hover:text-black">
                             Clear filters ({activeFilterCount})
                           </button>
                         )}
@@ -967,7 +1018,7 @@ export default function ManagementPage() {
               </div>
             )}
 
-            <div className="flex flex-col justify-between gap-2 border-t border-mme-pink/50 bg-[#fff9fc] px-4 py-3 text-xs text-mme-purple/50 sm:flex-row sm:items-center">
+            <div className="flex flex-col justify-between gap-2 border-t border-[#d6d6d6]/50 bg-[#ffffff] px-4 py-3 text-xs text-black/50 sm:flex-row sm:items-center">
               <p>Drag column edges to resize width · Drag row edges to resize height · Press <strong>Save Changes</strong> to persist edits to the database.</p>
               <p className="font-bold">Supported imports: .xlsx and .csv</p>
             </div>
@@ -976,10 +1027,45 @@ export default function ManagementPage() {
       </main>
 
       {notice && (
-        <div className={`fixed bottom-5 right-5 z-[120] flex max-w-md items-start gap-3 rounded-2xl border px-5 py-4 shadow-2xl ${notice.type === "error" ? "border-red-200 bg-red-50 text-red-700" : notice.type === "info" ? "border-mme-pink bg-white text-mme-purple" : "border-mme-pink bg-white text-mme-purple"}`}>
-          {notice.type === "error" ? <X className="mt-0.5 shrink-0" size={18} /> : notice.type === "info" ? <CalendarDays className="mt-0.5 shrink-0 text-mme-plum" size={18} /> : <Check className="mt-0.5 shrink-0 text-mme-plum" size={18} />}
+        <div className={`fixed bottom-5 right-5 z-[120] flex max-w-md items-start gap-3 rounded-2xl border px-5 py-4 shadow-2xl ${notice.type === "error" ? "border-red-200 bg-red-50 text-red-700" : notice.type === "info" ? "border-[#d6d6d6] bg-white text-black" : "border-[#d6d6d6] bg-white text-black"}`}>
+          {notice.type === "error" ? <X className="mt-0.5 shrink-0" size={18} /> : notice.type === "info" ? <CalendarDays className="mt-0.5 shrink-0 text-[#333333]" size={18} /> : <Check className="mt-0.5 shrink-0 text-[#333333]" size={18} />}
           <p className="text-sm font-bold leading-6">{notice.message}</p>
           <button onClick={() => setNotice(null)} className="ml-2 opacity-50 hover:opacity-100"><X size={15} /></button>
+        </div>
+      )}
+
+      {/* ── Delete row confirmation modal ── */}
+      {confirmDeleteRowId !== null && (
+        <div className="fixed inset-0 z-[110] grid place-items-center bg-black/50 px-5 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-[28px] border border-[#d6d6d6] bg-white p-7 shadow-2xl">
+            <div className="flex h-13 w-13 items-center justify-center rounded-2xl bg-red-50 text-red-500">
+              <Trash2 size={24} />
+            </div>
+
+            <h2 className="mt-5 text-xl font-black text-black">Delete this row?</h2>
+            <p className="mt-2 text-sm leading-6 text-black/60">
+              This row will be permanently removed. This action cannot be undone
+              unless you discard unsaved changes.
+            </p>
+
+            <div className="mt-7 flex gap-3">
+              <button
+                onClick={() => setConfirmDeleteRowId(null)}
+                className="flex-1 rounded-2xl border border-black/20 bg-white py-3 text-sm font-black text-black transition hover:bg-[#f4f4f4]/30"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  deleteRow(confirmDeleteRowId);
+                  setConfirmDeleteRowId(null);
+                }}
+                className="flex-1 rounded-2xl bg-red-500 py-3 text-sm font-black text-white transition hover:bg-red-600"
+              >
+                Yes, delete
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

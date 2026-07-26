@@ -135,8 +135,31 @@ app.use("/api", notFoundHandler);
 if (existsSync(frontendIndexFile)) {
   /*
    * Serve JavaScript, CSS, images, SVG and other static files.
+   *
+   * Vite fingerprints every file inside /assets with a content hash
+   * (e.g. index-B19tPwLQ.js), so it is safe to cache those long-term.
+   * index.html itself is NOT hashed, so it must never be cached —
+   * otherwise browsers/CDNs keep serving an old build forever even
+   * after a successful deploy.
    */
-  app.use(express.static(frontendBuildDirectory));
+  app.use(
+    express.static(frontendBuildDirectory, {
+      index: false,
+      setHeaders(res, filePath) {
+        if (path.basename(filePath) === "index.html") {
+          res.setHeader(
+            "Cache-Control",
+            "no-store, no-cache, must-revalidate",
+          );
+        } else {
+          res.setHeader(
+            "Cache-Control",
+            "public, max-age=31536000, immutable",
+          );
+        }
+      },
+    }),
+  );
 
   /*
    * React Router fallback.
@@ -152,6 +175,10 @@ if (existsSync(frontendIndexFile)) {
    * Express 5 requires a named wildcard.
    */
   app.get("/{*splat}", (req, res) => {
+    res.setHeader(
+      "Cache-Control",
+      "no-store, no-cache, must-revalidate",
+    );
     return res.sendFile(frontendIndexFile);
   });
 } else {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { Eye, EyeOff, KeyRound, Lock, Mail } from "lucide-react";
 
 export default function EmployeeIdentityModal({ onSubmit }) {
@@ -27,13 +27,13 @@ export default function EmployeeIdentityModal({ onSubmit }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[100] grid place-items-center bg-mme-purple/70 px-5 py-8 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[100] grid place-items-center bg-black/70 px-5 py-8 backdrop-blur-sm">
       <div className="w-full max-w-lg overflow-hidden rounded-[30px] border border-white/40 bg-white shadow-[0_30px_100px_rgba(35,16,45,0.35)]">
-        <div className="bg-gradient-to-br from-mme-purple to-mme-plum px-7 py-8 text-white sm:px-9">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/15 text-mme-blush">
+        <div className="bg-gradient-to-br from-black to-[#333333] px-7 py-8 text-white sm:px-9">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/15 text-[#f4f4f4]">
             <KeyRound size={27} />
           </div>
-          <p className="mt-6 text-xs font-black uppercase tracking-[0.22em] text-mme-pink">
+          <p className="mt-6 text-xs font-black uppercase tracking-[0.22em] text-[#d6d6d6]">
             Employee Login
           </p>
           <h1 className="mt-2 text-3xl font-black">Welcome back</h1>
@@ -51,11 +51,11 @@ export default function EmployeeIdentityModal({ onSubmit }) {
           )}
 
           <div>
-            <label className="mb-2 block text-sm font-black text-mme-purple" htmlFor="emp-email">
+            <label className="mb-2 block text-sm font-black text-black" htmlFor="emp-email">
               Email
             </label>
             <div className="relative">
-              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-mme-plum" size={18} />
+              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-[#333333]" size={18} />
               <input
                 id="emp-email"
                 type="email"
@@ -63,31 +63,31 @@ export default function EmployeeIdentityModal({ onSubmit }) {
                 autoFocus
                 value={form.email}
                 onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                className="w-full rounded-2xl border border-mme-pink bg-white py-3.5 pl-12 pr-4 outline-none transition focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/25"
+                className="w-full rounded-2xl border border-[#d6d6d6] bg-white py-3.5 pl-12 pr-4 outline-none transition focus:border-black focus:ring-4 focus:ring-[#d6d6d6]/40"
                 placeholder="your@email.com"
               />
             </div>
           </div>
 
           <div>
-            <label className="mb-2 block text-sm font-black text-mme-purple" htmlFor="emp-password">
+            <label className="mb-2 block text-sm font-black text-black" htmlFor="emp-password">
               Password
             </label>
             <div className="relative">
-              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-mme-plum" size={18} />
+              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-[#333333]" size={18} />
               <input
                 id="emp-password"
                 type={showPassword ? "text" : "password"}
                 required
                 value={form.password}
                 onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                className="w-full rounded-2xl border border-mme-pink bg-white py-3.5 pl-12 pr-12 outline-none transition focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/25"
+                className="w-full rounded-2xl border border-[#d6d6d6] bg-white py-3.5 pl-12 pr-12 outline-none transition focus:border-black focus:ring-4 focus:ring-[#d6d6d6]/40"
                 placeholder="Enter your password"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword((v) => !v)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-mme-purple/40 hover:text-mme-purple"
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-black/40 hover:text-black"
               >
                 {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
               </button>
@@ -97,7 +97,7 @@ export default function EmployeeIdentityModal({ onSubmit }) {
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-2xl bg-mme-purple px-6 py-4 text-sm font-black text-white shadow-xl shadow-mme-purple/20 transition hover:-translate-y-0.5 hover:bg-[#4b2c55] disabled:opacity-60 disabled:translate-y-0"
+            className="w-full rounded-2xl bg-black px-6 py-4 text-sm font-black text-white shadow-xl shadow-black/20 transition hover:-translate-y-0.5 hover:bg-[#222222] disabled:opacity-60 disabled:translate-y-0"
           >
             {loading ? (
               <span className="flex items-center justify-center gap-2">
@@ -107,7 +107,7 @@ export default function EmployeeIdentityModal({ onSubmit }) {
             ) : "Sign in to workspace"}
           </button>
 
-          <p className="text-center text-xs leading-5 text-mme-purple/50">
+          <p className="text-center text-xs leading-5 text-black/50">
             Don&apos;t have credentials? Contact your admin.
           </p>
         </form>
