@@ -27,7 +27,7 @@ function Navbar() {
             to="/management"
             className="rounded-lg bg-black px-5 py-2 text-sm font-bold text-white transition hover:bg-[#222]"
           >
-            Open Management
+            Log In
           </Link>
         </div>
 
@@ -55,7 +55,7 @@ function Navbar() {
               onClick={() => setOpen(false)}
               className="mt-2 rounded-lg bg-black px-4 py-2.5 text-center text-sm font-bold text-white"
             >
-              Open Management
+              Log In
             </Link>
           </div>
         </div>
@@ -102,7 +102,7 @@ export default function LandingPage() {
                 to="/management"
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-black px-8 py-4 text-sm font-bold text-white transition hover:bg-[#222] sm:w-auto"
               >
-                Open Management
+                Log In
               </Link>
               <Link
                 to="/calendar"
