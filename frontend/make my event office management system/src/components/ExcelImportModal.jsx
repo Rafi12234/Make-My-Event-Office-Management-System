@@ -28,7 +28,10 @@ export default function ExcelImportModal({ preview, onClose, onConfirm }) {
           <div className="mb-5 flex items-start gap-3 rounded-2xl border border-[#d6d6d6] bg-[#f4f4f4]/25 p-4">
             <PlusCircle className="mt-0.5 shrink-0 text-[#333333]" size={19} />
             <p className="text-sm leading-6 text-black/70">
-              The first Excel row becomes column headings. Matching headings use existing columns; new headings create new columns. Blank rows are ignored.
+              The first Excel row becomes column headings and must include every mandatory column
+              (Client Name, Venue, Shift, Client Phone Number, Floor, Guest Count, Event Date).
+              Only columns matching an existing sheet column are imported — any extra columns are
+              ignored. Blank or "N/A" cells are stored and shown as N/A. Blank rows are ignored.
             </p>
           </div>
 

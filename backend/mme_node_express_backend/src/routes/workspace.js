@@ -55,6 +55,10 @@ async function getDefaultSheet(connection) {
 }
 
 function cellValue(row, dataType) {
+  // A cell that was saved as "Not Available" always reads back as the
+  // literal text "N/A", no matter what data type the column is (integer,
+  // currency, date, etc.) — none of the typed value columns apply to it.
+  if (row.display_value === "N/A") return "N/A";
   if (dataType === "integer") return row.value_integer;
   if (["decimal", "currency"].includes(dataType)) return row.value_decimal;
   if (dataType === "date") return row.value_date;
@@ -280,7 +284,14 @@ router.put("/default", async (req, res, next) => {
         let valueEmployeeId = null;
         let displayValue = rawValue === null || rawValue === undefined ? "" : String(rawValue);
 
-        if (column.dataType === "integer" && displayValue !== "") valueInteger = Math.round(Number(displayValue));
+        if (displayValue.trim().toUpperCase() === "N/A") {
+          // Preserve "Not Available" values verbatim regardless of the
+          // column's declared data type — no numeric/date/boolean/employee
+          // coercion is attempted, so the value can never silently become
+          // null on read; it always comes back as the literal text "N/A".
+          valueText = "N/A";
+          displayValue = "N/A";
+        } else if (column.dataType === "integer" && displayValue !== "") valueInteger = Math.round(Number(displayValue));
         else if (["decimal", "currency"].includes(column.dataType) && displayValue !== "") valueDecimal = Number(displayValue);
         else if (column.dataType === "date") valueDate = displayValue || null;
         else if (column.dataType === "time") valueTime = displayValue || null;
