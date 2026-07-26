@@ -77,7 +77,7 @@ function FormField({
     <div>
       <label
         htmlFor={name}
-        className="mb-2 block text-sm font-extrabold text-black"
+        className="mb-2  block text-sm font-extrabold text-black"
       >
         {label}
 
