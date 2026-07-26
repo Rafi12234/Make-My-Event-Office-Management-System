@@ -106,51 +106,23 @@ jobs:
           echo "Deployment files validated."
 
       # ---------------------------------------------------------
-      # 6. Create backend and frontend deployment archives
-      # ---------------------------------------------------------
-      - name: Create deployment archives
-        run: |
-          BACKEND_FILES=(
-            app.js
-            package.json
-            package-lock.json
-            src
-          )
-
-          if [ -d "${BACKEND_DIR}/database" ]; then
-            BACKEND_FILES+=(database)
-          fi
-
-          tar -czf "mme-backend-${GITHUB_SHA}.tar.gz" \
-            -C "${BACKEND_DIR}" \
-            "${BACKEND_FILES[@]}"
-
-          tar -czf "mme-frontend-${GITHUB_SHA}.tar.gz" \
-            -C "${FRONTEND_DIR}/dist" \
-            .
-
-          test -s "mme-backend-${GITHUB_SHA}.tar.gz"
-          test -s "mme-frontend-${GITHUB_SHA}.tar.gz"
-
-          echo "Deployment archives created."
-
-      # ---------------------------------------------------------
-      # 7. Configure SSH
+      # 6. Configure SSH (used for the SFTP subsystem only —
+      #    this cPanel account has interactive shell/exec disabled,
+      #    so no `ssh user@host "command"` calls work. SFTP does
+      #    NOT go through the login shell, so file transfers work
+      #    even though remote command execution does not.
       # ---------------------------------------------------------
       - name: Configure SSH
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USERNAME: ${{ secrets.SSH_USERNAME }}
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-
           SSH_PORT: ${{ vars.SSH_PORT }}
-          NODE_ACTIVATE: ${{ vars.NODE_ACTIVATE }}
         run: |
           test -n "$SSH_HOST"
           test -n "$SSH_USERNAME"
           test -n "$SSH_PRIVATE_KEY"
           test -n "$SSH_PORT"
-          test -n "$NODE_ACTIVATE"
 
           install -m 700 -d "$HOME/.ssh"
 
@@ -180,225 +152,114 @@ jobs:
           echo "SSH configuration completed."
 
       # ---------------------------------------------------------
-      # 8. Test GitHub Actions to cPanel SSH connection
+      # 7. Confirm the SFTP subsystem is reachable
+      #    (interactive shell is disabled on this account, so this
+      #    intentionally never runs a remote command — only a
+      #    pure SFTP "pwd" to prove file-transfer connectivity).
       # ---------------------------------------------------------
-      - name: Test SSH connection
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USERNAME: ${{ secrets.SSH_USERNAME }}
-
-          SSH_PORT: ${{ vars.SSH_PORT }}
-          NODE_ACTIVATE: ${{ vars.NODE_ACTIVATE }}
-        run: |
-          ssh \
-            -i "$HOME/.ssh/mme_deploy_key" \
-            -p "$SSH_PORT" \
-            -o BatchMode=yes \
-            -o ConnectTimeout=20 \
-            -o StrictHostKeyChecking=yes \
-            "$SSH_USERNAME@$SSH_HOST" \
-            "test -d '${APP_DIR}' &&
-             test -f '${APP_DIR}/app.js' &&
-             test -f '${NODE_ACTIVATE}' &&
-             echo 'SSH and cPanel application verified'"
-
-      # ---------------------------------------------------------
-      # 9. Upload backend and frontend archives
-      # ---------------------------------------------------------
-      - name: Upload deployment archives
+      - name: Test SFTP connection
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USERNAME: ${{ secrets.SSH_USERNAME }}
           SSH_PORT: ${{ vars.SSH_PORT }}
         run: |
-          scp \
+          echo "pwd" > sftp_ping.txt
+
+          sftp \
             -i "$HOME/.ssh/mme_deploy_key" \
             -P "$SSH_PORT" \
+            -o BatchMode=yes \
             -o StrictHostKeyChecking=yes \
-            "mme-backend-${GITHUB_SHA}.tar.gz" \
-            "mme-frontend-${GITHUB_SHA}.tar.gz" \
-            "$SSH_USERNAME@$SSH_HOST:~/"
+            -b sftp_ping.txt \
+            "$SSH_USERNAME@$SSH_HOST"
 
-          echo "Deployment archives uploaded."
+          echo "SFTP connection verified."
 
       # ---------------------------------------------------------
-      # 10. Deploy backend and frontend to cPanel
+      # 8. Deploy frontend + backend straight over SFTP
+      #
+      # No remote command execution is available on this host, so
+      # this step ONLY performs file-transfer operations (put, rm,
+      # mkdir) — everything the SFTP subsystem supports without a
+      # working interactive shell.
+      #
+      # Trade-off: because "npm install" cannot be run remotely,
+      # backend dependencies are NOT reinstalled automatically. If
+      # package.json/package-lock.json changed, run "NPM Install"
+      # manually from cPanel's "Setup Node.js App" screen after this
+      # workflow finishes.
       # ---------------------------------------------------------
-      - name: Deploy application
+      - name: Deploy via SFTP
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USERNAME: ${{ secrets.SSH_USERNAME }}
-
           SSH_PORT: ${{ vars.SSH_PORT }}
-          NODE_ACTIVATE: ${{ vars.NODE_ACTIVATE }}
         run: |
-          ssh \
+          FRONTEND_DIST="$GITHUB_WORKSPACE/${FRONTEND_DIR}/dist"
+          BACKEND_ROOT="$GITHUB_WORKSPACE/${BACKEND_DIR}"
+
+          : > "$GITHUB_WORKSPACE/restart-trigger.txt"
+
+          {
+            echo "cd ${APP_DIR}"
+            echo "-mkdir public"
+            echo "-mkdir public/assets"
+            echo "-rm public/assets/*"
+            echo "lcd \"$FRONTEND_DIST\""
+            echo "put index.html public/index.html"
+            echo "put favicon.svg public/favicon.svg"
+            echo "put icons.svg public/icons.svg"
+            echo "lcd \"$FRONTEND_DIST/assets\""
+            echo "put * public/assets/"
+
+            echo "cd ${APP_DIR}"
+            echo "-mkdir src"
+            echo "-mkdir src/config"
+            echo "-mkdir src/middleware"
+            echo "-mkdir src/routes"
+            echo "lcd \"$BACKEND_ROOT/src\""
+            echo "put server.js src/server.js"
+            echo "lcd \"$BACKEND_ROOT/src/config\""
+            echo "put * src/config/"
+            echo "lcd \"$BACKEND_ROOT/src/middleware\""
+            echo "put * src/middleware/"
+            echo "lcd \"$BACKEND_ROOT/src/routes\""
+            echo "put * src/routes/"
+
+            echo "cd ${APP_DIR}"
+            echo "lcd \"$BACKEND_ROOT\""
+            echo "put app.js"
+            echo "put package.json"
+            echo "put package-lock.json"
+
+            echo "-mkdir tmp"
+            echo "lcd \"$GITHUB_WORKSPACE\""
+            echo "put restart-trigger.txt tmp/restart.txt"
+            echo "bye"
+          } > "$GITHUB_WORKSPACE/sftp_deploy.txt"
+
+          cat "$GITHUB_WORKSPACE/sftp_deploy.txt"
+
+          sftp \
             -i "$HOME/.ssh/mme_deploy_key" \
-            -p "$SSH_PORT" \
+            -P "$SSH_PORT" \
+            -o BatchMode=yes \
             -o StrictHostKeyChecking=yes \
-            "$SSH_USERNAME@$SSH_HOST" \
-            "APP_DIR='${APP_DIR}' \
-             RELEASE_ID='${GITHUB_SHA}' \
-             NODE_ACTIVATE='${NODE_ACTIVATE}' \
-             bash -s" <<'REMOTE_SCRIPT'
+            -b "$GITHUB_WORKSPACE/sftp_deploy.txt" \
+            "$SSH_USERNAME@$SSH_HOST"
 
-          set -Eeuo pipefail
-
-          BACKEND_ARCHIVE="$HOME/mme-backend-$RELEASE_ID.tar.gz"
-          FRONTEND_ARCHIVE="$HOME/mme-frontend-$RELEASE_ID.tar.gz"
-
-          STAGE_DIR="$HOME/.mme-deployment-$RELEASE_ID"
-
-          cleanup() {
-            rm -rf "$STAGE_DIR"
-
-            rm -f \
-              "$BACKEND_ARCHIVE" \
-              "$FRONTEND_ARCHIVE"
-          }
-
-          trap cleanup EXIT
-
-          echo "Checking uploaded archives..."
-
-          test -f "$BACKEND_ARCHIVE"
-          test -f "$FRONTEND_ARCHIVE"
-          test -f "$NODE_ACTIVATE"
-
-          echo "Creating temporary deployment folder..."
-
-          rm -rf "$STAGE_DIR"
-
-          mkdir -p \
-            "$STAGE_DIR/backend" \
-            "$STAGE_DIR/frontend"
-
-          echo "Extracting backend..."
-
-          tar -xzf "$BACKEND_ARCHIVE" \
-            -C "$STAGE_DIR/backend"
-
-          echo "Extracting frontend..."
-
-          tar -xzf "$FRONTEND_ARCHIVE" \
-            -C "$STAGE_DIR/frontend"
-
-          echo "Validating extracted application..."
-
-          test -f "$STAGE_DIR/backend/app.js"
-          test -f "$STAGE_DIR/backend/package.json"
-          test -f "$STAGE_DIR/backend/package-lock.json"
-          test -f "$STAGE_DIR/backend/src/server.js"
-
-          test -f "$STAGE_DIR/frontend/index.html"
-          test -d "$STAGE_DIR/frontend/assets"
-
-          mkdir -p \
-            "$APP_DIR" \
-            "$APP_DIR/tmp"
-
-          echo "Updating backend package files..."
-
-          cp \
-            "$STAGE_DIR/backend/app.js" \
-            "$APP_DIR/app.js"
-
-          cp \
-            "$STAGE_DIR/backend/package.json" \
-            "$APP_DIR/package.json"
-
-          cp \
-            "$STAGE_DIR/backend/package-lock.json" \
-            "$APP_DIR/package-lock.json"
-
-          echo "Activating cPanel Node.js environment..."
-
-          source "$NODE_ACTIVATE"
-
-          export NODE_ENV=production
-
-          cd "$APP_DIR"
-
-          echo "Installing production backend dependencies..."
-
-          npm config set registry https://registry.npmjs.org/
-
-          npm install \
-            --omit=dev \
-            --no-audit \
-            --no-fund
-
-          echo "Preparing updated backend source..."
-
-          rm -rf "$APP_DIR/src.next"
-
-          cp -a \
-            "$STAGE_DIR/backend/src" \
-            "$APP_DIR/src.next"
-
-          test -f "$APP_DIR/src.next/server.js"
-
-          echo "Preparing updated frontend build..."
-
-          rm -rf "$APP_DIR/public.next"
-
-          cp -a \
-            "$STAGE_DIR/frontend" \
-            "$APP_DIR/public.next"
-
-          test -f "$APP_DIR/public.next/index.html"
-          test -d "$APP_DIR/public.next/assets"
-
-          echo "Replacing backend source..."
-
-          rm -rf "$APP_DIR/src"
-
-          mv \
-            "$APP_DIR/src.next" \
-            "$APP_DIR/src"
-
-          echo "Replacing frontend build..."
-
-          rm -rf "$APP_DIR/public"
-
-          mv \
-            "$APP_DIR/public.next" \
-            "$APP_DIR/public"
-
-          if [ -d "$STAGE_DIR/backend/database" ]; then
-            echo "Updating database migration files..."
-
-            rm -rf "$APP_DIR/database.next"
-
-            cp -a \
-              "$STAGE_DIR/backend/database" \
-              "$APP_DIR/database.next"
-
-            rm -rf "$APP_DIR/database"
-
-            mv \
-              "$APP_DIR/database.next" \
-              "$APP_DIR/database"
-          fi
-
-          echo "Restarting Passenger application..."
-
-          mkdir -p "$APP_DIR/tmp"
-
-          touch "$APP_DIR/tmp/restart.txt"
-
-          echo "Deployment completed successfully."
-
-          REMOTE_SCRIPT
+          echo "SFTP deployment completed."
+          echo "NOTE: backend dependencies are NOT auto-installed (no shell exec available)."
+          echo "If package.json changed, run 'NPM Install' manually in cPanel's Setup Node.js App page."
 
       # ---------------------------------------------------------
-      # 11. Wait for Passenger to restart
+      # 9. Wait for Passenger to restart
       # ---------------------------------------------------------
       - name: Wait for application restart
         run: sleep 12
 
       # ---------------------------------------------------------
-      # 12. Verify backend and MySQL connection
+      # 10. Verify backend and MySQL connection
       # ---------------------------------------------------------
       - name: Verify backend health
         run: |
@@ -434,10 +295,26 @@ jobs:
           exit 1
 
       # ---------------------------------------------------------
-      # 13. Verify React frontend
+      # 11. Verify React frontend
+      #
+      # This does more than check for a doctype — it confirms the
+      # live page actually references the SAME hashed JS bundle that
+      # was just built in this run. A stale deploy (e.g. the SFTP
+      # step silently failing) would serve an OLD index.html
+      # pointing at a DIFFERENT hashed filename, which this catches.
       # ---------------------------------------------------------
       - name: Verify frontend
         run: |
+          EXPECTED_JS="$(
+            grep -oE 'assets/index-[A-Za-z0-9_-]+\.js' \
+              "${FRONTEND_DIR}/dist/index.html" \
+              | head -n1
+          )"
+
+          test -n "$EXPECTED_JS"
+
+          echo "Expecting live page to reference: $EXPECTED_JS"
+
           PAGE="$(
             curl \
               --fail \
@@ -451,4 +328,12 @@ jobs:
           echo "$PAGE" |
             grep -qi "<!doctype html>"
 
-          echo "Frontend verification passed."
+          if ! echo "$PAGE" | grep -qF "$EXPECTED_JS"; then
+            echo "Live page does NOT reference the freshly built bundle ($EXPECTED_JS)."
+            echo "The deployment likely did not actually update index.html on the server."
+            echo "--- Live page received ---"
+            echo "$PAGE"
+            exit 1
+          fi
+
+          echo "Frontend verification passed — live page serves the current build."
