@@ -152,21 +152,42 @@ function formatDisplayDatetime(value) {
   return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
-// Position the hover card near the client pill that triggered it, clamped so
-// it never runs off the viewport edges.
-function computeTooltipStyle(rect) {
-  const width  = 340;
-  const style  = { width: `${width}px`, maxHeight: `${Math.min(420, window.innerHeight - 24)}px` };
+// Position the hover card near the client pill that triggered it. Tries
+// opening below/above the pill first (like a dropdown); if neither vertical
+// direction has decent room but there's more room to a side, it opens
+// beside the pill instead — the card is never confined to only ever
+// appearing above/below. Height is intentionally left unconstrained (no
+// max-height/scrollbar) — callers can request a wider card (`wide: true`)
+// so a lot of content spreads into two columns instead of growing very tall.
+function computeTooltipStyle(rect, { wide = false } = {}) {
+  const margin = 12;
+  const width  = wide ? 640 : 340;
+  const style  = { width: `${width}px` };
 
-  let left = rect.left;
-  if (left + width > window.innerWidth - 12) left = window.innerWidth - width - 12;
-  if (left < 12) left = 12;
-  style.left = `${left}px`;
+  const spaceBelow = window.innerHeight - rect.bottom - margin;
+  const spaceAbove = rect.top - margin;
+  const spaceRight = window.innerWidth - rect.right - margin;
+  const spaceLeft  = rect.left - margin;
 
-  const spaceBelow  = window.innerHeight - rect.bottom;
-  const openUpward  = spaceBelow < 260 && rect.top > 260;
-  if (openUpward) style.bottom = `${window.innerHeight - rect.top + 8}px`;
-  else style.top = `${rect.bottom + 8}px`;
+  const bestVertical   = Math.max(spaceBelow, spaceAbove);
+  const bestHorizontal = Math.max(spaceRight, spaceLeft);
+
+  if (bestVertical >= 220 || bestVertical >= bestHorizontal) {
+    if (spaceBelow >= spaceAbove) style.top = `${rect.bottom + 8}px`;
+    else style.bottom = `${window.innerHeight - rect.top + 8}px`;
+
+    let left = rect.left;
+    if (left + width > window.innerWidth - margin) left = window.innerWidth - width - margin;
+    if (left < margin) left = margin;
+    style.left = `${left}px`;
+  } else {
+    if (spaceRight >= spaceLeft) style.left = `${rect.right + 8}px`;
+    else style.left = `${Math.max(margin, rect.left - width - 8)}px`;
+
+    let top = rect.top;
+    if (top < margin) top = margin;
+    style.top = `${top}px`;
+  }
 
   return style;
 }
@@ -383,7 +404,7 @@ function ManualEventCard({ event, onEdit, onDelete }) {
 // /calendar/day details (management sheet columns, meeting details,
 // call details) but leaves out meeting pictures.
 
-function ClientHoverCard({ clientName, rowData, columns, extras, style }) {
+function ClientHoverCard({ clientName, rowData, columns, extras, rect }) {
   const skipNames = new Set(["Client Name"]);
   const detailFields = (columns || []).filter(
     (col) =>
@@ -397,83 +418,91 @@ function ClientHoverCard({ clientName, rowData, columns, extras, style }) {
   const calls     = extras?.calls || [];
   const meetings  = extras?.meetings || [];
 
+  // A lot of content is easier to scan spread across two columns than
+  // stretched into one very tall card — and it means the card never needs
+  // an inner scrollbar no matter how much history a client has.
+  const wide  = detailFields.length + meetings.length + calls.length > 6;
+  const style = computeTooltipStyle(rect, { wide });
+
   return (
     <div
       style={style}
-      className="fixed z-100 overflow-y-auto rounded-2xl border border-[#d6d6d6]/60 bg-white p-4 shadow-2xl"
+      className="fixed z-100 rounded-2xl border border-[#d6d6d6]/60 bg-white p-4 shadow-2xl"
     >
       <p className="text-sm font-black text-black">{clientName || "Unnamed client"}</p>
 
-      {detailFields.length > 0 && (
-        <div className="mt-2 space-y-1.5 border-b border-[#d6d6d6]/30 pb-3">
-          {detailFields.map((col) => {
-            const formatted = formatColValue(col.type, rowData[col.key]);
-            if (!formatted) return null;
-            return (
-              <div key={col.key} className="flex items-baseline gap-2">
-                <span className="w-28 shrink-0 text-[10px] font-black uppercase tracking-wide text-black/45">{col.name}</span>
-                <span className="wrap-break-word text-xs font-semibold text-black/80">{formatted}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <div className={wide ? "columns-2 gap-x-6" : ""}>
+        {detailFields.length > 0 && (
+          <div className="mt-2 break-inside-avoid-column space-y-1.5 border-b border-[#d6d6d6]/30 pb-3">
+            {detailFields.map((col) => {
+              const formatted = formatColValue(col.type, rowData[col.key]);
+              if (!formatted) return null;
+              return (
+                <div key={col.key} className="flex items-baseline gap-2">
+                  <span className="w-28 shrink-0 text-[10px] font-black uppercase tracking-wide text-black/45">{col.name}</span>
+                  <span className="wrap-break-word text-xs font-semibold text-black/80">{formatted}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
-      {isLoading ? (
-        <p className="mt-3 text-xs font-bold text-black/40">Loading…</p>
-      ) : (
-        <>
-          {meetings.length > 0 && (
-            <div className="mt-3">
-              <p className="text-[10px] font-black uppercase tracking-widest text-black/50">Meeting Details</p>
-              <div className="mt-1.5 space-y-2">
-                {meetings.map((m) => (
-                  <div key={m.id} className="rounded-lg border border-[#d6d6d6]/50 p-2.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-xs font-black text-black">{formatDisplayDatetime(m.meetingDatetime)}</p>
-                      {m.isCompleted && (
-                        <span className="rounded bg-black px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide text-white">
-                          Completed
-                        </span>
+        {isLoading ? (
+          <p className="mt-3 text-xs font-bold text-black/40">Loading…</p>
+        ) : (
+          <>
+            {meetings.length > 0 && (
+              <div className="mt-3 break-inside-avoid-column">
+                <p className="break-after-[avoid-column] text-[10px] font-black uppercase tracking-widest text-black/50">Meeting Details</p>
+                <div className="mt-1.5 space-y-2">
+                  {meetings.map((m) => (
+                    <div key={m.id} className="break-inside-avoid-column rounded-lg border border-[#d6d6d6]/50 p-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-black text-black">{formatDisplayDatetime(m.meetingDatetime)}</p>
+                        {m.isCompleted && (
+                          <span className="rounded bg-black px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide text-white">
+                            Completed
+                          </span>
+                        )}
+                      </div>
+                      {m.requirements?.length > 0 && (
+                        <ul className="mt-1.5 space-y-1">
+                          {m.requirements.map((req, i) => (
+                            <li key={req.key || i} className="text-[11px] leading-5 text-black/60">
+                              <span className="font-bold text-black/75">{req.label}: </span>
+                              {req.details}
+                            </li>
+                          ))}
+                        </ul>
                       )}
                     </div>
-                    {m.requirements?.length > 0 && (
-                      <ul className="mt-1.5 space-y-1">
-                        {m.requirements.map((req, i) => (
-                          <li key={req.key || i} className="text-[11px] leading-5 text-black/60">
-                            <span className="font-bold text-black/75">{req.label}: </span>
-                            {req.details}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {calls.length > 0 && (
-            <div className="mt-3">
-              <p className="text-[10px] font-black uppercase tracking-widest text-black/50">Call Details</p>
-              <div className="mt-1.5 space-y-2">
-                {calls.map((c) => (
-                  <div key={c.id} className="rounded-lg border border-[#d6d6d6]/50 p-2.5">
-                    <p className="text-xs font-black text-black">{formatDisplayDatetime(c.callDatetime)}</p>
-                    {c.callDiscussion && (
-                      <p className="mt-1 text-[11px] leading-5 text-black/60">{c.callDiscussion}</p>
-                    )}
-                  </div>
-                ))}
+            {calls.length > 0 && (
+              <div className="mt-3 break-inside-avoid-column">
+                <p className="break-after-[avoid-column] text-[10px] font-black uppercase tracking-widest text-black/50">Call Details</p>
+                <div className="mt-1.5 space-y-2">
+                  {calls.map((c) => (
+                    <div key={c.id} className="break-inside-avoid-column rounded-lg border border-[#d6d6d6]/50 p-2.5">
+                      <p className="text-xs font-black text-black">{formatDisplayDatetime(c.callDatetime)}</p>
+                      {c.callDiscussion && (
+                        <p className="mt-1 text-[11px] leading-5 text-black/60">{c.callDiscussion}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {meetings.length === 0 && calls.length === 0 && (
-            <p className="mt-3 text-xs font-bold text-black/40">No meeting or call history yet.</p>
-          )}
-        </>
-      )}
+            {meetings.length === 0 && calls.length === 0 && (
+              <p className="mt-3 text-xs font-bold text-black/40">No meeting or call history yet.</p>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -782,7 +811,7 @@ export default function CalendarPage() {
 
   // ── Client hover details (Meeting/Call history, fetched on-demand) ──────
   const [clientExtras, setClientExtras] = useState({}); // rowKey -> { isLoading, calls, meetings, error }
-  const [hoverInfo,    setHoverInfo]    = useState(null); // { rowKey, clientName, rowData, style }
+  const [hoverInfo,    setHoverInfo]    = useState(null); // { rowKey, clientName, rowData, rect }
   const requestedRowKeys = useRef(new Set());
 
   const ensureClientExtras = useCallback((rowKey) => {
@@ -813,7 +842,7 @@ export default function CalendarPage() {
       rowKey:     client.rowKey,
       clientName: client.clientName,
       rowData:    client.rowData,
-      style:      computeTooltipStyle(rect),
+      rect:       { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right, width: rect.width, height: rect.height },
     });
   }
 
@@ -1125,7 +1154,7 @@ export default function CalendarPage() {
           rowData={hoverInfo.rowData}
           columns={worksheetColumns}
           extras={clientExtras[hoverInfo.rowKey]}
-          style={hoverInfo.style}
+          rect={hoverInfo.rect}
         />
       )}
 

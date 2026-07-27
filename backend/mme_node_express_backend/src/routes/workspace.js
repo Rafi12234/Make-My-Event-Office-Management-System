@@ -1,7 +1,83 @@
 import { Router } from "express";
+import path from "node:path";
+import { unlink } from "node:fs";
 import { pool } from "../config/db.js";
+import { meetingImagesDirectory } from "./meetings.js";
 
 const router = Router();
+
+// When a client row is permanently removed from the worksheet (deleted by an
+// employee), delete every trace of that client elsewhere in the database too
+// — its meetings, meeting images (including the uploaded files on disk),
+// calls, finalization record, and any calendar events linked to it.
+// Without this, meetings/calls tied to a deleted client kept showing up in
+// the Calendar page even though the client no longer existed on the sheet.
+async function deleteClientDataForRowKeys(connection, rowKeys) {
+  if (!rowKeys.length) return;
+  const placeholders = rowKeys.map(() => "?").join(",");
+
+  try {
+    const [meetings] = await connection.query(
+      `SELECT id FROM client_meetings WHERE linked_row_key IN (${placeholders})`,
+      rowKeys,
+    );
+    const meetingIds = meetings.map((meeting) => meeting.id);
+
+    if (meetingIds.length) {
+      const meetingPlaceholders = meetingIds.map(() => "?").join(",");
+
+      const [images] = await connection.query(
+        `SELECT stored_file_name FROM client_meeting_images WHERE meeting_id IN (${meetingPlaceholders})`,
+        meetingIds,
+      );
+
+      await connection.query(
+        `DELETE FROM client_meeting_images WHERE meeting_id IN (${meetingPlaceholders})`,
+        meetingIds,
+      );
+
+      for (const image of images) {
+        if (image.stored_file_name) {
+          unlink(path.join(meetingImagesDirectory, image.stored_file_name), () => {});
+        }
+      }
+
+      await connection.query(
+        `DELETE FROM client_meetings WHERE id IN (${meetingPlaceholders})`,
+        meetingIds,
+      );
+    }
+  } catch {
+    // client_meetings / client_meeting_images tables may not exist yet — skip gracefully
+  }
+
+  try {
+    await connection.query(
+      `DELETE FROM client_calls WHERE linked_row_key IN (${placeholders})`,
+      rowKeys,
+    );
+  } catch {
+    // client_calls table may not exist yet — skip gracefully
+  }
+
+  try {
+    await connection.query(
+      `DELETE FROM client_finalizations WHERE linked_row_key IN (${placeholders})`,
+      rowKeys,
+    );
+  } catch {
+    // client_finalizations table may not exist yet — skip gracefully
+  }
+
+  try {
+    await connection.query(
+      `DELETE FROM calendar_events WHERE linked_row_key IN (${placeholders})`,
+      rowKeys,
+    );
+  } catch {
+    // calendar_events table may not exist yet — skip gracefully
+  }
+}
 
 const FRONTEND_TO_DB_TYPE = {
   text: "text",
@@ -341,20 +417,37 @@ router.put("/default", async (req, res, next) => {
       }
     }
 
+    let rowKeysBeingRemoved = [];
     if (activeRowKeys.length) {
       const placeholders = activeRowKeys.map(() => "?").join(",");
+
+      const [removedRows] = await connection.query(
+        `SELECT row_key FROM sheet_rows
+         WHERE sheet_id = ? AND row_key NOT IN (${placeholders}) AND is_archived = FALSE`,
+        [sheet.id, ...activeRowKeys],
+      );
+      rowKeysBeingRemoved = removedRows.map((row) => row.row_key);
+
       await connection.query(
         `UPDATE sheet_rows SET is_archived = TRUE, archived_at = NOW(), updated_by = ?
          WHERE sheet_id = ? AND row_key NOT IN (${placeholders})`,
         [employeeId, sheet.id, ...activeRowKeys],
       );
     } else {
+      const [removedRows] = await connection.execute(
+        `SELECT row_key FROM sheet_rows WHERE sheet_id = ? AND is_archived = FALSE`,
+        [sheet.id],
+      );
+      rowKeysBeingRemoved = removedRows.map((row) => row.row_key);
+
       await connection.execute(
         `UPDATE sheet_rows SET is_archived = TRUE, archived_at = NOW(), updated_by = ?
          WHERE sheet_id = ?`,
         [employeeId, sheet.id],
       );
     }
+
+    await deleteClientDataForRowKeys(connection, rowKeysBeingRemoved);
 
     await connection.execute(
       `UPDATE management_sheets SET updated_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
