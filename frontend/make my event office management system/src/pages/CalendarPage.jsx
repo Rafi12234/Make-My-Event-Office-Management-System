@@ -143,6 +143,16 @@ function to12h(t) {
   return `${h % 12 || 12}:${pad(m)} ${ampm}`;
 }
 
+// A client-linked event (worksheet, client_meeting, or client_call) is shown
+// in the month grid as just the client name + a headline saying whether it's
+// meeting details or call details — the day view is where the full details
+// (management sheet columns, meeting history, call history) live.
+function clientPillHeadline(ev) {
+  if (ev.source === "client_call") return "Manage Call details";
+  if (ev.source === "client_meeting" || ev.source === "worksheet") return "Manage Meetings details";
+  return null;
+}
+
 // ─── rowData field extractors ────────────────────────────────────
 
 function pickField(rowData, hints) {
@@ -176,8 +186,6 @@ const clientName = (r) => {
 const assignedEmp  = (r) => pickField(r, ["assigned_employee", "assigned", "employee"]);
 const statusVal    = (r) => pickField(r, ["status"]);
 const priorityVal  = (r) => pickField(r, ["priority"]);
-const venueVal     = (r) => pickField(r, ["venue", "hall", "location"]);
-const shiftVal     = (r) => pickField(r, ["shift"]);
 
 function mainNote(rowData, columnKey) {
   const isNext = columnKey && columnKey.toLowerCase().includes("next");
@@ -671,9 +679,10 @@ export default function CalendarPage() {
 
   // ── Event CRUD ─────────────────────────────────────────────────
 
-  const totalEvents = events.length;
-  const wsCount     = events.filter((e) => e.source === "worksheet").length;
-  const manualCount = events.filter((e) => e.source === "manual").length;
+  const totalEvents  = events.length;
+  const meetingCount = events.filter((e) => e.source === "worksheet" || e.source === "client_meeting").length;
+  const callCount     = events.filter((e) => e.source === "client_call").length;
+  const manualCount   = events.filter((e) => e.source === "manual").length;
 
   // ── Render ─────────────────────────────────────────────────────
   return (
@@ -731,7 +740,7 @@ export default function CalendarPage() {
               <p className="mt-1.5 text-sm text-black/60">
                 {totalEvents === 0
                   ? "No events this month"
-                  : `${totalEvents} event${totalEvents !== 1 ? "s" : ""} — ${wsCount} from management sheet · ${manualCount} scheduled`}
+                  : `${totalEvents} event${totalEvents !== 1 ? "s" : ""} — ${meetingCount} meeting · ${callCount} call · ${manualCount} scheduled`}
               </p>
             </div>
             <Link
@@ -833,11 +842,11 @@ export default function CalendarPage() {
                       {/* Event pills */}
                       <div className="mt-1 space-y-0.5">
                         {visible.map((ev) => {
-                          const st = eventStyle(ev.eventType);
-                          if (ev.source === "worksheet") {
+                          const st       = eventStyle(ev.eventType);
+                          const headline = clientPillHeadline(ev);
+
+                          if (headline) {
                             const cname = ev.clientName || ev.columnName;
-                            const venue = venueVal(ev.rowData);
-                            const shift = shiftVal(ev.rowData);
                             return (
                               <div
                                 key={ev.id}
@@ -847,11 +856,9 @@ export default function CalendarPage() {
                                   <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${st.dot}`} />
                                   <span className="truncate text-[11px] font-bold leading-none">{cname}</span>
                                 </div>
-                                {(venue || shift) && (
-                                  <p className="mt-0.5 truncate text-[10px] opacity-65">
-                                    {[venue, shift].filter(Boolean).join(" · ")}
-                                  </p>
-                                )}
+                                <p className="mt-0.5 truncate text-[10px] font-bold uppercase tracking-wide opacity-60">
+                                  {headline}
+                                </p>
                               </div>
                             );
                           }

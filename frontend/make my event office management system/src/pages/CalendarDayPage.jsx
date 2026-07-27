@@ -1,17 +1,14 @@
-﻿import { useCallback, useEffect, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import mmeLogo from "../assets/mme_logo.jpg";
 import {
   ArrowLeft,
+  CalendarClock,
   CalendarDays,
   Check,
   ChevronLeft,
   ChevronRight,
-  Clock,
-  Pencil,
-  Plus,
-  Trash2,
-  User,
+  Phone,
   UserRound,
   X,
 } from "lucide-react";
@@ -21,23 +18,9 @@ import {
   loadCurrentEmployee,
   saveCurrentEmployee,
 } from "../services/managementStorage";
-import {
-  createCalendarEvent,
-  deleteCalendarEvent,
-  loadCalendarMonth,
-  updateCalendarEvent,
-} from "../services/calendarStorage";
-
-// ─── Static options ───────────────────────────────────────────────
-
-const EVENT_TYPE_OPTIONS = [
-  { value: "meeting",  label: "Meeting" },
-  { value: "followup", label: "Follow-up" },
-  { value: "deadline", label: "Deadline" },
-  { value: "task",     label: "Task" },
-  { value: "other",    label: "Other" },
-];
-const PRIORITY_VALUES = ["Low", "Medium", "High", "Urgent"];
+import { loadCalendarMonth } from "../services/calendarStorage";
+import { loadClientCalls } from "../services/callsStorage";
+import { loadClientMeetings, resolveImageUrl } from "../services/meetingsStorage";
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -68,18 +51,6 @@ function todayISO() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-function pickField(rowData, hints) {
-  for (const hint of hints) {
-    if (rowData[hint]) return rowData[hint];
-  }
-  for (const [k, v] of Object.entries(rowData || {})) {
-    for (const hint of hints) {
-      if (k.toLowerCase().includes(hint.toLowerCase()) && v) return String(v);
-    }
-  }
-  return "";
-}
-
 function formatColValue(type, value) {
   if (value === null || value === undefined || value === "") return null;
   const s = String(value);
@@ -98,276 +69,277 @@ function formatColValue(type, value) {
   return s;
 }
 
-// ─── Style helpers ─────────────────────────────────────────────────
+// ─── Client day card ─────────────────────────────────────────────
+// Shows everything known about one client for this day: every
+// Management Sheet column (same values ManagementPage shows), plus
+// their full meeting history (ClientMeetingsPage) and call history
+// (ClientCallsPage), fetched the same way those pages fetch them.
 
-function eventStyle(type) {
-  const base = { pill: "bg-[#f4f4f4] text-black border-[#d6d6d6]", header: "bg-[#f4f4f4]", ring: "ring-[#d6d6d6]" };
-  const dots = {
-    meeting:  "bg-black",
-    upcoming: "bg-[#333333]",
-    followup: "bg-[#555555]",
-    deadline: "bg-[#a9a9a9]",
-    task:     "bg-[#666666]",
-    other:    "bg-[#a9a9a9]",
-  };
-  return { ...base, dot: dots[type] || dots.other };
+function formatDisplayDatetime(value) {
+  if (!value) return "Not scheduled yet";
+  const date = new Date(String(value).replace(" ", "T"));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
-function priorityStyle(p) {
-  const map = {
-    Urgent: "bg-black text-white",
-    High:   "bg-[#333333] text-white",
-    Medium: "bg-[#a9a9a9] text-white",
-    Low:    "bg-[#f4f4f4] text-black",
-  };
-  return map[p] || map.Medium;
-}
+// ─── Image lightbox ──────────────────────────────────────────────
+// Full-screen viewer with prev/next + keyboard navigation, matching
+// the ClientMeetingsPage gallery experience.
 
-function statusStyle(s) {
-  if (!s)                    return "bg-[#f4f4f4] text-black";
-  if (s === "Completed")     return "bg-black text-white";
-  if (s === "Cancelled")     return "bg-[#a9a9a9] text-white";
-  if (s === "In Progress")   return "bg-[#333333] text-white";
-  if (s === "New")           return "bg-[#f4f4f4] text-black";
-  if (s.includes("Meeting")) return "bg-[#f4f4f4] text-black";
-  if (s.includes("Follow"))  return "bg-[#f4f4f4] text-black";
-  return "bg-[#f4f4f4] text-black";
-}
+function ImageLightbox({ images, initialIndex, onClose }) {
+  const [index, setIndex] = useState(initialIndex);
 
-// ─── Worksheet event detail card ────────────────────────────────────
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key === "Escape") onClose();
+      if (event.key === "ArrowRight") setIndex((i) => (i + 1) % images.length);
+      if (event.key === "ArrowLeft") setIndex((i) => (i - 1 + images.length) % images.length);
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [images.length, onClose]);
 
-function WorksheetEventDetailCard({ event, columns }) {
-  const st      = eventStyle(event.eventType);
-  const cName   = event.clientName || pickField(event.rowData, ["client_name"]);
-  const status  = pickField(event.rowData, ["status"]);
-  const pri     = pickField(event.rowData, ["priority"]);
-
-  const skipNames = new Set(["Client Name", "Status", "Priority"]);
-  const detailFields = (columns || []).filter(
-    (col) =>
-      !skipNames.has(col.name) &&
-      event.rowData[col.key] != null &&
-      String(event.rowData[col.key]).trim() !== "",
-  );
+  const image = images[index];
+  if (!image) return null;
 
   return (
-    <div className={`overflow-hidden rounded-3xl border shadow-sm ${st.pill}`}>
-      {/* Coloured header */}
-      <div className={`flex items-center justify-between gap-3 border-b border-current/15 px-6 py-4 ${st.header}`}>
-        <div className="flex items-center gap-2.5">
-          <span className={`h-3 w-3 shrink-0 rounded-full ${st.dot}`} />
-          <span className="text-xs font-black uppercase tracking-widest">{event.columnName}</span>
-        </div>
-        {event.time && (
-          <span className="flex items-center gap-1.5 text-sm font-bold opacity-75">
-            <Clock size={14} /> {to12h(event.time)}
-          </span>
-        )}
-      </div>
+    <div
+      className="fixed inset-0 z-70 flex items-center justify-center bg-black/90 p-4"
+      onClick={onClose}
+    >
+      <button
+        onClick={onClose}
+        className="absolute right-4 top-4 rounded-xl bg-white/10 p-2.5 text-white hover:bg-white/20"
+        title="Close"
+      >
+        <X size={22} />
+      </button>
 
-      <div className="px-6 py-6">
-        {/* Client name */}
-        {cName && <p className="text-2xl font-black leading-tight">{cName}</p>}
+      {images.length > 1 && (
+        <button
+          onClick={(event) => {
+            event.stopPropagation();
+            setIndex((i) => (i - 1 + images.length) % images.length);
+          }}
+          className="absolute left-4 top-1/2 -translate-y-1/2 rounded-xl bg-white/10 p-2.5 text-white hover:bg-white/20"
+          title="Previous image"
+        >
+          <ChevronLeft size={24} />
+        </button>
+      )}
 
-        {/* Status + Priority */}
-        {(status || pri) && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {status && <span className={`rounded-xl px-3 py-1 text-xs font-black uppercase tracking-wide ${statusStyle(status)}`}>{status}</span>}
-            {pri    && <span className={`rounded-xl px-3 py-1 text-xs font-black uppercase tracking-wide ${priorityStyle(pri)}`}>{pri}</span>}
-          </div>
-        )}
+      <img
+        src={resolveImageUrl(image.url)}
+        alt={image.originalFileName || "Meeting image"}
+        className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      />
 
-        {/* Detail fields */}
-        {detailFields.length > 0 && (
-          <div className="mt-5 grid gap-4 border-t border-current/10 pt-5 sm:grid-cols-2">
-            {detailFields.map((col) => {
-              const formatted = formatColValue(col.type, event.rowData[col.key]);
-              if (!formatted) return null;
-              const isLong = col.type === "long_text" || formatted.length > 50;
-              return (
-                <div key={col.key} className={isLong ? "sm:col-span-2" : ""}>
-                  <p className="mb-1 text-[10px] font-black uppercase tracking-widest opacity-50">{col.name}</p>
-                  <p className={`font-semibold opacity-90 ${isLong ? "text-sm leading-6" : "text-sm"}`}>{formatted}</p>
-                </div>
-              );
-            }).filter(Boolean)}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
+      {images.length > 1 && (
+        <button
+          onClick={(event) => {
+            event.stopPropagation();
+            setIndex((i) => (i + 1) % images.length);
+          }}
+          className="absolute right-4 top-1/2 -translate-y-1/2 rounded-xl bg-white/10 p-2.5 text-white hover:bg-white/20"
+          title="Next image"
+        >
+          <ChevronRight size={24} />
+        </button>
+      )}
 
-// ─── Manual event detail card ────────────────────────────────────────
-
-function ManualEventDetailCard({ event, onEdit, onDelete }) {
-  const st = eventStyle(event.eventType);
-  return (
-    <div className="overflow-hidden rounded-2xl border border-[#d6d6d6]/50 bg-white shadow-sm">
-      <div className="flex items-start justify-between gap-3 p-5">
-        <div className="flex min-w-0 items-start gap-3">
-          <span className={`mt-1 h-3 w-3 shrink-0 rounded-full ${st.dot}`} />
-          <div className="min-w-0">
-            <p className="font-black text-black">{event.title}</p>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              {event.time && (
-                <span className="flex items-center gap-1 text-xs font-bold text-black/60">
-                  <Clock size={11} /> {to12h(event.time)}
-                </span>
-              )}
-              <span className={`rounded-lg border px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${st.pill}`}>
-                {event.eventType}
-              </span>
-              {event.priority && (
-                <span className={`rounded-lg px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${priorityStyle(event.priority)}`}>
-                  {event.priority}
-                </span>
-              )}
-              {event.status && (
-                <span className={`rounded-lg px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${statusStyle(event.status)}`}>
-                  {event.status}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-0.5">
-          <button onClick={() => onEdit(event)} title="Edit" className="rounded-xl p-2 text-black/40 transition hover:bg-[#f4f4f4]/50 hover:text-black">
-            <Pencil size={15} />
-          </button>
-          <button onClick={() => onDelete(event.dbId)} title="Delete" className="rounded-xl p-2 text-black/40 transition hover:bg-red-50 hover:text-red-500">
-            <Trash2 size={15} />
-          </button>
-        </div>
-      </div>
-
-      {(event.clientName || event.companyName || event.description || event.assignedEmployee) && (
-        <div className="space-y-2 border-t border-[#d6d6d6]/30 px-5 py-4">
-          {(event.clientName || event.companyName) && (
-            <p className="text-sm font-semibold text-black/70">
-              {[event.clientName, event.companyName].filter(Boolean).join(" · ")}
-            </p>
-          )}
-          {event.description && (
-            <p className="text-sm leading-6 text-black/60">{event.description}</p>
-          )}
-          {event.assignedEmployee && (
-            <p className="flex items-center gap-1.5 text-sm font-semibold text-black/60">
-              <User size={13} /> {event.assignedEmployee}
-            </p>
-          )}
-        </div>
+      {images.length > 1 && (
+        <p className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-bold text-white">
+          {index + 1} / {images.length}
+        </p>
       )}
     </div>
   );
 }
 
-// ─── Event form ────────────────────────────────────────────────────
+// ─── Meeting image gallery ────────────────────────────────────────
+// One independent gallery per meeting: clicking a thumbnail opens the
+// lightbox scoped to that meeting's own images only.
 
-const BLANK_FORM = {
-  title: "", eventDate: "", eventTime: "", eventType: "meeting",
-  clientName: "", companyName: "", priority: "Medium", description: "",
-};
+function MeetingImageGallery({ images }) {
+  const [viewerIndex, setViewerIndex] = useState(null);
 
-function EventForm({ initialDate, initialData, onSubmit, onClose, isEdit }) {
-  const [form, setForm] = useState(() =>
-    initialData
-      ? {
-          title:       initialData.title       || "",
-          eventDate:   initialData.date        || initialDate || "",
-          eventTime:   initialData.time        || "",
-          eventType:   initialData.eventType   || "meeting",
-          clientName:  initialData.clientName  || "",
-          companyName: initialData.companyName || "",
-          priority:    initialData.priority    || "Medium",
-          description: initialData.description || "",
-        }
-      : { ...BLANK_FORM, eventDate: initialDate || "" },
-  );
-  const [errors,     setErrors]     = useState({});
-  const [submitting, setSubmitting] = useState(false);
-
-  function set(field, val) {
-    setForm((f) => ({ ...f, [field]: val }));
-    setErrors((e) => ({ ...e, [field]: null }));
-  }
-
-  async function submit(ev) {
-    ev.preventDefault();
-    const errs = {};
-    if (!form.title.trim()) errs.title = "Title is required.";
-    if (!form.eventDate)    errs.eventDate = "Date is required.";
-    setErrors(errs);
-    if (Object.keys(errs).length) return;
-    setSubmitting(true);
-    try { await onSubmit(form); }
-    finally { setSubmitting(false); }
-  }
-
-  const inp = "w-full rounded-xl border border-[#d6d6d6]/70 bg-white px-3 py-2.5 text-sm text-black outline-none focus:border-[#333333] focus:ring-4 focus:ring-[#d6d6d6]/20 transition";
-  const lbl = "mb-1.5 block text-[10px] font-black uppercase tracking-widest text-black/60";
+  if (!images?.length) return null;
 
   return (
-    <form onSubmit={submit} className="space-y-4">
-      <div>
-        <label className={lbl}>Title *</label>
-        <input value={form.title} onChange={(e) => set("title", e.target.value)} placeholder="e.g. Client follow-up call" className={inp} />
-        {errors.title && <p className="mt-1 text-xs font-bold text-red-500">{errors.title}</p>}
+    <>
+      <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
+        {images.map((img, imageIndex) => (
+          <button
+            key={img.id}
+            type="button"
+            onClick={() => setViewerIndex(imageIndex)}
+            className="group relative aspect-square cursor-pointer overflow-hidden rounded-xl border border-[#d6d6d6]/60 bg-[#f4f4f4]"
+            title="View full image"
+          >
+            <img
+              src={resolveImageUrl(img.url)}
+              alt={img.originalFileName || "Meeting image"}
+              className="h-full w-full object-cover transition duration-200 group-hover:scale-105"
+              loading="lazy"
+            />
+          </button>
+        ))}
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      {viewerIndex !== null && (
+        <ImageLightbox
+          images={images}
+          initialIndex={viewerIndex}
+          onClose={() => setViewerIndex(null)}
+        />
+      )}
+    </>
+  );
+}
+
+function ClientDayCard({ group, columns, extras, navigate }) {
+  const { rowKey, clientName, rowData, sources } = group;
+  const hasMeetingActivity = sources.has("worksheet") || sources.has("client_meeting");
+  const hasCallActivity    = sources.has("client_call");
+
+  const skipNames = new Set(["Client Name"]);
+  const detailFields = (columns || []).filter(
+    (col) =>
+      !skipNames.has(col.name) &&
+      col.type !== "meeting_manager" &&
+      rowData[col.key] != null &&
+      String(rowData[col.key]).trim() !== "",
+  );
+
+  const isLoading = extras?.isLoading ?? true;
+  const calls     = extras?.calls || [];
+  const meetings  = extras?.meetings || [];
+  const error     = extras?.error || "";
+
+  return (
+    <div className="overflow-hidden rounded-3xl border border-[#d6d6d6]/60 bg-white shadow-sm">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#d6d6d6]/40 bg-[#f9f9f9] px-6 py-4">
         <div>
-          <label className={lbl}>Date *</label>
-          <input type="date" value={form.eventDate} onChange={(e) => set("eventDate", e.target.value)} className={inp} />
-          {errors.eventDate && <p className="mt-1 text-xs font-bold text-red-500">{errors.eventDate}</p>}
+          <p className="text-[10px] font-black uppercase tracking-widest text-[#333333]">Client</p>
+          <p className="text-xl font-black leading-tight text-black">{clientName || "Unnamed client"}</p>
         </div>
-        <div>
-          <label className={lbl}>Time</label>
-          <input type="time" value={form.eventTime} onChange={(e) => set("eventTime", e.target.value)} className={inp} />
+        <div className="flex flex-wrap gap-2">
+          {hasMeetingActivity && (
+            <span className="inline-flex items-center gap-1.5 rounded-xl bg-black px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-white">
+              <CalendarClock size={12} /> Manage Meetings details
+            </span>
+          )}
+          {hasCallActivity && (
+            <span className="inline-flex items-center gap-1.5 rounded-xl bg-[#333333] px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-white">
+              <Phone size={12} /> Manage Call details
+            </span>
+          )}
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className={lbl}>Type</label>
-          <select value={form.eventType} onChange={(e) => set("eventType", e.target.value)} className={inp}>
-            {EVENT_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
+      {/* Full management sheet columns */}
+      {detailFields.length > 0 && (
+        <div className="grid gap-4 border-b border-[#d6d6d6]/30 px-6 py-5 sm:grid-cols-2">
+          {detailFields.map((col) => {
+            const formatted = formatColValue(col.type, rowData[col.key]);
+            if (!formatted) return null;
+            const isLong = formatted.length > 50;
+            return (
+              <div key={col.key} className={isLong ? "sm:col-span-2" : ""}>
+                <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-black/40">{col.name}</p>
+                <p className={`font-semibold text-black/85 ${isLong ? "text-sm leading-6" : "text-sm"}`}>{formatted}</p>
+              </div>
+            );
+          })}
         </div>
-        <div>
-          <label className={lbl}>Priority</label>
-          <select value={form.priority} onChange={(e) => set("priority", e.target.value)} className={inp}>
-            {PRIORITY_VALUES.map((p) => <option key={p}>{p}</option>)}
-          </select>
-        </div>
-      </div>
+      )}
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className={lbl}>Client Name</label>
-          <input value={form.clientName} onChange={(e) => set("clientName", e.target.value)} placeholder="Client" className={inp} />
-        </div>
-        <div>
-          <label className={lbl}>Company</label>
-          <input value={form.companyName} onChange={(e) => set("companyName", e.target.value)} placeholder="Company" className={inp} />
-        </div>
-      </div>
+      {error && (
+        <div className="border-b border-[#d6d6d6]/30 bg-red-50 px-6 py-3 text-xs font-bold text-red-500">{error}</div>
+      )}
 
-      <div>
-        <label className={lbl}>Notes / Agenda</label>
-        <textarea rows={3} value={form.description} onChange={(e) => set("description", e.target.value)} placeholder="Details, agenda, or reminders…" className={`${inp} resize-none leading-5`} />
-      </div>
+      {/* Meeting + Call details */}
+      <div className="grid sm:grid-cols-2">
+        {/* Meetings */}
+        <div className="border-b border-[#d6d6d6]/30 px-6 py-5 sm:border-r sm:border-b-0">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h3 className="flex items-center gap-2 text-sm font-black uppercase tracking-widest text-black">
+              <CalendarClock size={16} /> Meeting Details
+            </h3>
+            <button
+              onClick={() => navigate(`/management/meetings/${rowKey}`)}
+              className="text-sm font-black text-[#333333] transition hover:text-black"
+            >
+              Manage Meetings details →
+            </button>
+          </div>
+          {isLoading ? (
+            <p className="text-sm font-bold text-black/40">Loading…</p>
+          ) : meetings.length === 0 ? (
+            <p className="text-sm font-bold text-black/40">No meetings logged yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {meetings.map((m) => (
+                <div key={m.id} className="rounded-xl border border-[#d6d6d6]/50 p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-base font-black text-black">{formatDisplayDatetime(m.meetingDatetime)}</p>
+                    {m.isCompleted && (
+                      <span className="rounded-md bg-black px-2.5 py-1 text-xs font-black uppercase tracking-wide text-white">
+                        Completed
+                      </span>
+                    )}
+                  </div>
+                  {m.requirements?.length > 0 && (
+                    <ul className="mt-3 space-y-1.5">
+                      {m.requirements.map((req, i) => (
+                        <li key={req.key || i} className="text-sm leading-6 text-black/65">
+                          <span className="font-bold text-black/80">{req.label}: </span>
+                          {req.details}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <MeetingImageGallery images={m.images} />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
-      <div className="flex items-center justify-end gap-2 pt-1">
-        <button type="button" onClick={onClose} className="rounded-xl border border-[#d6d6d6]/70 px-4 py-2.5 text-sm font-black text-black transition hover:bg-[#f4f4f4]/30">
-          Cancel
-        </button>
-        <button type="submit" disabled={submitting} className="inline-flex items-center gap-2 rounded-xl bg-black px-5 py-2.5 text-sm font-black text-white shadow-md shadow-black/20 transition hover:bg-[#222222] disabled:opacity-60">
-          {submitting ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" /> : <Check size={15} />}
-          {isEdit ? "Update Event" : "Add Event"}
-        </button>
+        {/* Calls */}
+        <div className="px-6 py-5">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h3 className="flex items-center gap-2 text-sm font-black uppercase tracking-widest text-black">
+              <Phone size={16} /> Call Details
+            </h3>
+            <button
+              onClick={() => navigate(`/management/calls/${rowKey}`)}
+              className="text-sm font-black text-[#333333] transition hover:text-black"
+            >
+              Manage Call details →
+            </button>
+          </div>
+          {isLoading ? (
+            <p className="text-sm font-bold text-black/40">Loading…</p>
+          ) : calls.length === 0 ? (
+            <p className="text-sm font-bold text-black/40">No calls logged yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {calls.map((c) => (
+                <div key={c.id} className="rounded-xl border border-[#d6d6d6]/50 p-4">
+                  <p className="text-base font-black text-black">{formatDisplayDatetime(c.callDatetime)}</p>
+                  {c.callDiscussion && (
+                    <p className="mt-2 text-sm leading-6 text-black/65">{c.callDiscussion}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
-    </form>
+    </div>
   );
 }
 
@@ -385,14 +357,73 @@ export default function CalendarDayPage() {
   const [employee,         setEmployee]         = useState(() => loadCurrentEmployee());
   const [showIdentity,     setShowIdentity]     = useState(false);
   const [notice,           setNotice]           = useState(null);
-  const [showAddForm,      setShowAddForm]      = useState(false);
-  const [editingEvent,     setEditingEvent]     = useState(null);
 
   const dayEvents = events.filter((ev) => ev.date === date);
-  const wsEvents  = dayEvents.filter((ev) => ev.source === "worksheet");
-  const mnEvents  = dayEvents.filter((ev) => ev.source === "manual");
   const TODAY     = todayISO();
   const isToday   = date === TODAY;
+
+  // Group every client-linked event (worksheet, client_meeting, client_call)
+  // by rowKey so each client shows up as a single card with full details,
+  // no matter how many events they have on this day.
+  const clientGroups = useMemo(() => {
+    const map = new Map();
+    for (const ev of dayEvents) {
+      if (!ev.rowKey || ev.source === "manual") continue;
+      if (!map.has(ev.rowKey)) {
+        map.set(ev.rowKey, {
+          rowKey: ev.rowKey,
+          clientName: ev.clientName,
+          rowData: ev.rowData || {},
+          sources: new Set(),
+        });
+      }
+      const group = map.get(ev.rowKey);
+      group.sources.add(ev.source);
+      if (!group.clientName && ev.clientName) group.clientName = ev.clientName;
+    }
+    return [...map.values()];
+  }, [dayEvents]);
+
+  const clientRowKeysKey = clientGroups.map((g) => g.rowKey).join(",");
+
+  // ── Client calls / meetings ─────────────────────────────────────
+  const [clientExtras, setClientExtras] = useState({}); // rowKey -> { isLoading, calls, meetings, error }
+
+  useEffect(() => {
+    if (!clientRowKeysKey) return;
+    const rowKeys = clientRowKeysKey.split(",");
+    let cancelled = false;
+
+    for (const rowKey of rowKeys) {
+      setClientExtras((prev) => ({
+        ...prev,
+        [rowKey]: { ...(prev[rowKey] || {}), isLoading: true, error: null },
+      }));
+
+      Promise.all([loadClientCalls(rowKey), loadClientMeetings(rowKey)])
+        .then(([callsData, meetingsData]) => {
+          if (cancelled) return;
+          setClientExtras((prev) => ({
+            ...prev,
+            [rowKey]: {
+              isLoading: false,
+              calls: callsData.calls || [],
+              meetings: meetingsData.meetings || [],
+              error: null,
+            },
+          }));
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          setClientExtras((prev) => ({
+            ...prev,
+            [rowKey]: { isLoading: false, calls: [], meetings: [], error: err.message || "Could not load client details." },
+          }));
+        });
+    }
+
+    return () => { cancelled = true; };
+  }, [clientRowKeysKey]);
 
   // ── Fetch ──────────────────────────────────────────────────────
   const fetchEvents = useCallback(async () => {
@@ -428,53 +459,6 @@ export default function CalendarDayPage() {
     } catch (err) {
       showMsg("error", err.message || "Could not save employee.");
     }
-  }
-
-  // ── Event CRUD ──────────────────────────────────────────────────
-  async function handleAdd(formData) {
-    try {
-      await createCalendarEvent({ ...formData, employeeId: employee?.id });
-      await fetchEvents();
-      setShowAddForm(false);
-      showMsg("success", "Event added.");
-    } catch (err) {
-      showMsg("error", err.message || "Could not add event.");
-      throw err;
-    }
-  }
-
-  async function handleEdit(id, formData) {
-    try {
-      await updateCalendarEvent(id, { ...formData, employeeId: employee?.id });
-      await fetchEvents();
-      setEditingEvent(null);
-      showMsg("success", "Event updated.");
-    } catch (err) {
-      showMsg("error", err.message || "Could not update event.");
-      throw err;
-    }
-  }
-
-  async function handleDelete(id) {
-    if (!window.confirm("Delete this event? This cannot be undone.")) return;
-    try {
-      await deleteCalendarEvent(id);
-      await fetchEvents();
-      showMsg("success", "Event deleted.");
-    } catch (err) {
-      showMsg("error", err.message || "Could not delete event.");
-    }
-  }
-
-  function startEdit(ev) {
-    setShowAddForm(false);
-    setEditingEvent(ev);
-  }
-
-  function startAdd() {
-    if (!employee) { setShowIdentity(true); return; }
-    setEditingEvent(null);
-    setShowAddForm(true);
   }
 
   // ── Render ──────────────────────────────────────────────────────
@@ -553,7 +537,7 @@ export default function CalendarDayPage() {
                   ? "Loading…"
                   : dayEvents.length === 0
                   ? "No events on this day"
-                  : `${dayEvents.length} event${dayEvents.length !== 1 ? "s" : ""} — ${wsEvents.length} from management sheet · ${mnEvents.length} scheduled`}
+                  : `${dayEvents.length} event${dayEvents.length !== 1 ? "s" : ""} — ${clientGroups.length} client${clientGroups.length !== 1 ? "s" : ""}`}
               </p>
             </div>
 
@@ -582,28 +566,28 @@ export default function CalendarDayPage() {
             </div>
           </div>
         ) : (
-          <div className="grid gap-7 lg:grid-cols-3">
+          <div>
 
-            {/* ── Left: Management sheet events (2/3) ─────────── */}
-            <div className="lg:col-span-2">
+            {/* ── Client details ───────────────────────────────── */}
+            <div>
               <div className="mb-4 flex items-center gap-2.5">
                 <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-[#f4f4f4] text-[10px] font-black text-black">S</span>
                 <h2 className="text-sm font-black uppercase tracking-[0.15em] text-black">
-                  From Management Sheet
+                  Client Details
                 </h2>
-                {wsEvents.length > 0 && (
+                {clientGroups.length > 0 && (
                   <span className="rounded-full bg-black/10 px-2.5 py-0.5 text-xs font-black text-black">
-                    {wsEvents.length}
+                    {clientGroups.length}
                   </span>
                 )}
               </div>
 
-              {wsEvents.length === 0 ? (
+              {clientGroups.length === 0 ? (
                 <div className="flex min-h-52 flex-col items-center justify-center rounded-3xl border border-dashed border-[#d6d6d6]/60 bg-white/60 p-8 text-center">
                   <CalendarDays className="text-[#a9a9a9]/40" size={38} />
-                  <p className="mt-3 font-black text-black/45">No management sheet events</p>
+                  <p className="mt-3 font-black text-black/45">No client events on this day</p>
                   <p className="mt-1.5 max-w-xs text-sm text-black/30">
-                    Meetings scheduled on this date in the management sheet will appear here automatically.
+                    Meetings and calls scheduled for a client on this date will appear here automatically.
                   </p>
                   <Link to="/management" className="mt-4 text-sm font-black text-[#333333] transition hover:text-black">
                     Open Management Sheet →
@@ -611,75 +595,13 @@ export default function CalendarDayPage() {
                 </div>
               ) : (
                 <div className="space-y-5">
-                  {wsEvents.map((ev) => (
-                    <WorksheetEventDetailCard key={ev.id} event={ev} columns={worksheetColumns} />
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* ── Right: Scheduled events (1/3) ───────────────── */}
-            <div>
-              <div className="mb-4 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2.5">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-[#f4f4f4] text-[10px] font-black text-black">M</span>
-                  <h2 className="text-sm font-black uppercase tracking-[0.15em] text-black">Scheduled</h2>
-                  {mnEvents.length > 0 && (
-                    <span className="rounded-full bg-black/10 px-2.5 py-0.5 text-xs font-black text-black">
-                      {mnEvents.length}
-                    </span>
-                  )}
-                </div>
-                {!showAddForm && !editingEvent && (
-                  <button
-                    onClick={startAdd}
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-black px-3.5 py-2 text-xs font-black text-white shadow-sm shadow-black/20 transition hover:bg-[#222222]"
-                  >
-                    <Plus size={14} /> Add Event
-                  </button>
-                )}
-              </div>
-
-              {/* Add / Edit form */}
-              {(showAddForm || editingEvent) && (
-                <div className="mb-5 overflow-hidden rounded-2xl border border-[#d6d6d6]/60 bg-white p-5 shadow-sm">
-                  <div className="mb-4 flex items-center justify-between">
-                    <p className="text-sm font-black text-black">
-                      {editingEvent ? "Edit Event" : "New Event"}
-                    </p>
-                    <button
-                      onClick={() => { setShowAddForm(false); setEditingEvent(null); }}
-                      className="rounded-lg p-1.5 text-black/40 transition hover:bg-[#f4f4f4]/40 hover:text-black"
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-                  <EventForm
-                    initialDate={date}
-                    initialData={editingEvent}
-                    onSubmit={editingEvent ? (data) => handleEdit(editingEvent.dbId, data) : handleAdd}
-                    onClose={() => { setShowAddForm(false); setEditingEvent(null); }}
-                    isEdit={!!editingEvent}
-                  />
-                </div>
-              )}
-
-              {/* List */}
-              {mnEvents.length === 0 && !showAddForm && !editingEvent ? (
-                <div className="flex min-h-40 flex-col items-center justify-center rounded-2xl border border-dashed border-[#d6d6d6]/60 bg-white/60 p-6 text-center">
-                  <p className="font-black text-black/45 text-sm">No scheduled events</p>
-                  <button onClick={startAdd} className="mt-2 text-sm font-black text-[#333333] transition hover:text-black">
-                    + Schedule first event
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {mnEvents.map((ev) => (
-                    <ManualEventDetailCard
-                      key={ev.id}
-                      event={ev}
-                      onEdit={startEdit}
-                      onDelete={handleDelete}
+                  {clientGroups.map((group) => (
+                    <ClientDayCard
+                      key={group.rowKey}
+                      group={group}
+                      columns={worksheetColumns}
+                      extras={clientExtras[group.rowKey]}
+                      navigate={navigate}
                     />
                   ))}
                 </div>
