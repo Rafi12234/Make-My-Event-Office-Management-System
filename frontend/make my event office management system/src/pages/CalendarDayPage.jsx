@@ -199,9 +199,7 @@ function MeetingImageGallery({ images }) {
 }
 
 function ClientDayCard({ group, columns, extras, navigate }) {
-  const { rowKey, clientName, rowData, sources } = group;
-  const hasMeetingActivity = sources.has("worksheet") || sources.has("client_meeting");
-  const hasCallActivity    = sources.has("client_call");
+  const { rowKey, clientName, rowData } = group;
 
   const skipNames = new Set(["Client Name"]);
   const detailFields = (columns || []).filter(
@@ -224,18 +222,6 @@ function ClientDayCard({ group, columns, extras, navigate }) {
         <div>
           <p className="text-[10px] font-black uppercase tracking-widest text-[#333333]">Client</p>
           <p className="text-xl font-black leading-tight text-black">{clientName || "Unnamed client"}</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {hasMeetingActivity && (
-            <span className="inline-flex items-center gap-1.5 rounded-xl bg-black px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-white">
-              <CalendarClock size={12} /> Manage Meetings details
-            </span>
-          )}
-          {hasCallActivity && (
-            <span className="inline-flex items-center gap-1.5 rounded-xl bg-[#333333] px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-white">
-              <Phone size={12} /> Manage Call details
-            </span>
-          )}
         </div>
       </div>
 
