@@ -78,26 +78,17 @@ async function parseCsvFile(file) {
   };
 }
 
-async function parseXlsxFile(file) {
+async function parseXlsxWithExcelJS(buffer) {
   const ExcelJSModule = await import("exceljs");
   const ExcelJS = ExcelJSModule.default ?? ExcelJSModule;
   const workbook = new ExcelJS.Workbook();
-  const buffer = await file.arrayBuffer();
 
-  try {
-    await workbook.xlsx.load(buffer);
-  } catch {
-    // exceljs throws a low-level, unreadable error (e.g. "Cannot set
-    // properties of undefined (setting 'sheetNo')") when a sheet inside the
-    // file fails to parse — this happens for corrupted files, files that
-    // aren't really .xlsx (e.g. an old .xls or .csv renamed to .xlsx), or
-    // password-protected workbooks. Surface an actionable message instead.
-    throw new Error(
-      "Could not read this Excel file. It may be corrupted, password-protected, " +
-        "or not a genuine .xlsx file. Open it in Excel, use \"Save As\" to create " +
-        "a fresh .xlsx copy, then upload that file.",
-    );
-  }
+  // exceljs throws a low-level, unreadable error (e.g. "Cannot set
+  // properties of undefined (setting 'sheetNo')") for some files that are
+  // perfectly valid in Excel but were saved by non-Microsoft tools (Google
+  // Sheets, LibreOffice, openpyxl, etc.). Let the error propagate so the
+  // caller can retry with a more tolerant parser.
+  await workbook.xlsx.load(buffer);
 
   const worksheet = workbook.worksheets[0];
   if (!worksheet) {
@@ -133,6 +124,86 @@ async function parseXlsxFile(file) {
     headers,
     rows,
   };
+}
+
+function readSheetJSCellValue(value) {
+  if (value === null || value === undefined) return "";
+  if (value instanceof Date) return value.toISOString().slice(0, 16);
+  return String(value);
+}
+
+async function parseXlsxWithSheetJS(buffer, fileName) {
+  const XLSXModule = await import("xlsx");
+  const XLSX = XLSXModule.read ? XLSXModule : XLSXModule.default;
+
+  const workbook = XLSX.read(new Uint8Array(buffer), {
+    type: "array",
+    cellDates: true,
+  });
+  const sheetName = workbook.SheetNames[0];
+  const worksheet = sheetName ? workbook.Sheets[sheetName] : undefined;
+
+  if (!worksheet) {
+    throw new Error("No worksheet was found inside the Excel file.");
+  }
+
+  const matrix = XLSX.utils.sheet_to_json(worksheet, {
+    header: 1,
+    defval: "",
+  });
+
+  if (!matrix.length) {
+    throw new Error("The uploaded Excel file is empty.");
+  }
+
+  const headers = matrix[0].map((value, index) =>
+    normalizeHeader(readSheetJSCellValue(value), index),
+  );
+
+  const rows = [];
+  for (let rowIndex = 1; rowIndex < matrix.length; rowIndex += 1) {
+    const rawRow = matrix[rowIndex] || [];
+    const values = Object.fromEntries(
+      headers.map((header, columnIndex) => [
+        header,
+        readSheetJSCellValue(rawRow[columnIndex]),
+      ]),
+    );
+
+    const hasValue = Object.values(values).some(
+      (value) => String(value).trim().length > 0,
+    );
+
+    if (hasValue) rows.push(values);
+  }
+
+  return {
+    sheetName: sheetName || fileName.replace(/\.xlsx$/i, ""),
+    headers,
+    rows,
+  };
+}
+
+async function parseXlsxFile(file) {
+  const buffer = await file.arrayBuffer();
+
+  try {
+    return await parseXlsxWithExcelJS(buffer);
+  } catch {
+    // exceljs failed — retry with SheetJS, which tolerates the kind of
+    // non-standard-but-valid xlsx structures (produced by non-Microsoft
+    // tools) that trip up exceljs's stricter parser. Only surface an error
+    // to the user if both parsers fail.
+    try {
+      return await parseXlsxWithSheetJS(buffer, file.name);
+    } catch {
+      throw new Error(
+        "Could not read this Excel file. It may be corrupted, password-protected, " +
+          "or not a genuine .xlsx file. Open it in Excel, use \"Save As\" to create " +
+          "a fresh .xlsx copy, then upload that file.",
+      );
+    }
+  }
 }
 
 export async function parseSpreadsheetFile(file) {

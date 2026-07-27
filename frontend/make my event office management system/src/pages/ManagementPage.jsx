@@ -39,6 +39,8 @@ import {
   saveWorkspace,
 } from "../services/managementStorage";
 import { parseSpreadsheetFile } from "../utils/excelImport";
+import { loadClientMeetings } from "../services/meetingsStorage";
+import { loadClientCalls } from "../services/callsStorage";
 
 function normalizeHeader(value) {
   return String(value).trim().toLowerCase().replace(/\s+/g, " ");
@@ -54,6 +56,21 @@ function isNotAvailableValue(raw) {
   return text === "" || /^n\/?a$/i.test(text);
 }
 
+// A row with no value in any column is considered a "ghost" row (e.g. left
+// over from a bulk database wipe) and should never be shown or persisted.
+function isRowBlank(row, columns) {
+  return columns.every((column) => String(row.values[column.id] ?? "").trim() === "");
+}
+
+// Builds a comparable "fingerprint" of a row's full data (every column,
+// trimmed and case-insensitive) so two rows can be checked for an exact
+// match regardless of column order.
+function buildRowSignature(values, columns) {
+  return columns
+    .map((column) => String(values[column.id] ?? "").trim().toLowerCase())
+    .join("\u0001");
+}
+
 function formatMeetingTimeDisplay(value, emptyLabel) {
   if (!value) return emptyLabel;
   const date = new Date(String(value).replace(" ", "T"));
@@ -61,26 +78,98 @@ function formatMeetingTimeDisplay(value, emptyLabel) {
   return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
+// Hover preview shown next to the "Manage Meetings"/"Manage Calls" buttons,
+// splitting that client's meetings/calls into "Upcoming" and "Previous" so
+// an employee can see the full history without leaving the sheet.
+function HoverPreviewPanel({ preview, onMouseEnter, onMouseLeave }) {
+  const isMeetings = preview.type === "meetings";
+  const now = preview.fetchedAt;
+
+  function getTime(item) {
+    return isMeetings ? item.meetingDatetime : item.callDatetime;
+  }
+
+  function isUpcoming(item) {
+    const time = getTime(item);
+    if (!time) return false;
+    const parsed = new Date(String(time).replace(" ", "T")).getTime();
+    return !Number.isNaN(parsed) && parsed >= now;
+  }
+
+  const upcoming = preview.status === "ready" ? preview.items.filter(isUpcoming) : [];
+  const previous = preview.status === "ready" ? preview.items.filter((item) => !isUpcoming(item)) : [];
+
+  function renderItem(item) {
+    const time = getTime(item);
+    return (
+      <li key={item.id} className="rounded-xl border border-[#d6d6d6]/50 px-3 py-2">
+        <p className="text-xs font-bold text-black">
+          {time ? formatMeetingTimeDisplay(time, "Not scheduled") : "Not scheduled"}
+        </p>
+        {isMeetings && item.isCompleted && (
+          <p className="mt-0.5 text-[10px] font-black uppercase tracking-wide text-emerald-600">Completed</p>
+        )}
+        {!isMeetings && item.callDiscussion && (
+          <p className="mt-1 line-clamp-2 text-xs text-black/60">{item.callDiscussion}</p>
+        )}
+      </li>
+    );
+  }
+
+  function renderGroup(title, items) {
+    return (
+      <div>
+        <p className="mb-1.5 text-[10px] font-black uppercase tracking-wide text-black/40">{title}</p>
+        {items.length ? (
+          <ul className="space-y-1.5">{items.map(renderItem)}</ul>
+        ) : (
+          <p className="text-xs text-black/40">None</p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      style={{ position: "fixed", top: preview.top, left: preview.left }}
+      className="z-[130] max-h-96 w-80 overflow-auto rounded-2xl border border-[#d6d6d6] bg-white p-4 shadow-2xl"
+    >
+      <p className="mb-3 flex items-center gap-1.5 text-xs font-black uppercase tracking-[0.14em] text-[#333333]">
+        {isMeetings ? <CalendarClock size={14} /> : <Phone size={14} />}
+        {isMeetings ? "Meetings" : "Calls"} · {preview.clientName || "Client"}
+      </p>
+
+      {preview.status === "loading" && <p className="text-sm text-black/50">Loading…</p>}
+      {preview.status === "error" && <p className="text-sm text-red-600">{preview.error}</p>}
+      {preview.status === "ready" && (
+        <div className="space-y-4">
+          {renderGroup("Upcoming", upcoming)}
+          {renderGroup("Previous", previous)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CellEditor({ column, value, onChange, employeeNames }) {
   const baseClass =
     "h-full min-h-11 w-full border-0 bg-transparent px-3 py-2.5 text-sm text-black outline-none transition placeholder:text-black/25 focus:bg-[#f4f4f4]/25 focus:ring-2 focus:ring-inset focus:ring-[#333333]/40";
 
-  // N/A cells are frozen/read-only for every column type — no dropdown,
-  // number spinner, or date picker functionality applies to them.
-  if (value === "N/A") {
-    return (
-      <div className="flex h-full min-h-11 items-center px-3" title="No value was available for this cell.">
-        <span className="text-sm font-bold italic text-black/40">N/A</span>
-      </div>
-    );
-  }
+  // "N/A" is just a stand-in for "no value yet" — every cell must stay
+  // editable through its normal dropdown/input/date-picker so an employee
+  // can fill it in later. Treat it as blank for the editor itself; the
+  // literal "N/A" placeholder hints at the original state until replaced.
+  const isNotAvailable = value === "N/A";
+  const editableValue = isNotAvailable ? "" : value;
 
   if (column.type === "checkbox") {
     return (
       <label className="flex min-h-11 items-center justify-center">
         <input
           type="checkbox"
-          checked={value === true || value === "true" || value === "1"}
+          checked={editableValue === true || editableValue === "true" || editableValue === "1"}
           onChange={(event) => onChange(event.target.checked)}
           className="h-5 w-5 accent-black"
         />
@@ -90,8 +179,8 @@ function CellEditor({ column, value, onChange, employeeNames }) {
 
   if (column.type === "venue") {
     return (
-      <select value={value || ""} onChange={(event) => onChange(event.target.value)} className={baseClass}>
-        <option value="">Select venue</option>
+      <select value={editableValue || ""} onChange={(event) => onChange(event.target.value)} className={baseClass}>
+        <option value="">{isNotAvailable ? "N/A — select venue" : "Select venue"}</option>
         {VENUE_OPTIONS.map((option) => <option key={option}>{option}</option>)}
       </select>
     );
@@ -99,8 +188,8 @@ function CellEditor({ column, value, onChange, employeeNames }) {
 
   if (column.type === "shift") {
     return (
-      <select value={value || ""} onChange={(event) => onChange(event.target.value)} className={baseClass}>
-        <option value="">Select shift</option>
+      <select value={editableValue || ""} onChange={(event) => onChange(event.target.value)} className={baseClass}>
+        <option value="">{isNotAvailable ? "N/A — select shift" : "Select shift"}</option>
         {SHIFT_OPTIONS.map((option) => <option key={option}>{option}</option>)}
       </select>
     );
@@ -114,9 +203,9 @@ function CellEditor({ column, value, onChange, employeeNames }) {
           type="number"
           min="0"
           step="0.01"
-          value={value ?? ""}
+          value={editableValue ?? ""}
           onChange={(event) => onChange(event.target.value)}
-          placeholder="0.00"
+          placeholder={isNotAvailable ? "N/A" : "0.00"}
           className={`${baseClass} pl-1.5`}
         />
       </div>
@@ -127,9 +216,9 @@ function CellEditor({ column, value, onChange, employeeNames }) {
     return (
       <textarea
         rows={2}
-        value={value ?? ""}
+        value={editableValue ?? ""}
         onChange={(event) => onChange(event.target.value)}
-        placeholder={`Enter ${column.name.toLowerCase()}`}
+        placeholder={isNotAvailable ? "N/A" : `Enter ${column.name.toLowerCase()}`}
         className={`${baseClass} min-h-16 resize-none leading-5`}
       />
     );
@@ -141,9 +230,9 @@ function CellEditor({ column, value, onChange, employeeNames }) {
       <>
         <input
           list={listId}
-          value={value ?? ""}
+          value={editableValue ?? ""}
           onChange={(event) => onChange(event.target.value)}
-          placeholder="Choose or type a name"
+          placeholder={isNotAvailable ? "N/A" : "Choose or type a name"}
           className={baseClass}
         />
         <datalist id={listId}>
@@ -166,11 +255,11 @@ function CellEditor({ column, value, onChange, employeeNames }) {
   return (
     <input
       type={inputType}
-      value={value ?? ""}
+      value={editableValue ?? ""}
       step={column.type === "integer" ? "1" : undefined}
       min={column.type === "integer" ? "0" : undefined}
       onChange={(event) => onChange(event.target.value)}
-      placeholder={`Enter ${column.name.toLowerCase()}`}
+      placeholder={isNotAvailable ? "N/A" : `Enter ${column.name.toLowerCase()}`}
       className={baseClass}
     />
   );
@@ -218,6 +307,10 @@ export default function ManagementPage() {
   const [notice, setNotice] = useState(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  // Shown right after an Excel import successfully adds at least one new
+  // row, prompting the employee to persist the import to the database
+  // immediately instead of leaving it as an unsaved change.
+  const [savePromptRowCount, setSavePromptRowCount] = useState(0);
   const fileInputRef = useRef(null);
   const hasMounted = useRef(false);
   const [rowHeights, setRowHeights] = useState(() => {
@@ -229,6 +322,11 @@ export default function ManagementPage() {
   const filterDropdownRef = useRef(null);
   const [confirmDeleteRowId, setConfirmDeleteRowId] = useState(null);
   const [resizeCursor, setResizeCursor] = useState(null);
+  // Hover preview for the "Manage Meetings"/"Manage Calls" buttons — shows
+  // that client's upcoming and previous meetings/calls without navigating
+  // away from the sheet.
+  const [hoverPreview, setHoverPreview] = useState(null);
+  const hoverHideTimeout = useRef(null);
   const [filters, setFilters] = useState({
     dateFrom: "",
     dateTo: "",
@@ -242,6 +340,52 @@ export default function ManagementPage() {
     if (employee?.fullName && !names.includes(employee.fullName)) names.push(employee.fullName);
     return names.sort((a, b) => a.localeCompare(b));
   }, [employee, employeeDirectory]);
+
+  function cancelHoverHide() {
+    if (hoverHideTimeout.current) {
+      window.clearTimeout(hoverHideTimeout.current);
+      hoverHideTimeout.current = null;
+    }
+  }
+
+  function scheduleHoverHide() {
+    cancelHoverHide();
+    hoverHideTimeout.current = window.setTimeout(() => setHoverPreview(null), 150);
+  }
+
+  async function handlePreviewHover(event, row, type) {
+    cancelHoverHide();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const clientNameColumn = workspace.columns.find((column) => column.id === "client_name");
+    const clientName = clientNameColumn ? row.values[clientNameColumn.id] : "";
+
+    setHoverPreview({
+      type,
+      rowId: row.id,
+      clientName,
+      top: rect.bottom + 8,
+      left: Math.min(rect.left, window.innerWidth - 340),
+      status: "loading",
+      items: [],
+      error: "",
+      fetchedAt: Date.now(),
+    });
+
+    try {
+      const data = type === "meetings" ? await loadClientMeetings(row.id) : await loadClientCalls(row.id);
+      setHoverPreview((current) =>
+        current && current.rowId === row.id && current.type === type
+          ? { ...current, status: "ready", items: (type === "meetings" ? data.meetings : data.calls) || [] }
+          : current,
+      );
+    } catch (error) {
+      setHoverPreview((current) =>
+        current && current.rowId === row.id && current.type === type
+          ? { ...current, status: "error", error: error instanceof Error ? error.message : "Failed to load." }
+          : current,
+      );
+    }
+  }
 
   const filteredRows = useMemo(() => {
     let rows = workspace.rows;
@@ -377,7 +521,11 @@ export default function ManagementPage() {
           loadEmployeeDirectory(),
         ]);
         if (cancelled) return;
-        setWorkspace(nextWorkspace);
+        // Drop any fully empty rows so leftover/ghost rows never appear.
+        setWorkspace({
+          ...nextWorkspace,
+          rows: nextWorkspace.rows.filter((row) => !isRowBlank(row, nextWorkspace.columns)),
+        });
         setEmployeeDirectory(employees);
       } catch (error) {
         if (!cancelled) {
@@ -514,24 +662,33 @@ export default function ManagementPage() {
     if (!employee?.id || isSaving) return;
     setIsSaving(true);
     try {
+      // Rows left completely blank (every column empty) are dropped so they
+      // never get persisted as ghost rows.
+      const nonBlankRows = workspace.rows.filter((row) => !isRowBlank(row, workspace.columns));
+      const rowsRemoved = nonBlankRows.length !== workspace.rows.length;
+
       // Event Date must never be saved blank — any row missing it gets
       // defaulted to the literal "N/A" (same convention as imported cells).
       const eventDateColumn = workspace.columns.find((column) => column.id === "event_date");
-      const workspaceToSave = eventDateColumn
-        ? {
-            ...workspace,
-            rows: workspace.rows.map((row) => {
-              const current = row.values[eventDateColumn.id];
-              if (current && String(current).trim() !== "") return row;
-              return { ...row, values: { ...row.values, [eventDateColumn.id]: "N/A" } };
-            }),
-          }
-        : workspace;
+      const rows = eventDateColumn
+        ? nonBlankRows.map((row) => {
+            const current = row.values[eventDateColumn.id];
+            if (current && String(current).trim() !== "") return row;
+            return { ...row, values: { ...row.values, [eventDateColumn.id]: "N/A" } };
+          })
+        : nonBlankRows;
+
+      const workspaceToSave = { ...workspace, rows };
 
       await saveWorkspace(workspaceToSave, employee.id);
-      if (workspaceToSave !== workspace) setWorkspace(workspaceToSave);
+      setWorkspace(workspaceToSave);
       setHasUnsavedChanges(false);
-      setNotice({ type: "success", message: "All changes saved successfully." });
+      setNotice({
+        type: "success",
+        message: rowsRemoved
+          ? "All changes saved successfully. Empty rows were removed automatically."
+          : "All changes saved successfully.",
+      });
     } catch (error) {
       setNotice({
         type: "error",
@@ -579,46 +736,84 @@ export default function ManagementPage() {
   function confirmImport() {
     if (!importPreview) return;
 
-    setWorkspace((current) => {
-      // Only headers matching an existing (system-dedicated) column are
-      // imported. Any extra/unrecognized column in the Excel file is simply
-      // ignored — no new columns are auto-created from an import anymore.
-      const headerMap = new Map(current.columns.map((column) => [normalizeHeader(column.name), column]));
+    // Only headers matching an existing (system-dedicated) column are
+    // imported. Any extra/unrecognized column in the Excel file is simply
+    // ignored — no new columns are auto-created from an import anymore.
+    const headerMap = new Map(workspace.columns.map((column) => [normalizeHeader(column.name), column]));
 
-      const importedRows = importPreview.rows.map((sourceRow, index) => {
-        const values = Object.fromEntries(current.columns.map((column) => [column.id, ""]));
+    // Duplicate detection must only compare the columns that actually came
+    // from the Excel file. In-app-only fields (Assigned Employee, Meeting
+    // Notes, Last/Next Meeting Time, etc.) are never present in an import,
+    // so a freshly-imported row always has them blank — if we compared
+    // those too, a row that was later enriched in-app would no longer match
+    // its own re-imported source data and would be added again as a "new"
+    // row. Comparing only the imported columns fixes that.
+    const importedColumns = importPreview.headers
+      .map((header) => headerMap.get(normalizeHeader(header)))
+      .filter(Boolean);
 
-        importPreview.headers.forEach((header) => {
-          const column = headerMap.get(normalizeHeader(header));
-          if (!column) return;
-          const rawValue = sourceRow[header];
-          // Blank cells or a literal "N/A" are stored/shown as "N/A" no
-          // matter the column's data type, and disable that cell's editor.
-          values[column.id] = isNotAvailableValue(rawValue) ? "N/A" : String(rawValue);
-        });
+    // Every row already in the system gets a fingerprint (based only on the
+    // imported columns) so an imported row whose data matches one exactly is
+    // skipped instead of being added again. If even a single cell differs,
+    // it's treated as new data and added as its own row.
+    const seenSignatures = new Set(
+      workspace.rows.map((row) => buildRowSignature(row.values, importedColumns)),
+    );
 
-        return {
-          id: crypto.randomUUID(),
-          rowNumber: current.rows.length + index + 1,
-          values,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          createdBy: employee?.email || null,
-          importSource: importPreview.fileName,
-        };
+    const importedRows = [];
+    let duplicateCount = 0;
+
+    importPreview.rows.forEach((sourceRow) => {
+      const values = Object.fromEntries(workspace.columns.map((column) => [column.id, ""]));
+
+      importPreview.headers.forEach((header) => {
+        const column = headerMap.get(normalizeHeader(header));
+        if (!column) return;
+        const rawValue = sourceRow[header];
+        // Blank cells or a literal "N/A" are stored/shown as "N/A" no
+        // matter the column's data type, and disable that cell's editor.
+        values[column.id] = isNotAvailableValue(rawValue) ? "N/A" : String(rawValue);
       });
 
-      return {
-        ...current,
-        rows: [...current.rows, ...importedRows],
-      };
+      const signature = buildRowSignature(values, importedColumns);
+      if (seenSignatures.has(signature)) {
+        duplicateCount += 1;
+        return;
+      }
+      seenSignatures.add(signature);
+
+      importedRows.push({
+        id: crypto.randomUUID(),
+        rowNumber: workspace.rows.length + importedRows.length + 1,
+        values,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        createdBy: employee?.email || null,
+        importSource: importPreview.fileName,
+      });
     });
+
+    setWorkspace((current) => ({ ...current, rows: [...current.rows, ...importedRows] }));
 
     setNotice({
       type: "success",
-      message: `${importPreview.rows.length} rows imported from ${importPreview.fileName}.`,
+      message:
+        duplicateCount > 0
+          ? `${importedRows.length} row(s) imported from ${importPreview.fileName}. ${duplicateCount} duplicate row(s) skipped (already existed).`
+          : `${importedRows.length} row(s) imported from ${importPreview.fileName}.`,
     });
     setImportPreview(null);
+
+    // At least one new row was actually added — immediately offer to save
+    // the import to the database instead of leaving it as an unsaved change.
+    if (importedRows.length > 0) {
+      setSavePromptRowCount(importedRows.length);
+    }
+  }
+
+  async function handleSavePromptConfirm() {
+    await handleSaveChanges();
+    setSavePromptRowCount(0);
   }
 
   if (isLoadingWorkspace) {
@@ -947,6 +1142,8 @@ export default function ManagementPage() {
                                   <button
                                     type="button"
                                     onClick={() => navigate(`/management/meetings/${row.id}`)}
+                                    onMouseEnter={(event) => handlePreviewHover(event, row, "meetings")}
+                                    onMouseLeave={scheduleHoverHide}
                                     className="inline-flex items-center gap-1.5 rounded-xl bg-black px-3 py-2 text-xs font-black text-white hover:bg-[#222222]"
                                   >
                                     <CalendarClock size={14} /> Manage Meetings
@@ -954,6 +1151,8 @@ export default function ManagementPage() {
                                   <button
                                     type="button"
                                     onClick={() => navigate(`/management/calls/${row.id}`)}
+                                    onMouseEnter={(event) => handlePreviewHover(event, row, "calls")}
+                                    onMouseLeave={scheduleHoverHide}
                                     className="inline-flex items-center gap-1.5 rounded-xl bg-black px-3 py-2 text-xs font-black text-white hover:bg-[#222222]"
                                   >
                                     <Phone size={14} /> Manage Calls
@@ -1034,6 +1233,10 @@ export default function ManagementPage() {
         </div>
       )}
 
+      {hoverPreview && (
+        <HoverPreviewPanel preview={hoverPreview} onMouseEnter={cancelHoverHide} onMouseLeave={scheduleHoverHide} />
+      )}
+
       {/* ── Delete row confirmation modal ── */}
       {confirmDeleteRowId !== null && (
         <div className="fixed inset-0 z-[110] grid place-items-center bg-black/50 px-5 backdrop-blur-sm">
@@ -1063,6 +1266,41 @@ export default function ManagementPage() {
                 className="flex-1 rounded-2xl bg-red-500 py-3 text-sm font-black text-white transition hover:bg-red-600"
               >
                 Yes, delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Post-import save prompt ── */}
+      {savePromptRowCount > 0 && (
+        <div className="fixed inset-0 z-[110] grid place-items-center bg-black/50 px-5 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-[28px] border border-[#d6d6d6] bg-white p-7 shadow-2xl">
+            <div className="flex h-13 w-13 items-center justify-center rounded-2xl bg-[#f4f4f4] text-black">
+              <Save size={24} />
+            </div>
+
+            <h2 className="mt-5 text-xl font-black text-black">Save these rows now?</h2>
+            <p className="mt-2 text-sm leading-6 text-black/60">
+              {savePromptRowCount} row(s) were added from your Excel import. Save now to persist
+ them to the main system, or save later from the toolbar.
+            </p>
+
+            <div className="mt-7 flex gap-3">
+              <button
+                onClick={() => setSavePromptRowCount(0)}
+                disabled={isSaving}
+                className="flex-1 rounded-2xl border border-black/20 bg-white py-3 text-sm font-black text-black transition hover:bg-[#f4f4f4]/30 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Not now
+              </button>
+              <button
+                onClick={handleSavePromptConfirm}
+                disabled={isSaving}
+                className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-black py-3 text-sm font-black text-white transition hover:bg-[#222222] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSaving ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current/30 border-t-current" /> : <Save size={15} />}
+                {isSaving ? "Saving..." : "Save now"}
               </button>
             </div>
           </div>
