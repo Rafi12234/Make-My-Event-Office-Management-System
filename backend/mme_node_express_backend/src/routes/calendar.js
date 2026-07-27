@@ -83,6 +83,13 @@ router.get("/", async (req, res, next) => {
         type: c.data_type,
       }));
 
+      // Find the "Client Name" column once so every event (worksheet, meeting,
+      // or call) can carry the resolved client name + full row values.
+      const clientNameCol = allColumns.find(
+        (c) => c.column_name.toLowerCase() === "client name" ||
+               (c.data_type === "text" && c.column_name.toLowerCase().includes("client") && !c.column_name.toLowerCase().includes("email") && !c.column_name.toLowerCase().includes("phone")),
+      );
+
       const [dateColumns] = await connection.execute(
         `SELECT id, column_key, column_name, data_type
          FROM sheet_columns
@@ -90,11 +97,12 @@ router.get("/", async (req, res, next) => {
         [sheetId],
       );
 
+      let dateCells = [];
       if (dateColumns.length) {
         const columnIds  = dateColumns.map((c) => c.id);
         const colHolders = columnIds.map(() => "?").join(",");
 
-        const [dateCells] = await connection.query(
+        [dateCells] = await connection.query(
           `SELECT sc.id, sc.row_id, sc.column_id,
                   sc.value_datetime, sc.value_date,
                   sr.row_key
@@ -109,11 +117,61 @@ router.get("/", async (req, res, next) => {
              )`,
           [...columnIds, startDate, endDate, startDate, endDate],
         );
+      }
 
-        if (dateCells.length) {
-          const rowIds        = [...new Set(dateCells.map((c) => c.row_id))];
-          const rowHolders    = rowIds.map(() => "?").join(",");
-          const [allCells]    = await connection.query(
+      // ── Client meeting events (from the Meeting Manager) ─────
+      let meetingRows = [];
+      try {
+        [meetingRows] = await connection.query(
+          `SELECT cm.id, cm.meeting_datetime, cm.discussion_notes, cm.linked_row_key
+           FROM client_meetings cm
+           WHERE cm.meeting_datetime IS NOT NULL
+             AND DATE(cm.meeting_datetime) BETWEEN ? AND ?`,
+          [startDate, endDate],
+        );
+      } catch {
+        // client_meetings table may not exist yet — skip gracefully
+      }
+
+      // ── Client call events (from the Call Manager) ───────────
+      let callRows = [];
+      try {
+        [callRows] = await connection.query(
+          `SELECT cc.id, cc.call_datetime, cc.call_discussion, cc.linked_row_key
+           FROM client_calls cc
+           WHERE cc.call_datetime IS NOT NULL
+             AND DATE(cc.call_datetime) BETWEEN ? AND ?`,
+          [startDate, endDate],
+        );
+      } catch {
+        // client_calls table may not exist yet — skip gracefully
+      }
+
+      // ── Resolve full row data (every column) for every rowKey touched above ──
+      // Worksheet, meeting, and call events all share this map so each event
+      // can carry the complete client record — the same values ManagementPage
+      // shows for that row.
+      const rowDataByKey = new Map();
+      const relevantRowKeys = new Set([
+        ...dateCells.map((c) => c.row_key),
+        ...meetingRows.map((m) => m.linked_row_key),
+        ...callRows.map((c) => c.linked_row_key),
+      ]);
+
+      if (relevantRowKeys.size) {
+        const keyList    = [...relevantRowKeys];
+        const keyHolders = keyList.map(() => "?").join(",");
+
+        const [rows] = await connection.query(
+          `SELECT id, row_key FROM sheet_rows WHERE sheet_id = ? AND row_key IN (${keyHolders})`,
+          [sheetId, ...keyList],
+        );
+        const rowIdByKey = new Map(rows.map((r) => [r.row_key, r.id]));
+        const rowIds     = rows.map((r) => r.id);
+
+        if (rowIds.length) {
+          const rowHolders = rowIds.map(() => "?").join(",");
+          const [allCells] = await connection.query(
             `SELECT sc.row_id, sc.column_id,
                     sc.value_text, sc.value_integer, sc.value_decimal,
                     sc.value_date, sc.value_time, sc.value_datetime,
@@ -125,96 +183,82 @@ router.get("/", async (req, res, next) => {
             rowIds,
           );
 
-          const columnMap = new Map(allColumns.map((c) => [c.id, c]));
-
-          // rowId → { columnKey: value }
-          const cellsByRow = new Map();
+          const columnMap    = new Map(allColumns.map((c) => [c.id, c]));
+          const cellsByRowId = new Map();
           for (const cell of allCells) {
             const col = columnMap.get(cell.column_id);
             if (!col) continue;
-            if (!cellsByRow.has(cell.row_id)) cellsByRow.set(cell.row_id, {});
-            cellsByRow.get(cell.row_id)[col.column_key] = cellValueFromRow(cell, col.data_type);
+            if (!cellsByRowId.has(cell.row_id)) cellsByRowId.set(cell.row_id, {});
+            cellsByRowId.get(cell.row_id)[col.column_key] = cellValueFromRow(cell, col.data_type);
           }
 
-          const dateColMap = new Map(dateColumns.map((c) => [c.id, c]));
-
-          // Find the "Client Name" column once so every event can carry the resolved name
-          const clientNameCol = allColumns.find(
-            (c) => c.column_name.toLowerCase() === "client name" ||
-                   (c.data_type === "text" && c.column_name.toLowerCase().includes("client") && !c.column_name.toLowerCase().includes("email") && !c.column_name.toLowerCase().includes("phone")),
-          );
-
-          for (const cell of dateCells) {
-            const dateCol  = dateColMap.get(cell.column_id);
-            const rawVal   = cell.value_datetime || cell.value_date;
-            const dateStr  = extractDate(rawVal);
-            const timeStr  = cell.value_datetime ? extractTime(cell.value_datetime) : null;
-            const rowData  = cellsByRow.get(cell.row_id) || {};
-            const resolvedClientName = clientNameCol ? (rowData[clientNameCol.column_key] || "") : "";
-
-            events.push({
-              id:         `ws_${cell.id}`,
-              source:     "worksheet",
-              date:       dateStr,
-              time:       timeStr,
-              columnKey:  dateCol.column_key,
-              columnName: dateCol.column_name,
-              rowKey:     cell.row_key,
-              clientName: resolvedClientName,
-              rowData,
-              eventType:  inferEventType(dateCol.column_name),
-            });
+          for (const [rowKey, rowId] of rowIdByKey) {
+            rowDataByKey.set(rowKey, cellsByRowId.get(rowId) || {});
           }
         }
       }
 
-      // ── Client meeting events (from the Meeting Manager) ─────
-      // "Last/Next Meeting Time" columns are no longer persisted as worksheet
-      // cells (see routes/workspace.js), so every recorded meeting is sourced
-      // directly from client_meetings here instead, keyed by its own date.
-      try {
-        const [meetingRows] = await connection.query(
-          `SELECT cm.id, cm.meeting_datetime, cm.discussion_notes, cm.linked_row_key
-           FROM client_meetings cm
-           WHERE cm.meeting_datetime IS NOT NULL
-             AND DATE(cm.meeting_datetime) BETWEEN ? AND ?`,
-          [startDate, endDate],
-        );
+      // ── Build worksheet events ────────────────────────────────
+      const dateColMap = new Map(dateColumns.map((c) => [c.id, c]));
 
-        if (meetingRows.length) {
-          const rowKeys    = [...new Set(meetingRows.map((m) => m.linked_row_key))];
-          const keyHolders = rowKeys.map(() => "?").join(",");
+      for (const cell of dateCells) {
+        const dateCol  = dateColMap.get(cell.column_id);
+        const rawVal   = cell.value_datetime || cell.value_date;
+        const dateStr  = extractDate(rawVal);
+        const timeStr  = cell.value_datetime ? extractTime(cell.value_datetime) : null;
+        const rowData  = rowDataByKey.get(cell.row_key) || {};
+        const resolvedClientName = clientNameCol ? (rowData[clientNameCol.column_key] || "") : "";
 
-          const [clientNameRows] = await connection.query(
-            `SELECT sr.row_key, sc.value_text, sc.display_value
-             FROM sheet_rows sr
-             JOIN sheet_cells sc ON sc.row_id = sr.id
-             JOIN sheet_columns col ON col.id = sc.column_id
-             WHERE sr.sheet_id = ? AND sr.row_key IN (${keyHolders})
-               AND LOWER(col.column_name) = 'client name'`,
-            [sheetId, ...rowKeys],
-          );
-          const clientNameByRowKey = new Map(
-            clientNameRows.map((r) => [r.row_key, r.value_text || r.display_value || ""]),
-          );
+        events.push({
+          id:         `ws_${cell.id}`,
+          source:     "worksheet",
+          date:       dateStr,
+          time:       timeStr,
+          columnKey:  dateCol.column_key,
+          columnName: dateCol.column_name,
+          rowKey:     cell.row_key,
+          clientName: resolvedClientName,
+          rowData,
+          eventType:  inferEventType(dateCol.column_name),
+        });
+      }
 
-          for (const meeting of meetingRows) {
-            const clientName = clientNameByRowKey.get(meeting.linked_row_key) || "";
-            events.push({
-              id:          `cm_${meeting.id}`,
-              source:      "client_meeting",
-              date:        extractDate(meeting.meeting_datetime),
-              time:        extractTime(meeting.meeting_datetime),
-              title:       clientName ? `Meeting with ${clientName}` : "Client meeting",
-              description: meeting.discussion_notes || null,
-              rowKey:      meeting.linked_row_key,
-              clientName,
-              eventType:   "meeting",
-            });
-          }
-        }
-      } catch {
-        // client_meetings table may not exist yet — skip gracefully
+      // ── Build client meeting events ───────────────────────────
+      for (const meeting of meetingRows) {
+        const rowData    = rowDataByKey.get(meeting.linked_row_key) || {};
+        const clientName = clientNameCol ? (rowData[clientNameCol.column_key] || "") : "";
+
+        events.push({
+          id:          `cm_${meeting.id}`,
+          source:      "client_meeting",
+          date:        extractDate(meeting.meeting_datetime),
+          time:        extractTime(meeting.meeting_datetime),
+          title:       clientName ? `Meeting with ${clientName}` : "Client meeting",
+          description: meeting.discussion_notes || null,
+          rowKey:      meeting.linked_row_key,
+          clientName,
+          rowData,
+          eventType:   "meeting",
+        });
+      }
+
+      // ── Build client call events ──────────────────────────────
+      for (const call of callRows) {
+        const rowData    = rowDataByKey.get(call.linked_row_key) || {};
+        const clientName = clientNameCol ? (rowData[clientNameCol.column_key] || "") : "";
+
+        events.push({
+          id:          `cc_${call.id}`,
+          source:      "client_call",
+          date:        extractDate(call.call_datetime),
+          time:        extractTime(call.call_datetime),
+          title:       clientName ? `Call with ${clientName}` : "Client call",
+          description: call.call_discussion || null,
+          rowKey:      call.linked_row_key,
+          clientName,
+          rowData,
+          eventType:   "call",
+        });
       }
     }
 

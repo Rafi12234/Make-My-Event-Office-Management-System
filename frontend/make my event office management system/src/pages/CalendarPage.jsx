@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import mmeLogo from "../assets/mme_logo.jpg";
 import {
@@ -29,6 +29,8 @@ import {
   loadCalendarMonth,
   updateCalendarEvent,
 } from "../services/calendarStorage";
+import { loadClientCalls } from "../services/callsStorage";
+import { loadClientMeetings } from "../services/meetingsStorage";
 
 // ─── Static data ────────────────────────────────────────────────
 
@@ -143,6 +145,32 @@ function to12h(t) {
   return `${h % 12 || 12}:${pad(m)} ${ampm}`;
 }
 
+function formatDisplayDatetime(value) {
+  if (!value) return "Not scheduled yet";
+  const date = new Date(String(value).replace(" ", "T"));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
+// Position the hover card near the client pill that triggered it, clamped so
+// it never runs off the viewport edges.
+function computeTooltipStyle(rect) {
+  const width  = 340;
+  const style  = { width: `${width}px`, maxHeight: `${Math.min(420, window.innerHeight - 24)}px` };
+
+  let left = rect.left;
+  if (left + width > window.innerWidth - 12) left = window.innerWidth - width - 12;
+  if (left < 12) left = 12;
+  style.left = `${left}px`;
+
+  const spaceBelow  = window.innerHeight - rect.bottom;
+  const openUpward  = spaceBelow < 260 && rect.top > 260;
+  if (openUpward) style.bottom = `${window.innerHeight - rect.top + 8}px`;
+  else style.top = `${rect.bottom + 8}px`;
+
+  return style;
+}
+
 // ─── rowData field extractors ────────────────────────────────────
 
 function pickField(rowData, hints) {
@@ -176,8 +204,6 @@ const clientName = (r) => {
 const assignedEmp  = (r) => pickField(r, ["assigned_employee", "assigned", "employee"]);
 const statusVal    = (r) => pickField(r, ["status"]);
 const priorityVal  = (r) => pickField(r, ["priority"]);
-const venueVal     = (r) => pickField(r, ["venue", "hall", "location"]);
-const shiftVal     = (r) => pickField(r, ["shift"]);
 
 function mainNote(rowData, columnKey) {
   const isNext = columnKey && columnKey.toLowerCase().includes("next");
@@ -347,6 +373,106 @@ function ManualEventCard({ event, onEdit, onDelete }) {
         <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-black/60">
           <User size={11} />{event.assignedEmployee}
         </p>
+      )}
+    </div>
+  );
+}
+
+// ─── Client hover card ─────────────────────────────────────────────
+// Shown when hovering a client pill in the month grid — mirrors the
+// /calendar/day details (management sheet columns, meeting details,
+// call details) but leaves out meeting pictures.
+
+function ClientHoverCard({ clientName, rowData, columns, extras, style }) {
+  const skipNames = new Set(["Client Name"]);
+  const detailFields = (columns || []).filter(
+    (col) =>
+      !skipNames.has(col.name) &&
+      col.type !== "meeting_manager" &&
+      rowData[col.key] != null &&
+      String(rowData[col.key]).trim() !== "",
+  );
+
+  const isLoading = extras?.isLoading ?? true;
+  const calls     = extras?.calls || [];
+  const meetings  = extras?.meetings || [];
+
+  return (
+    <div
+      style={style}
+      className="fixed z-100 overflow-y-auto rounded-2xl border border-[#d6d6d6]/60 bg-white p-4 shadow-2xl"
+    >
+      <p className="text-sm font-black text-black">{clientName || "Unnamed client"}</p>
+
+      {detailFields.length > 0 && (
+        <div className="mt-2 space-y-1.5 border-b border-[#d6d6d6]/30 pb-3">
+          {detailFields.map((col) => {
+            const formatted = formatColValue(col.type, rowData[col.key]);
+            if (!formatted) return null;
+            return (
+              <div key={col.key} className="flex items-baseline gap-2">
+                <span className="w-28 shrink-0 text-[10px] font-black uppercase tracking-wide text-black/45">{col.name}</span>
+                <span className="wrap-break-word text-xs font-semibold text-black/80">{formatted}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {isLoading ? (
+        <p className="mt-3 text-xs font-bold text-black/40">Loading…</p>
+      ) : (
+        <>
+          {meetings.length > 0 && (
+            <div className="mt-3">
+              <p className="text-[10px] font-black uppercase tracking-widest text-black/50">Meeting Details</p>
+              <div className="mt-1.5 space-y-2">
+                {meetings.map((m) => (
+                  <div key={m.id} className="rounded-lg border border-[#d6d6d6]/50 p-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-black text-black">{formatDisplayDatetime(m.meetingDatetime)}</p>
+                      {m.isCompleted && (
+                        <span className="rounded bg-black px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide text-white">
+                          Completed
+                        </span>
+                      )}
+                    </div>
+                    {m.requirements?.length > 0 && (
+                      <ul className="mt-1.5 space-y-1">
+                        {m.requirements.map((req, i) => (
+                          <li key={req.key || i} className="text-[11px] leading-5 text-black/60">
+                            <span className="font-bold text-black/75">{req.label}: </span>
+                            {req.details}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {calls.length > 0 && (
+            <div className="mt-3">
+              <p className="text-[10px] font-black uppercase tracking-widest text-black/50">Call Details</p>
+              <div className="mt-1.5 space-y-2">
+                {calls.map((c) => (
+                  <div key={c.id} className="rounded-lg border border-[#d6d6d6]/50 p-2.5">
+                    <p className="text-xs font-black text-black">{formatDisplayDatetime(c.callDatetime)}</p>
+                    {c.callDiscussion && (
+                      <p className="mt-1 text-[11px] leading-5 text-black/60">{c.callDiscussion}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {meetings.length === 0 && calls.length === 0 && (
+            <p className="mt-3 text-xs font-bold text-black/40">No meeting or call history yet.</p>
+          )}
+        </>
       )}
     </div>
   );
@@ -621,10 +747,79 @@ export default function CalendarPage() {
     return map;
   }, [events]);
 
+  // Client-linked events (worksheet, client_meeting, client_call) grouped by
+  // date, then by rowKey — so each client shows as a single grid pill saying
+  // which of Meeting / Call details are available for that day.
+  const clientsByDate = useMemo(() => {
+    const map = new Map();
+    for (const ev of events) {
+      if (!ev.date || !ev.rowKey || ev.source === "manual") continue;
+      if (!map.has(ev.date)) map.set(ev.date, new Map());
+      const dayMap = map.get(ev.date);
+      if (!dayMap.has(ev.rowKey)) {
+        dayMap.set(ev.rowKey, {
+          rowKey: ev.rowKey,
+          clientName: ev.clientName,
+          rowData: ev.rowData || {},
+          hasMeetingActivity: false,
+          hasCallActivity: false,
+        });
+      }
+      const client = dayMap.get(ev.rowKey);
+      if (!client.clientName && ev.clientName) client.clientName = ev.clientName;
+      if (ev.source === "worksheet" || ev.source === "client_meeting") client.hasMeetingActivity = true;
+      if (ev.source === "client_call") client.hasCallActivity = true;
+    }
+    const result = new Map();
+    for (const [date, dayMap] of map) result.set(date, [...dayMap.values()]);
+    return result;
+  }, [events]);
+
   const selectedEvents = useMemo(
     () => [],
     [],
   );
+
+  // ── Client hover details (Meeting/Call history, fetched on-demand) ──────
+  const [clientExtras, setClientExtras] = useState({}); // rowKey -> { isLoading, calls, meetings, error }
+  const [hoverInfo,    setHoverInfo]    = useState(null); // { rowKey, clientName, rowData, style }
+  const requestedRowKeys = useRef(new Set());
+
+  const ensureClientExtras = useCallback((rowKey) => {
+    if (requestedRowKeys.current.has(rowKey)) return;
+    requestedRowKeys.current.add(rowKey);
+    setClientExtras((prev) => ({ ...prev, [rowKey]: { isLoading: true, calls: [], meetings: [], error: null } }));
+
+    Promise.all([loadClientCalls(rowKey), loadClientMeetings(rowKey)])
+      .then(([callsData, meetingsData]) => {
+        setClientExtras((prev) => ({
+          ...prev,
+          [rowKey]: { isLoading: false, calls: callsData.calls || [], meetings: meetingsData.meetings || [], error: null },
+        }));
+      })
+      .catch((err) => {
+        requestedRowKeys.current.delete(rowKey);
+        setClientExtras((prev) => ({
+          ...prev,
+          [rowKey]: { isLoading: false, calls: [], meetings: [], error: err.message || "Could not load client details." },
+        }));
+      });
+  }, []);
+
+  function showClientHoverCard(event, client) {
+    ensureClientExtras(client.rowKey);
+    const rect = event.currentTarget.getBoundingClientRect();
+    setHoverInfo({
+      rowKey:     client.rowKey,
+      clientName: client.clientName,
+      rowData:    client.rowData,
+      style:      computeTooltipStyle(rect),
+    });
+  }
+
+  function hideClientHoverCard(rowKey) {
+    setHoverInfo((h) => (h && h.rowKey === rowKey ? null : h));
+  }
 
   // ── Load events ────────────────────────────────────────────────
   const fetchEvents = useCallback(async () => {
@@ -671,9 +866,10 @@ export default function CalendarPage() {
 
   // ── Event CRUD ─────────────────────────────────────────────────
 
-  const totalEvents = events.length;
-  const wsCount     = events.filter((e) => e.source === "worksheet").length;
-  const manualCount = events.filter((e) => e.source === "manual").length;
+  const totalEvents  = events.length;
+  const meetingCount = events.filter((e) => e.source === "worksheet" || e.source === "client_meeting").length;
+  const callCount     = events.filter((e) => e.source === "client_call").length;
+  const manualCount   = events.filter((e) => e.source === "manual").length;
 
   // ── Render ─────────────────────────────────────────────────────
   return (
@@ -731,7 +927,7 @@ export default function CalendarPage() {
               <p className="mt-1.5 text-sm text-black/60">
                 {totalEvents === 0
                   ? "No events this month"
-                  : `${totalEvents} event${totalEvents !== 1 ? "s" : ""} — ${wsCount} from management sheet · ${manualCount} scheduled`}
+                  : `${totalEvents} event${totalEvents !== 1 ? "s" : ""} — ${meetingCount} meeting · ${callCount} call · ${manualCount} scheduled`}
               </p>
             </div>
             <Link
@@ -798,10 +994,16 @@ export default function CalendarPage() {
             ) : (
               <div className="grid grid-cols-7">
                 {calendarDays.map((info, idx) => {
-                  const dayEvs     = byDate.get(info.date) || [];
+                  const dayEvs      = byDate.get(info.date) || [];
+                  const dayClients  = clientsByDate.get(info.date) || [];
+                  const manualEvs   = dayEvs.filter((ev) => ev.source === "manual" || !ev.rowKey);
+                  const combined    = [
+                    ...dayClients.map((c) => ({ kind: "client", data: c, id: `client_${c.rowKey}` })),
+                    ...manualEvs.map((ev) => ({ kind: "manual", data: ev, id: ev.id })),
+                  ];
                   const isToday    = info.date === TODAY;
-                  const visible    = dayEvs.slice(0, 3);
-                  const extra      = Math.max(0, dayEvs.length - 3);
+                  const visible    = combined.slice(0, 3);
+                  const extra      = Math.max(0, combined.length - 3);
                   const isLastCol  = (idx + 1) % 7 === 0;
 
                   return (
@@ -832,32 +1034,37 @@ export default function CalendarPage() {
 
                       {/* Event pills */}
                       <div className="mt-1 space-y-0.5">
-                        {visible.map((ev) => {
-                          const st = eventStyle(ev.eventType);
-                          if (ev.source === "worksheet") {
-                            const cname = ev.clientName || ev.columnName;
-                            const venue = venueVal(ev.rowData);
-                            const shift = shiftVal(ev.rowData);
+                        {visible.map((item) => {
+                          if (item.kind === "client") {
+                            const c = item.data;
+                            const label = c.hasMeetingActivity && c.hasCallActivity
+                              ? "Meeting & Call Details"
+                              : c.hasMeetingActivity
+                              ? "Manage Meetings details"
+                              : "Manage Call details";
                             return (
                               <div
-                                key={ev.id}
-                                className={`hidden rounded-md border px-1.5 py-1 sm:block ${st.pill}`}
+                                key={item.id}
+                                className="hidden rounded-md border border-[#d6d6d6] bg-[#f4f4f4] px-1.5 py-1 sm:block"
+                                onMouseEnter={(event) => { event.stopPropagation(); showClientHoverCard(event, c); }}
+                                onMouseLeave={() => hideClientHoverCard(c.rowKey)}
                               >
                                 <div className="flex items-center gap-1">
-                                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${st.dot}`} />
-                                  <span className="truncate text-[11px] font-bold leading-none">{cname}</span>
+                                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-black" />
+                                  <span className="truncate text-[11px] font-bold leading-none">{c.clientName || "Client"}</span>
                                 </div>
-                                {(venue || shift) && (
-                                  <p className="mt-0.5 truncate text-[10px] opacity-65">
-                                    {[venue, shift].filter(Boolean).join(" · ")}
-                                  </p>
-                                )}
+                                <p className="mt-0.5 truncate text-[10px] font-bold uppercase tracking-wide text-black/60">
+                                  {label}
+                                </p>
                               </div>
                             );
                           }
+
+                          const ev = item.data;
+                          const st = eventStyle(ev.eventType);
                           return (
                             <div
-                              key={ev.id}
+                              key={item.id}
                               className={`flex items-center gap-1 rounded-md border px-1.5 py-0.5 ${st.pill}`}
                             >
                               <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${st.dot}`} />
@@ -867,10 +1074,13 @@ export default function CalendarPage() {
                         })}
 
                         {/* Mobile: just dots */}
-                        {dayEvs.length > 0 && (
+                        {combined.length > 0 && (
                           <div className="flex gap-0.5 sm:hidden">
-                            {dayEvs.slice(0, 4).map((ev) => (
-                              <span key={ev.id} className={`h-1.5 w-1.5 rounded-full ${eventStyle(ev.eventType).dot}`} />
+                            {combined.slice(0, 4).map((item) => (
+                              <span
+                                key={item.id}
+                                className={`h-1.5 w-1.5 rounded-full ${item.kind === "client" ? "bg-black" : eventStyle(item.data.eventType).dot}`}
+                              />
                             ))}
                           </div>
                         )}
@@ -907,6 +1117,17 @@ export default function CalendarPage() {
           </div>
         </section>
       </main>
+
+      {/* Client hover card (Meeting/Call details preview) */}
+      {hoverInfo && (
+        <ClientHoverCard
+          clientName={hoverInfo.clientName}
+          rowData={hoverInfo.rowData}
+          columns={worksheetColumns}
+          extras={clientExtras[hoverInfo.rowKey]}
+          style={hoverInfo.style}
+        />
+      )}
 
       {/* Toast notice */}
       {notice && (
