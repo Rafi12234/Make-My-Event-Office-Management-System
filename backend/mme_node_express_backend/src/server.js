@@ -14,6 +14,7 @@ import calendarRoutes from "./routes/calendar.js";
 import authRoutes from "./routes/auth.js";
 import adminRoutes from "./routes/admin.js";
 import meetingRoutes, { uploadsRootDirectory } from "./routes/meetings.js";
+import callRoutes from "./routes/calls.js";
 
 import {
   errorHandler,
@@ -133,6 +134,7 @@ app.use("/api/calendar", calendarRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/meetings", meetingRoutes);
+app.use("/api/calls", callRoutes);
 
 /*
 |--------------------------------------------------------------------------

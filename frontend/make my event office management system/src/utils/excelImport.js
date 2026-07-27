@@ -83,7 +83,21 @@ async function parseXlsxFile(file) {
   const ExcelJS = ExcelJSModule.default ?? ExcelJSModule;
   const workbook = new ExcelJS.Workbook();
   const buffer = await file.arrayBuffer();
-  await workbook.xlsx.load(buffer);
+
+  try {
+    await workbook.xlsx.load(buffer);
+  } catch {
+    // exceljs throws a low-level, unreadable error (e.g. "Cannot set
+    // properties of undefined (setting 'sheetNo')") when a sheet inside the
+    // file fails to parse — this happens for corrupted files, files that
+    // aren't really .xlsx (e.g. an old .xls or .csv renamed to .xlsx), or
+    // password-protected workbooks. Surface an actionable message instead.
+    throw new Error(
+      "Could not read this Excel file. It may be corrupted, password-protected, " +
+        "or not a genuine .xlsx file. Open it in Excel, use \"Save As\" to create " +
+        "a fresh .xlsx copy, then upload that file.",
+    );
+  }
 
   const worksheet = workbook.worksheets[0];
   if (!worksheet) {

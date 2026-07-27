@@ -10,6 +10,7 @@ import {
   FileSpreadsheet,
   LayoutGrid,
   LogOut,
+  Phone,
   Plus,
   RotateCcw,
   Save,
@@ -24,9 +25,8 @@ import AddColumnModal from "../components/AddColumnModal";
 import EmployeeIdentityModal from "../components/EmployeeIdentityModal";
 import ExcelImportModal from "../components/ExcelImportModal";
 import {
-  PRIORITY_OPTIONS,
+  MANDATORY_EXCEL_COLUMNS,
   SHIFT_OPTIONS,
-  STATUS_OPTIONS,
   VENUE_OPTIONS,
   createEmptyRow,
 } from "../data/defaultSheet";
@@ -40,31 +40,18 @@ import {
 } from "../services/managementStorage";
 import { parseSpreadsheetFile } from "../utils/excelImport";
 
-function inferColumnType(header, rows) {
-  const name = header.toLowerCase();
-  const values = rows
-    .slice(0, 20)
-    .map((row) => String(row[header] ?? "").trim())
-    .filter(Boolean);
-
-  if (name.includes("venue") || name.includes("hall") || name.includes("location")) return "venue";
-  if (name.includes("shift")) return "shift";
-  if (name.includes("email")) return "email";
-  if (name.includes("phone") || name.includes("number") || name.includes("mobile")) return "phone";
-  if (name.includes("assigned") || name.includes("employee")) return "employee";
-  if (name === "status" || name.includes("status")) return "status";
-  if (name.includes("priority")) return "priority";
-  if (name.includes("note") || name.includes("discussion") || name.includes("requirement")) return "long_text";
-  if (name.includes("date") && name.includes("time")) return "datetime";
-  if (name.includes("meeting time") || name.includes("deadline") || name.includes("schedule")) return "datetime";
-  if (name.includes("date")) return "date";
-  if (name.includes("time")) return "time";
-  if (values.length && values.every((value) => !Number.isNaN(Number(value)))) return "number";
-  return "text";
-}
-
 function normalizeHeader(value) {
   return String(value).trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+// A cell is treated as "Not Available" when the source Excel cell was blank
+// or literally contained N/A (any casing, with or without the slash). Once a
+// cell is marked N/A, it is stored and displayed as the literal text "N/A"
+// regardless of the column's data type (number, date, etc.) and no
+// type-specific input/functionality is offered for it.
+function isNotAvailableValue(raw) {
+  const text = String(raw ?? "").trim();
+  return text === "" || /^n\/?a$/i.test(text);
 }
 
 function formatMeetingTimeDisplay(value, emptyLabel) {
@@ -77,6 +64,16 @@ function formatMeetingTimeDisplay(value, emptyLabel) {
 function CellEditor({ column, value, onChange, employeeNames }) {
   const baseClass =
     "h-full min-h-11 w-full border-0 bg-transparent px-3 py-2.5 text-sm text-black outline-none transition placeholder:text-black/25 focus:bg-[#f4f4f4]/25 focus:ring-2 focus:ring-inset focus:ring-[#333333]/40";
+
+  // N/A cells are frozen/read-only for every column type — no dropdown,
+  // number spinner, or date picker functionality applies to them.
+  if (value === "N/A") {
+    return (
+      <div className="flex h-full min-h-11 items-center px-3" title="No value was available for this cell.">
+        <span className="text-sm font-bold italic text-black/40">N/A</span>
+      </div>
+    );
+  }
 
   if (column.type === "checkbox") {
     return (
@@ -105,24 +102,6 @@ function CellEditor({ column, value, onChange, employeeNames }) {
       <select value={value || ""} onChange={(event) => onChange(event.target.value)} className={baseClass}>
         <option value="">Select shift</option>
         {SHIFT_OPTIONS.map((option) => <option key={option}>{option}</option>)}
-      </select>
-    );
-  }
-
-  if (column.type === "status") {
-    return (
-      <select value={value || ""} onChange={(event) => onChange(event.target.value)} className={baseClass}>
-        <option value="">Select status</option>
-        {STATUS_OPTIONS.map((option) => <option key={option}>{option}</option>)}
-      </select>
-    );
-  }
-
-  if (column.type === "priority") {
-    return (
-      <select value={value || ""} onChange={(event) => onChange(event.target.value)} className={baseClass}>
-        <option value="">Select priority</option>
-        {PRIORITY_OPTIONS.map((option) => <option key={option}>{option}</option>)}
       </select>
     );
   }
@@ -256,8 +235,6 @@ export default function ManagementPage() {
     shifts: new Set(),
     assigneeText: "",
     venues: new Set(),
-    statuses: new Set(),
-    priorities: new Set(),
   });
 
   const employeeNames = useMemo(() => {
@@ -306,14 +283,6 @@ export default function ManagementPage() {
       const q = filters.assigneeText.trim().toLowerCase();
       rows = rows.filter((row) => String(c ? row.values[c.id] ?? "" : "").toLowerCase().includes(q));
     }
-    if (filters.statuses.size > 0) {
-      const c = col("status");
-      rows = rows.filter((row) => filters.statuses.has(c ? row.values[c.id] ?? "" : ""));
-    }
-    if (filters.priorities.size > 0) {
-      const c = col("priority");
-      rows = rows.filter((row) => filters.priorities.has(c ? row.values[c.id] ?? "" : ""));
-    }
 
     return rows;
   }, [searchText, workspace.rows, workspace.columns, filters]);
@@ -324,9 +293,7 @@ export default function ManagementPage() {
       (filters.dateTo ? 1 : 0) +
       filters.shifts.size +
       (filters.assigneeText.trim() ? 1 : 0) +
-      filters.venues.size +
-      filters.statuses.size +
-      filters.priorities.size,
+      filters.venues.size,
     [filters],
   );
 
@@ -346,8 +313,6 @@ export default function ManagementPage() {
       shifts: new Set(),
       assigneeText: "",
       venues: new Set(),
-      statuses: new Set(),
-      priorities: new Set(),
     });
   }
 
@@ -549,7 +514,22 @@ export default function ManagementPage() {
     if (!employee?.id || isSaving) return;
     setIsSaving(true);
     try {
-      await saveWorkspace(workspace, employee.id);
+      // Event Date must never be saved blank — any row missing it gets
+      // defaulted to the literal "N/A" (same convention as imported cells).
+      const eventDateColumn = workspace.columns.find((column) => column.id === "event_date");
+      const workspaceToSave = eventDateColumn
+        ? {
+            ...workspace,
+            rows: workspace.rows.map((row) => {
+              const current = row.values[eventDateColumn.id];
+              if (current && String(current).trim() !== "") return row;
+              return { ...row, values: { ...row.values, [eventDateColumn.id]: "N/A" } };
+            }),
+          }
+        : workspace;
+
+      await saveWorkspace(workspaceToSave, employee.id);
+      if (workspaceToSave !== workspace) setWorkspace(workspaceToSave);
       setHasUnsavedChanges(false);
       setNotice({ type: "success", message: "All changes saved successfully." });
     } catch (error) {
@@ -571,6 +551,20 @@ export default function ManagementPage() {
     try {
       const parsed = await parseSpreadsheetFile(file);
       if (!parsed.rows.length) throw new Error("The spreadsheet contains headers but no data rows.");
+
+      // Mandatory-column rule: every one of MANDATORY_EXCEL_COLUMNS must be
+      // present (case/whitespace-insensitive). Missing any of them fails the
+      // whole import before a preview is even shown.
+      const normalizedHeaders = new Set(parsed.headers.map(normalizeHeader));
+      const missingColumns = MANDATORY_EXCEL_COLUMNS.filter(
+        (name) => !normalizedHeaders.has(normalizeHeader(name)),
+      );
+      if (missingColumns.length) {
+        throw new Error(
+          `Import failed. Missing mandatory column(s): ${missingColumns.join(", ")}.`,
+        );
+      }
+
       setImportPreview({ ...parsed, fileName: file.name });
     } catch (error) {
       setNotice({
@@ -586,30 +580,21 @@ export default function ManagementPage() {
     if (!importPreview) return;
 
     setWorkspace((current) => {
-      const nextColumns = [...current.columns];
-      const headerMap = new Map(nextColumns.map((column) => [normalizeHeader(column.name), column]));
-
-      importPreview.headers.forEach((header) => {
-        const key = normalizeHeader(header);
-        if (!headerMap.has(key)) {
-          const column = {
-            id: crypto.randomUUID(),
-            name: header,
-            type: inferColumnType(header, importPreview.rows),
-            width: header.toLowerCase().match(/note|discussion|requirement/) ? 300 : 190,
-            required: false,
-          };
-          nextColumns.push(column);
-          headerMap.set(key, column);
-        }
-      });
+      // Only headers matching an existing (system-dedicated) column are
+      // imported. Any extra/unrecognized column in the Excel file is simply
+      // ignored — no new columns are auto-created from an import anymore.
+      const headerMap = new Map(current.columns.map((column) => [normalizeHeader(column.name), column]));
 
       const importedRows = importPreview.rows.map((sourceRow, index) => {
-        const values = Object.fromEntries(nextColumns.map((column) => [column.id, ""]));
+        const values = Object.fromEntries(current.columns.map((column) => [column.id, ""]));
 
         importPreview.headers.forEach((header) => {
           const column = headerMap.get(normalizeHeader(header));
-          values[column.id] = sourceRow[header] ?? "";
+          if (!column) return;
+          const rawValue = sourceRow[header];
+          // Blank cells or a literal "N/A" are stored/shown as "N/A" no
+          // matter the column's data type, and disable that cell's editor.
+          values[column.id] = isNotAvailableValue(rawValue) ? "N/A" : String(rawValue);
         });
 
         return {
@@ -625,7 +610,6 @@ export default function ManagementPage() {
 
       return {
         ...current,
-        columns: nextColumns,
         rows: [...current.rows, ...importedRows],
       };
     });
@@ -765,8 +749,6 @@ export default function ManagementPage() {
                           { key: "shift",    label: "Shift",            hasValue: filters.shifts.size > 0 },
                           { key: "venue",    label: "Venue",            hasValue: filters.venues.size > 0 },
                           { key: "employee", label: "Assigned Employee",hasValue: !!filters.assigneeText.trim() },
-                          { key: "status",   label: "Status",           hasValue: filters.statuses.size > 0 },
-                          { key: "priority", label: "Priority",         hasValue: filters.priorities.size > 0 },
                         ].map(({ key, label, hasValue }) => (
                           <button
                             key={key}
@@ -890,34 +872,6 @@ export default function ManagementPage() {
                             <p className="mt-2 text-xs text-black/45">Filters rows containing this name.</p>
                           </div>
                         )}
-
-                        {hoveredSection === "status" && (
-                          <div>
-                            <p className="mb-3 text-[10px] font-black uppercase tracking-[0.18em] text-[#333333]">Status</p>
-                            <div className="space-y-1">
-                              {STATUS_OPTIONS.map((opt) => (
-                                <label key={opt} className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-[#f4f4f4]/30">
-                                  <input type="checkbox" checked={filters.statuses.has(opt)} onChange={() => toggleFilter("statuses", opt)} className="h-4 w-4 accent-black" />
-                                  <span className="text-sm font-bold text-black">{opt}</span>
-                                </label>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {hoveredSection === "priority" && (
-                          <div>
-                            <p className="mb-3 text-[10px] font-black uppercase tracking-[0.18em] text-[#333333]">Priority</p>
-                            <div className="space-y-1">
-                              {PRIORITY_OPTIONS.map((opt) => (
-                                <label key={opt} className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-[#f4f4f4]/30">
-                                  <input type="checkbox" checked={filters.priorities.has(opt)} onChange={() => toggleFilter("priorities", opt)} className="h-4 w-4 accent-black" />
-                                  <span className="text-sm font-bold text-black">{opt}</span>
-                                </label>
-                              ))}
-                            </div>
-                          </div>
-                        )}
                       </div>
                     </div>
                   )}
@@ -989,13 +943,20 @@ export default function ManagementPage() {
                               className="border-b border-r border-[#d6d6d6]/45 bg-white align-top group-hover:bg-[#fffbfd]"
                             >
                               {column.type === "meeting_manager" ? (
-                                <div className="flex h-full min-h-11 items-center justify-center p-1.5">
+                                <div className="flex h-full min-h-11 flex-wrap items-center justify-center gap-1.5 p-1.5">
                                   <button
                                     type="button"
                                     onClick={() => navigate(`/management/meetings/${row.id}`)}
                                     className="inline-flex items-center gap-1.5 rounded-xl bg-black px-3 py-2 text-xs font-black text-white hover:bg-[#222222]"
                                   >
                                     <CalendarClock size={14} /> Manage Meetings
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => navigate(`/management/calls/${row.id}`)}
+                                    className="inline-flex items-center gap-1.5 rounded-xl bg-black px-3 py-2 text-xs font-black text-white hover:bg-[#222222]"
+                                  >
+                                    <Phone size={14} /> Manage Calls
                                   </button>
                                 </div>
                               ) : column.type === "last_meeting_time" || column.type === "next_meeting_time" ? (
