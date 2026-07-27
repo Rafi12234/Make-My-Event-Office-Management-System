@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import mmeLogo from "../assets/mme_logo.jpg";
 import {
@@ -152,24 +152,29 @@ function formatDisplayDatetime(value) {
   return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
-// Position the hover card near the client pill that triggered it, clamped so
-// it never runs off the viewport edges.
-function computeTooltipStyle(rect) {
-  const width  = 340;
-  const style  = { width: `${width}px`, maxHeight: `${Math.min(420, window.innerHeight - 24)}px` };
+// Position the hover card near the client pill that triggered it, using the
+// card's own measured size so it always fits fully on screen with no
+// scrollbar (flips above the pill / shifts sideways when there's no room).
+function computeTooltipStyle(rect, cardSize) {
+  const width  = cardSize?.width  || 340;
+  const height = cardSize?.height || 0;
+  const style  = { width: `${width}px` };
 
   let left = rect.left;
   if (left + width > window.innerWidth - 12) left = window.innerWidth - width - 12;
   if (left < 12) left = 12;
   style.left = `${left}px`;
 
-  const spaceBelow  = window.innerHeight - rect.bottom;
-  const openUpward  = spaceBelow < 260 && rect.top > 260;
-  if (openUpward) style.bottom = `${window.innerHeight - rect.top + 8}px`;
-  else style.top = `${rect.bottom + 8}px`;
+  let top = rect.bottom + 8;
+  if (top + height > window.innerHeight - 12) {
+    const upwardTop = rect.top - height - 8;
+    top = upwardTop >= 12 ? upwardTop : Math.max(12, window.innerHeight - height - 12);
+  }
+  style.top = `${top}px`;
 
   return style;
 }
+
 
 // ─── rowData field extractors ────────────────────────────────────
 
@@ -383,7 +388,18 @@ function ManualEventCard({ event, onEdit, onDelete }) {
 // /calendar/day details (management sheet columns, meeting details,
 // call details) but leaves out meeting pictures.
 
-function ClientHoverCard({ clientName, rowData, columns, extras, style }) {
+function ClientHoverCard({ clientName, rowData, columns, extras, anchorRect }) {
+  const cardRef = useRef(null);
+  const [style, setStyle] = useState({ left: "-9999px", top: "-9999px", opacity: 0 });
+
+  // Measure the card's own (full, unclipped) size once it has content, then
+  // position it so it fits entirely on screen — no scrollbar, ever.
+  useLayoutEffect(() => {
+    if (!anchorRect || !cardRef.current) return;
+    const size = { width: cardRef.current.offsetWidth, height: cardRef.current.offsetHeight };
+    setStyle({ ...computeTooltipStyle(anchorRect, size), opacity: 1 });
+  }, [anchorRect, extras]);
+
   const skipNames = new Set(["Client Name"]);
   const detailFields = (columns || []).filter(
     (col) =>
@@ -399,8 +415,9 @@ function ClientHoverCard({ clientName, rowData, columns, extras, style }) {
 
   return (
     <div
+      ref={cardRef}
       style={style}
-      className="fixed z-100 overflow-y-auto rounded-2xl border border-[#d6d6d6]/60 bg-white p-4 shadow-2xl"
+      className="fixed z-100 w-85 rounded-2xl border border-[#d6d6d6]/60 bg-white p-4 shadow-2xl transition-opacity"
     >
       <p className="text-sm font-black text-black">{clientName || "Unnamed client"}</p>
 
@@ -813,7 +830,7 @@ export default function CalendarPage() {
       rowKey:     client.rowKey,
       clientName: client.clientName,
       rowData:    client.rowData,
-      style:      computeTooltipStyle(rect),
+      anchorRect: rect,
     });
   }
 
@@ -1125,7 +1142,7 @@ export default function CalendarPage() {
           rowData={hoverInfo.rowData}
           columns={worksheetColumns}
           extras={clientExtras[hoverInfo.rowKey]}
-          style={hoverInfo.style}
+          anchorRect={hoverInfo.anchorRect}
         />
       )}
 
