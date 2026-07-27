@@ -9,26 +9,14 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Clock,
-  Pencil,
-  Plus,
-  Trash2,
-  User,
   UserRound,
   X,
 } from "lucide-react";
-import EmployeeIdentityModal from "../components/EmployeeIdentityModal";
 import {
   clearCurrentEmployee,
   loadCurrentEmployee,
-  saveCurrentEmployee,
 } from "../services/managementStorage";
-import {
-  createCalendarEvent,
-  deleteCalendarEvent,
-  loadCalendarMonth,
-  updateCalendarEvent,
-} from "../services/calendarStorage";
+import { loadCalendarMonth } from "../services/calendarStorage";
 import { loadClientCalls } from "../services/callsStorage";
 import { loadClientMeetings } from "../services/meetingsStorage";
 
@@ -40,16 +28,6 @@ const MONTH_NAMES = [
 ];
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
-const EVENT_TYPE_OPTIONS = [
-  { value: "meeting",  label: "Meeting" },
-  { value: "followup", label: "Follow-up" },
-  { value: "deadline", label: "Deadline" },
-  { value: "task",     label: "Task" },
-  { value: "other",    label: "Other" },
-];
-
-const PRIORITY_VALUES = ["Low", "Medium", "High", "Urgent"];
 
 // ─── Style helpers ───────────────────────────────────────────────
 
@@ -66,27 +44,6 @@ function eventStyle(type) {
     pill: "bg-[#f4f4f4] text-black border-[#d6d6d6]",
     dot:  dots[type] || dots.other,
   };
-}
-
-function priorityStyle(p) {
-  const map = {
-    Urgent: "bg-black text-white",
-    High:   "bg-[#333333] text-white",
-    Medium: "bg-[#a9a9a9] text-white",
-    Low:    "bg-[#f4f4f4] text-black",
-  };
-  return map[p] || map.Medium;
-}
-
-function statusStyle(s) {
-  if (!s)                    return "bg-[#f4f4f4] text-black";
-  if (s === "Completed")     return "bg-black text-white";
-  if (s === "Cancelled")     return "bg-[#a9a9a9] text-white";
-  if (s === "In Progress")   return "bg-[#333333] text-white";
-  if (s === "New")           return "bg-[#f4f4f4] text-black";
-  if (s.includes("Meeting")) return "bg-[#f4f4f4] text-black";
-  if (s.includes("Follow"))  return "bg-[#f4f4f4] text-black";
-  return "bg-[#f4f4f4] text-black";
 }
 
 // ─── Calendar grid builder ───────────────────────────────────────
@@ -128,14 +85,6 @@ function buildCalendarDays(year, month) {
 function todayISO() {
   const d = new Date();
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
-function formatDisplayDate(iso) {
-  if (!iso) return "";
-  const [y, m, d] = iso.split("-").map(Number);
-  return new Intl.DateTimeFormat("en-US", {
-    weekday: "long", year: "numeric", month: "long", day: "numeric",
-  }).format(new Date(y, m - 1, d));
 }
 
 function to12h(t) {
@@ -192,53 +141,7 @@ function computeTooltipStyle(rect, { wide = false } = {}) {
   return style;
 }
 
-// ─── rowData field extractors ────────────────────────────────────
-
-function pickField(rowData, hints) {
-  for (const hint of hints) {
-    if (rowData[hint]) return rowData[hint];
-  }
-  for (const [k, v] of Object.entries(rowData || {})) {
-    for (const hint of hints) {
-      if (k.toLowerCase().includes(hint.toLowerCase()) && v) return String(v);
-    }
-  }
-  return "";
-}
-
-const clientName = (r) => {
-  for (const key of ["client_name", "clientname", "client name"]) {
-    if (r[key]) return String(r[key]);
-  }
-  for (const [k, v] of Object.entries(r || {})) {
-    const lower = k.toLowerCase();
-    if (
-      (lower.includes("client") || lower === "name") &&
-      !lower.includes("phone") &&
-      !lower.includes("email") &&
-      !lower.includes("company") &&
-      v
-    ) return String(v);
-  }
-  return "";
-};
-const assignedEmp  = (r) => pickField(r, ["assigned_employee", "assigned", "employee"]);
-const statusVal    = (r) => pickField(r, ["status"]);
-const priorityVal  = (r) => pickField(r, ["priority"]);
-
-function mainNote(rowData, columnKey) {
-  const isNext = columnKey && columnKey.toLowerCase().includes("next");
-  return isNext
-    ? pickField(rowData, ["next_meeting_discussion", "next_discussion"])
-        || pickField(rowData, ["meeting_short_note", "note", "notes"])
-    : pickField(rowData, ["meeting_short_note", "note", "notes", "discussion"]);
-}
-
-function prevNote(rowData, columnKey) {
-  const isNext = columnKey && columnKey.toLowerCase().includes("next");
-  if (!isNext) return "";
-  return pickField(rowData, ["meeting_short_note", "note", "notes"]);
-}
+// ─── Column value formatting ─────────────────────────────────────
 
 function formatColValue(type, value) {
   if (value === null || value === undefined || value === "") return null;
@@ -258,145 +161,6 @@ function formatColValue(type, value) {
   if (type === "time") return to12h(s.slice(0, 5));
   if (type === "boolean") return value ? "Yes" : "No";
   return s;
-}
-
-// ─── Worksheet event card ─────────────────────────────────────────
-
-function WorksheetEventCard({ event, columns }) {
-  const st     = eventStyle(event.eventType);
-  const cName  = event.clientName || clientName(event.rowData);
-  const status = statusVal(event.rowData);
-  const pri    = priorityVal(event.rowData);
-
-  const skipKeys = new Set(["client_name", "client", "status", "priority"]);
-  const detailFields = (columns || []).filter(
-    (col) =>
-      !skipKeys.has(col.key) &&
-      event.rowData[col.key] != null &&
-      String(event.rowData[col.key]).trim() !== "",
-  );
-
-  return (
-    <div className={`rounded-2xl border p-4 ${st.pill}`}>
-      {/* Header: event type badge + meeting time */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${st.dot}`} />
-          <span className="text-[10px] font-black uppercase tracking-wider">{event.columnName}</span>
-        </div>
-        {event.time && (
-          <span className="flex items-center gap-1 text-xs font-bold opacity-70">
-            <Clock size={11} /> {to12h(event.time)}
-          </span>
-        )}
-      </div>
-
-      {/* Client name */}
-      {cName && <p className="mt-2.5 text-sm font-black leading-tight">{cName}</p>}
-
-      {/* Status + Priority badges */}
-      {(status || pri) && (
-        <div className="mt-2.5 flex flex-wrap gap-1.5">
-          {status && (
-            <span className={`rounded-lg px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${statusStyle(status)}`}>
-              {status}
-            </span>
-          )}
-          {pri && (
-            <span className={`rounded-lg px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${priorityStyle(pri)}`}>
-              {pri}
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* All other column fields */}
-      {detailFields.length > 0 && (
-        <div className="mt-3 space-y-2 border-t border-current/15 pt-3">
-          {detailFields.map((col) => {
-            const formatted = formatColValue(col.type, event.rowData[col.key]);
-            if (!formatted) return null;
-            const isLong = col.type === "long_text" || formatted.length > 38;
-            if (isLong) {
-              return (
-                <div key={col.key}>
-                  <p className="mb-1 text-[10px] font-black uppercase tracking-wider opacity-55">{col.name}</p>
-                  <p className="text-xs leading-5 opacity-80">{formatted}</p>
-                </div>
-              );
-            }
-            return (
-              <div key={col.key} className="flex items-baseline gap-2">
-                <span className="w-28 shrink-0 text-[10px] font-black uppercase tracking-wide opacity-55">{col.name}</span>
-                <span className="break-all text-xs opacity-80">{formatted}</span>
-              </div>
-            );
-          }).filter(Boolean)}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Manual event card ────────────────────────────────────────────
-
-function ManualEventCard({ event, onEdit, onDelete }) {
-  const st = eventStyle(event.eventType);
-  return (
-    <div className="rounded-2xl border border-[#d6d6d6]/50 bg-white p-4 shadow-sm">
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${st.dot}`} />
-          <span className="truncate text-sm font-black text-black">{event.title}</span>
-        </div>
-        <div className="flex shrink-0 items-center gap-0.5">
-          <button onClick={() => onEdit(event)} title="Edit" className="rounded-lg p-1.5 text-black/40 hover:bg-[#f4f4f4]/50 hover:text-black transition">
-            <Pencil size={13} />
-          </button>
-          <button onClick={() => onDelete(event)} title="Delete" className="rounded-lg p-1.5 text-black/40 hover:bg-red-50 hover:text-red-500 transition">
-            <Trash2 size={13} />
-          </button>
-        </div>
-      </div>
-
-      <div className="mt-1.5 flex flex-wrap items-center gap-2">
-        {event.time && (
-          <span className="flex items-center gap-1 text-xs font-bold text-black/60">
-            <Clock size={11} />{to12h(event.time)}
-          </span>
-        )}
-        <span className={`rounded-md border px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wide ${st.pill}`}>
-          {event.eventType}
-        </span>
-        {event.priority && (
-          <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wide ${priorityStyle(event.priority)}`}>
-            {event.priority}
-          </span>
-        )}
-        {event.status && (
-          <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wide ${statusStyle(event.status)}`}>
-            {event.status}
-          </span>
-        )}
-      </div>
-
-      {(event.clientName || event.companyName) && (
-        <p className="mt-1.5 text-xs font-semibold text-black/70">
-          {[event.clientName, event.companyName].filter(Boolean).join(" · ")}
-        </p>
-      )}
-
-      {event.description && (
-        <p className="mt-2 line-clamp-2 text-xs leading-5 text-black/60">{event.description}</p>
-      )}
-
-      {event.assignedEmployee && (
-        <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-black/60">
-          <User size={11} />{event.assignedEmployee}
-        </p>
-      )}
-    </div>
-  );
 }
 
 // ─── Client hover card ─────────────────────────────────────────────
@@ -507,248 +271,6 @@ function ClientHoverCard({ clientName, rowData, columns, extras, rect }) {
   );
 }
 
-// ─── Add / Edit event form ────────────────────────────────────────
-
-const BLANK_FORM = { title: "", eventDate: "", eventTime: "", eventType: "meeting", clientName: "", companyName: "", priority: "Medium", description: "" };
-
-function EventForm({ initialDate, initialData, onSubmit, onClose, isEdit }) {
-  const [form, setForm] = useState(() =>
-    initialData
-      ? {
-          title:       initialData.title || "",
-          eventDate:   initialData.date  || initialDate || "",
-          eventTime:   initialData.time  || "",
-          eventType:   initialData.eventType || "meeting",
-          clientName:  initialData.clientName  || "",
-          companyName: initialData.companyName || "",
-          priority:    initialData.priority || "Medium",
-          description: initialData.description || "",
-        }
-      : { ...BLANK_FORM, eventDate: initialDate || "" },
-  );
-  const [errors,      setErrors]      = useState({});
-  const [submitting,  setSubmitting]  = useState(false);
-
-  function set(field, val) {
-    setForm((f) => ({ ...f, [field]: val }));
-    setErrors((e) => ({ ...e, [field]: null }));
-  }
-
-  async function submit(ev) {
-    ev.preventDefault();
-    const errs = {};
-    if (!form.title.trim()) errs.title = "Title is required.";
-    if (!form.eventDate)    errs.eventDate = "Date is required.";
-    setErrors(errs);
-    if (Object.keys(errs).length) return;
-    setSubmitting(true);
-    try {
-      await onSubmit(form);
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  const input  = "w-full rounded-xl border border-[#d6d6d6]/70 bg-[#ffffff] px-3 py-2.5 text-sm text-black outline-none focus:border-[#333333] focus:ring-4 focus:ring-[#d6d6d6]/20 transition";
-  const label  = "mb-1.5 block text-[10px] font-black uppercase tracking-widest text-black/60";
-
-  return (
-    <form onSubmit={submit} className="space-y-3.5">
-      <div>
-        <label className={label}>Title *</label>
-        <input value={form.title} onChange={(e) => set("title", e.target.value)} placeholder="e.g. Client follow-up call" className={input} />
-        {errors.title && <p className="mt-1 text-xs font-bold text-red-500">{errors.title}</p>}
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className={label}>Date *</label>
-          <input type="date" value={form.eventDate} onChange={(e) => set("eventDate", e.target.value)} className={input} />
-          {errors.eventDate && <p className="mt-1 text-xs font-bold text-red-500">{errors.eventDate}</p>}
-        </div>
-        <div>
-          <label className={label}>Time</label>
-          <input type="time" value={form.eventTime} onChange={(e) => set("eventTime", e.target.value)} className={input} />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className={label}>Type</label>
-          <select value={form.eventType} onChange={(e) => set("eventType", e.target.value)} className={input}>
-            {EVENT_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className={label}>Priority</label>
-          <select value={form.priority} onChange={(e) => set("priority", e.target.value)} className={input}>
-            {PRIORITY_VALUES.map((p) => <option key={p}>{p}</option>)}
-          </select>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className={label}>Client Name</label>
-          <input value={form.clientName} onChange={(e) => set("clientName", e.target.value)} placeholder="Client" className={input} />
-        </div>
-        <div>
-          <label className={label}>Company</label>
-          <input value={form.companyName} onChange={(e) => set("companyName", e.target.value)} placeholder="Company" className={input} />
-        </div>
-      </div>
-
-      <div>
-        <label className={label}>Notes / Agenda</label>
-        <textarea rows={3} value={form.description} onChange={(e) => set("description", e.target.value)} placeholder="Details, agenda, or reminders…" className={`${input} resize-none leading-5`} />
-      </div>
-
-      <div className="flex items-center justify-end gap-2 pt-1">
-        <button type="button" onClick={onClose} className="rounded-xl border border-[#d6d6d6]/70 px-4 py-2.5 text-sm font-black text-black hover:bg-[#f4f4f4]/30 transition">
-          Cancel
-        </button>
-        <button type="submit" disabled={submitting} className="inline-flex items-center gap-2 rounded-xl bg-black px-5 py-2.5 text-sm font-black text-white shadow-md shadow-black/20 hover:bg-[#222222] disabled:opacity-60 transition">
-          {submitting
-            ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-            : <Check size={15} />}
-          {isEdit ? "Update Event" : "Add Event"}
-        </button>
-      </div>
-    </form>
-  );
-}
-
-// ─── Day detail modal ─────────────────────────────────────────────
-
-function DayModal({ date, events, onClose, onAdd, onEdit, onDelete, employee, onNeedEmployee, worksheetColumns }) {
-  const [showForm,     setShowForm]     = useState(false);
-  const [editingEvent, setEditingEvent] = useState(null);
-
-  const wsEvents = events.filter((e) => e.source === "worksheet");
-  const mnEvents = events.filter((e) => e.source === "manual");
-
-  function startAdd() {
-    if (!employee) { onNeedEmployee(); return; }
-    setEditingEvent(null);
-    setShowForm(true);
-  }
-
-  function startEdit(ev) {
-    setEditingEvent(ev);
-    setShowForm(true);
-  }
-
-  async function handleSubmit(formData) {
-    if (editingEvent) {
-      await onEdit(editingEvent.dbId, formData);
-    } else {
-      await onAdd(formData);
-    }
-    setShowForm(false);
-    setEditingEvent(null);
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/45 backdrop-blur-sm" onClick={onClose} />
-
-      {/* Panel */}
-      <div className="relative z-10 flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-[28px] border border-[#d6d6d6]/40 bg-white shadow-[0_40px_120px_rgba(0,0,0,0.12)]">
-
-        {/* Header */}
-        <div className="flex shrink-0 items-center justify-between gap-3 bg-linear-to-r from-black to-[#333333] px-5 py-4 text-white">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15">
-              <CalendarDays size={19} />
-            </div>
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#f4f4f4]">Selected date</p>
-              <p className="text-sm font-black leading-tight">{formatDisplayDate(date)}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            {!showForm && (
-              <button onClick={startAdd} className="flex items-center gap-1.5 rounded-xl bg-white/15 px-3 py-2 text-xs font-black hover:bg-white/25 transition">
-                <Plus size={14} /> Add Event
-              </button>
-            )}
-            <button onClick={onClose} className="rounded-xl p-2 hover:bg-white/15 transition">
-              <X size={17} />
-            </button>
-          </div>
-        </div>
-
-        {/* Scrollable body */}
-        <div className="flex-1 overflow-y-auto px-5 py-5">
-          {showForm ? (
-            <>
-              <p className="mb-4 text-sm font-black text-black">
-                {editingEvent ? "Edit Scheduled Event" : "New Event"}
-              </p>
-              <EventForm
-                initialDate={date}
-                initialData={editingEvent}
-                onSubmit={handleSubmit}
-                onClose={() => { setShowForm(false); setEditingEvent(null); }}
-                isEdit={!!editingEvent}
-              />
-            </>
-          ) : (
-            <>
-              {/* Worksheet events */}
-              {wsEvents.length > 0 && (
-                <section>
-                  <h3 className="mb-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-[#333333]">
-                    <span className="flex h-5 w-5 items-center justify-center rounded-md bg-[#f4f4f4] text-[9px] font-black text-black">S</span>
-                    From Management Sheet
-                  </h3>
-                  <div className="space-y-3">
-                    {wsEvents.map((ev) => <WorksheetEventCard key={ev.id} event={ev} columns={worksheetColumns} />)}
-                  </div>
-                </section>
-              )}
-
-              {/* Manual events */}
-              {mnEvents.length > 0 && (
-                <section className={wsEvents.length > 0 ? "mt-5" : ""}>
-                  <h3 className="mb-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-[#333333]">
-                    <span className="flex h-5 w-5 items-center justify-center rounded-md bg-[#f4f4f4] text-[9px] font-black text-black">M</span>
-                    Scheduled Events
-                  </h3>
-                  <div className="space-y-3">
-                    {mnEvents.map((ev) => (
-                      <ManualEventCard
-                        key={ev.id}
-                        event={ev}
-                        onEdit={startEdit}
-                        onDelete={(e) => onDelete(e.dbId)}
-                      />
-                    ))}
-                  </div>
-                </section>
-              )}
-
-              {/* Empty state */}
-              {wsEvents.length === 0 && mnEvents.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-[22px] bg-[#f4f4f4] text-black">
-                    <CalendarDays size={28} />
-                  </div>
-                  <p className="mt-4 font-black text-black">No events on this day</p>
-                  <p className="mt-1.5 max-w-xs text-sm text-black/50">
-                    Click <strong>Add Event</strong> to schedule a meeting, follow-up, or task. Events from the management sheet appear automatically.
-                  </p>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Main calendar page ───────────────────────────────────────────
 
 export default function CalendarPage() {
@@ -804,11 +326,6 @@ export default function CalendarPage() {
     return result;
   }, [events]);
 
-  const selectedEvents = useMemo(
-    () => [],
-    [],
-  );
-
   // ── Client hover details (Meeting/Call history, fetched on-demand) ──────
   const [clientExtras, setClientExtras] = useState({}); // rowKey -> { isLoading, calls, meetings, error }
   const [hoverInfo,    setHoverInfo]    = useState(null); // { rowKey, clientName, rowData, rect }
@@ -850,6 +367,8 @@ export default function CalendarPage() {
     setHoverInfo((h) => (h && h.rowKey === rowKey ? null : h));
   }
 
+  function showNotice(type, message) { setNotice({ type, message }); }
+
   // ── Load events ────────────────────────────────────────────────
   const fetchEvents = useCallback(async () => {
     setIsLoading(true);
@@ -864,6 +383,7 @@ export default function CalendarPage() {
     }
   }, [year, month]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional data fetch from the server whenever the visible month changes, not derived render state
   useEffect(() => { fetchEvents(); }, [fetchEvents]);
 
   // Auto-dismiss notices
@@ -872,8 +392,6 @@ export default function CalendarPage() {
     const t = setTimeout(() => setNotice(null), 4500);
     return () => clearTimeout(t);
   }, [notice]);
-
-  function showNotice(type, message) { setNotice({ type, message }); }
 
   // ── Month navigation ───────────────────────────────────────────
   function prevMonth() {
