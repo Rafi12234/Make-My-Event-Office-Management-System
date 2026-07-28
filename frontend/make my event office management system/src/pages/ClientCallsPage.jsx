@@ -207,7 +207,7 @@ export default function ClientCallsPage() {
 
           <Link
             to="/management"
-            className="inline-flex items-center gap-2 rounded-xl border border-[#d6d6d6]/70 bg-white px-4 py-2.5 text-sm font-black text-black hover:bg-[#f4f4f4]/30"
+            className="inline-flex items-center gap-2 rounded-xl bg-black px-4 py-2.5 text-sm font-black text-white hover:bg-[#222222]"
           >
             <ArrowLeft size={17} /> Back to sheet
           </Link>

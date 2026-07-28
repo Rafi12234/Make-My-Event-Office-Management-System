@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import AddColumnModal from "../components/AddColumnModal";
+import ConfirmDialog from "../components/ConfirmDialog";
 import EmployeeIdentityModal from "../components/EmployeeIdentityModal";
 import ExcelImportModal from "../components/ExcelImportModal";
 import {
@@ -293,6 +294,7 @@ export default function ManagementPage() {
   const navigate = useNavigate();
   const [employee, setEmployee] = useState(() => loadCurrentEmployee());
   const [employeeDirectory, setEmployeeDirectory] = useState([]);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [workspace, setWorkspace] = useState(() => ({
     id: "meeting-management",
     name: "Meeting Management",
@@ -599,6 +601,15 @@ export default function ManagementPage() {
     navigate("/", { replace: true });
   }
 
+  function requestLogout() {
+    setShowLogoutConfirm(true);
+  }
+
+  function confirmLogout() {
+    setShowLogoutConfirm(false);
+    handleLogout();
+  }
+
   function addRow() {
     setWorkspace((current) => ({
       ...current,
@@ -832,6 +843,16 @@ export default function ManagementPage() {
       {!employee && <EmployeeIdentityModal onSubmit={handleEmployeeSubmit} />}
       {showAddColumn && <AddColumnModal onClose={() => setShowAddColumn(false)} onAdd={addColumn} />}
       {importPreview && <ExcelImportModal preview={importPreview} onClose={() => setImportPreview(null)} onConfirm={confirmImport} />}
+      {showLogoutConfirm && (
+        <ConfirmDialog
+          title="Log out?"
+          message="You'll be signed out of the workspace and will need to log in again to continue."
+          confirmLabel="Logout"
+          cancelLabel="Cancel"
+          onCancel={() => setShowLogoutConfirm(false)}
+          onConfirm={confirmLogout}
+        />
+      )}
 
       <input
         ref={fileInputRef}
@@ -867,7 +888,7 @@ export default function ManagementPage() {
               {isSaving ? "Saving..." : hasUnsavedChanges ? "Save Changes" : "Saved"}
             </button>
 
-            <button onClick={handleLogout} title="Logout" className="flex items-center gap-2 rounded-2xl border border-[#d6d6d6]/70 bg-white px-3 py-2.5 text-left transition hover:bg-red-50 hover:border-red-200 sm:px-4">
+            <button onClick={requestLogout} title="Logout" className="flex items-center gap-2 rounded-2xl border border-[#d6d6d6]/70 bg-white px-3 py-2.5 text-left transition hover:bg-red-50 hover:border-red-200 sm:px-4">
               <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#f4f4f4] text-black"><UserRound size={16} /></div>
               <div className="hidden sm:block">
                 <p className="max-w-36 truncate text-xs font-black text-black">{employee?.fullName || "Employee"}</p>
