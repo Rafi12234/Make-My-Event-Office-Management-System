@@ -29,6 +29,7 @@ import {
   toggleImageFinalSelection,
   toggleMeetingComplete,
   updateMeeting,
+  updateMeetingImageTag,
   uploadMeetingImages,
 } from "../services/meetingsStorage";
 
@@ -112,6 +113,12 @@ function ImageLightbox({ images, initialIndex, onClose }) {
         onClick={(event) => event.stopPropagation()}
       />
 
+      {image.tagName && (
+        <p className="absolute top-4 left-1/2 -translate-x-1/2 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-bold text-white">
+          {image.tagName}
+        </p>
+      )}
+
       {images.length > 1 && (
         <button
           onClick={(event) => {
@@ -147,12 +154,33 @@ function MeetingCard({ meeting, rowKey, employeeId, onChanged, onDeleted }) {
   const [isCompleting, setIsCompleting] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(null);
   const [error, setError] = useState("");
+  const [pendingUpload, setPendingUpload] = useState(null);
+  const [pendingPreviews, setPendingPreviews] = useState([]);
   const fileInputRef = useRef(null);
+
+  const pendingFiles = pendingUpload?.files ?? null;
+
+  useEffect(() => {
+    if (!pendingFiles) return undefined;
+    const urls = pendingFiles.map((file) => URL.createObjectURL(file));
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing React state with blob URLs created for an external system (the File objects), not derivable from render
+    setPendingPreviews(urls);
+    return () => {
+      urls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [pendingFiles]);
 
   const isDirty =
     meetingDatetime !== toDatetimeLocalValue(meeting.meetingDatetime) ||
     JSON.stringify(selections) !==
       JSON.stringify(requirementsToSelections(meeting.requirements));
+
+  // Requirements are rendered as a column/row table: each selected
+  // requirement becomes its own column, with a single row of cells below
+  // holding that requirement's details.
+  const selectedRequirementOptions = CLIENT_REQUIREMENT_OPTIONS.filter((option) =>
+    Object.prototype.hasOwnProperty.call(selections, option.key),
+  );
 
   function toggleRequirement(key) {
     setSelections((prev) => {
@@ -213,15 +241,43 @@ function MeetingCard({ meeting, rowKey, employeeId, onChanged, onDeleted }) {
     }
   }
 
-  async function handleFilesSelected(event) {
+  function handleFilesSelected(event) {
     const files = Array.from(event.target.files || []);
     event.target.value = "";
     if (!files.length) return;
 
+    // Stage the files first so the employee can name each one before it's
+    // actually uploaded, instead of uploading immediately.
+    setError("");
+    setPendingUpload({ files, tags: files.map(() => "") });
+  }
+
+  function updatePendingTag(index, value) {
+    setPendingUpload((prev) => {
+      if (!prev) return prev;
+      const tags = [...prev.tags];
+      tags[index] = value;
+      return { ...prev, tags };
+    });
+  }
+
+  function cancelPendingUpload() {
+    setPendingUpload(null);
+  }
+
+  async function confirmPendingUpload() {
+    if (!pendingUpload) return;
     setIsUploading(true);
     setError("");
     try {
-      await uploadMeetingImages(rowKey, meeting.id, files, employeeId);
+      await uploadMeetingImages(
+        rowKey,
+        meeting.id,
+        pendingUpload.files,
+        employeeId,
+        pendingUpload.tags,
+      );
+      setPendingUpload(null);
       onChanged();
     } catch (err) {
       setError(err.message || "Failed to upload images.");
@@ -236,6 +292,17 @@ function MeetingCard({ meeting, rowKey, employeeId, onChanged, onDeleted }) {
       onChanged();
     } catch (err) {
       setError(err.message || "Failed to delete image.");
+    }
+  }
+
+  async function handleTagBlur(image, value) {
+    const trimmed = value.trim();
+    if (trimmed === (image.tagName || "")) return;
+    try {
+      await updateMeetingImageTag(rowKey, image.id, trimmed);
+      onChanged();
+    } catch (err) {
+      setError(err.message || "Failed to save image tag.");
     }
   }
 
@@ -284,7 +351,7 @@ function MeetingCard({ meeting, rowKey, employeeId, onChanged, onDeleted }) {
       )}
 
       <div className="grid gap-4 p-5 lg:grid-cols-[240px_1fr]">
-        <div>
+        <div className="min-w-0">
           <label className="mb-1.5 block text-xs font-bold text-black/60">Meeting time</label>
           <input
             type="datetime-local"
@@ -309,7 +376,7 @@ function MeetingCard({ meeting, rowKey, employeeId, onChanged, onDeleted }) {
           )}
         </div>
 
-        <div>
+        <div className="min-w-0">
           <div className="mb-2 flex items-center justify-between">
             <label className="flex items-center gap-1.5 text-xs font-bold text-black/60">
               <ClipboardList size={14} /> Client Requirements
@@ -326,62 +393,79 @@ function MeetingCard({ meeting, rowKey, employeeId, onChanged, onDeleted }) {
             )}
           </div>
 
-          <select
-            value=""
-            onChange={(event) => {
-              if (event.target.value) toggleRequirement(event.target.value);
-            }}
-            className="w-full rounded-xl border border-[#d6d6d6] bg-white px-3 py-2.5 text-sm font-semibold text-black outline-none focus:border-[#333333] focus:ring-4 focus:ring-[#d6d6d6]/20"
-          >
-            <option value="">+ Add a client requirement...</option>
-            {CLIENT_REQUIREMENT_OPTIONS.filter(
-              (option) => !Object.prototype.hasOwnProperty.call(selections, option.key),
-            ).map((option) => (
-              <option key={option.key} value={option.key}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+          {selectedRequirementOptions.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-[#d6d6d6] py-4 text-center text-xs font-semibold text-black/40">
+              No requirements added yet. Use the dropdown below to add one.
+            </p>
+          ) : null}
 
-          <div className="mt-3 space-y-2">
-            {Object.keys(selections).length === 0 ? (
-              <p className="rounded-xl border border-dashed border-[#d6d6d6] py-4 text-center text-xs font-semibold text-black/40">
-                No requirements added yet. Use the dropdown above to add one.
-              </p>
-            ) : (
-              CLIENT_REQUIREMENT_OPTIONS.filter((option) =>
-                Object.prototype.hasOwnProperty.call(selections, option.key),
-              ).map((option) => (
-                <div
-                  key={option.key}
-                  className="flex items-start gap-3 rounded-xl border border-[#d6d6d6]/60 p-2.5"
-                >
-                  <span className="mt-2 w-28 shrink-0 text-xs font-bold text-black">
-                    {option.label}
-                  </span>
-                  <textarea
-                    rows={2}
-                    value={selections[option.key] || ""}
-                    onChange={(event) =>
-                      updateRequirementDetails(option.key, event.target.value)
-                    }
-                    placeholder={
-                      option.key === "other"
-                        ? "Describe the exceptional requirement..."
-                        : `Notes for ${option.label}...`
-                    }
-                    className="flex-1 resize-none rounded-lg border border-[#d6d6d6] px-2.5 py-2 text-xs leading-5 text-black outline-none focus:border-[#333333] focus:ring-4 focus:ring-[#d6d6d6]/20"
-                  />
-                  <button
-                    onClick={() => toggleRequirement(option.key)}
-                    className="mt-1.5 shrink-0 rounded-lg p-1.5 text-black/35 transition hover:bg-red-50 hover:text-red-500"
-                    title="Remove this requirement"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              ))
-            )}
+          <div className="overflow-x-auto rounded-xl border border-[#d6d6d6]/60">
+            <table className="min-w-full border-collapse text-xs">
+              <thead>
+                <tr className="bg-[#f9f9f9]">
+                  {selectedRequirementOptions.map((option) => (
+                    <th
+                      key={option.key}
+                      className="min-w-[170px] border-b border-r border-[#d6d6d6]/50 px-3 py-2 text-left align-middle font-black text-black last:border-r-0"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span>{option.label}</span>
+                        <button
+                          onClick={() => toggleRequirement(option.key)}
+                          className="shrink-0 rounded p-0.5 text-black/35 transition hover:bg-red-50 hover:text-red-500"
+                          title="Remove this requirement"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    </th>
+                  ))}
+                  <th className="min-w-[190px] border-b border-[#d6d6d6]/50 px-3 py-2 align-middle">
+                    <select
+                      value=""
+                      onChange={(event) => {
+                        if (event.target.value) toggleRequirement(event.target.value);
+                      }}
+                      className="w-full rounded-lg border border-[#d6d6d6] bg-white px-2 py-1.5 text-xs font-semibold text-black outline-none focus:border-[#333333] focus:ring-4 focus:ring-[#d6d6d6]/20"
+                    >
+                      <option value="">+ Add requirement...</option>
+                      {CLIENT_REQUIREMENT_OPTIONS.filter(
+                        (option) => !Object.prototype.hasOwnProperty.call(selections, option.key),
+                      ).map((option) => (
+                        <option key={option.key} value={option.key}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  {selectedRequirementOptions.map((option) => (
+                    <td
+                      key={option.key}
+                      className="border-r border-[#d6d6d6]/40 px-3 py-2 align-top last:border-r-0"
+                    >
+                      <textarea
+                        rows={3}
+                        value={selections[option.key] || ""}
+                        onChange={(event) =>
+                          updateRequirementDetails(option.key, event.target.value)
+                        }
+                        placeholder={
+                          option.key === "other"
+                            ? "Describe the exceptional requirement..."
+                            : `Notes for ${option.label}...`
+                        }
+                        className="w-full resize-none rounded-lg border border-transparent bg-transparent px-1 py-1 leading-5 text-black outline-none focus:border-[#333333] focus:bg-[#f4f4f4]/30 focus:ring-2 focus:ring-[#d6d6d6]/30"
+                      />
+                    </td>
+                  ))}
+                  <td />
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -411,34 +495,93 @@ function MeetingCard({ meeting, rowKey, employeeId, onChanged, onDeleted }) {
           </div>
         </div>
 
+        {pendingUpload && (
+          <div className="mb-4 rounded-xl border border-[#d6d6d6]/70 bg-[#f9f9f9] p-3">
+            <p className="mb-2 text-[11px] font-black uppercase tracking-[0.12em] text-black/50">
+              Name each image before uploading (optional)
+            </p>
+            <div className="space-y-2">
+              {pendingUpload.files.map((file, fileIndex) => (
+                <div key={`${file.name}-${fileIndex}`} className="flex items-center gap-2.5">
+                  <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-[#d6d6d6]/60 bg-white">
+                    {pendingPreviews[fileIndex] && (
+                      <img
+                        src={pendingPreviews[fileIndex]}
+                        alt={file.name}
+                        className="h-full w-full object-cover"
+                      />
+                    )}
+                  </div>
+                  <span className="w-1/3 truncate text-xs font-semibold text-black/70" title={file.name}>
+                    {file.name}
+                  </span>
+                  <input
+                    type="text"
+                    value={pendingUpload.tags[fileIndex]}
+                    onChange={(event) => updatePendingTag(fileIndex, event.target.value)}
+                    placeholder="Tag name (e.g. Stage, Entry Gate)..."
+                    className="flex-1 rounded-lg border border-[#d6d6d6] px-2.5 py-1.5 text-xs text-black outline-none focus:border-[#333333] focus:ring-4 focus:ring-[#d6d6d6]/20"
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 flex items-center justify-end gap-2">
+              <button
+                onClick={cancelPendingUpload}
+                disabled={isUploading}
+                className="rounded-xl border border-black/20 bg-white px-3.5 py-2 text-xs font-black text-black hover:bg-[#f4f4f4]/30 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmPendingUpload}
+                disabled={isUploading}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-black px-3.5 py-2 text-xs font-black text-white hover:bg-[#222222] disabled:opacity-60"
+              >
+                {isUploading ? <Loader2 size={14} className="animate-spin" /> : <ImagePlus size={14} />}
+                Upload {pendingUpload.files.length} image{pendingUpload.files.length === 1 ? "" : "s"}
+              </button>
+            </div>
+          </div>
+        )}
+
         {meeting.images.length === 0 ? (
           <p className="rounded-xl border border-dashed border-[#d6d6d6] py-6 text-center text-xs font-semibold text-black/40">
             No images uploaded for this meeting yet.
           </p>
         ) : (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+          <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
             {meeting.images.map((image, imageIndex) => (
-              <div
-                key={image.id}
-                className="group relative aspect-square cursor-pointer overflow-hidden rounded-xl border border-[#d6d6d6]/60 bg-[#f4f4f4]"
-                onClick={() => setViewerIndex(imageIndex)}
-              >
-                <img
-                  src={resolveImageUrl(image.url)}
-                  alt={image.originalFileName || "Meeting image"}
-                  className="h-full w-full object-cover"
-                  loading="lazy"
-                />
-                <button
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    handleDeleteImage(image.id);
-                  }}
-                  className="absolute right-1.5 top-1.5 rounded-lg bg-black/60 p-1 text-white opacity-0 transition group-hover:opacity-100 hover:bg-red-500"
-                  title="Delete image"
+              <div key={image.id} className="space-y-1">
+                <div
+                  className="group relative aspect-square w-full max-w-30 cursor-pointer overflow-hidden rounded-xl border border-[#d6d6d6]/60 bg-[#f4f4f4]"
+                  onClick={() => setViewerIndex(imageIndex)}
                 >
-                  <X size={13} />
-                </button>
+                  <img
+                    src={resolveImageUrl(image.url)}
+                    alt={image.originalFileName || "Meeting image"}
+                    className="h-full w-full object-cover"
+                    loading="lazy"
+                  />
+                  <button
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleDeleteImage(image.id);
+                    }}
+                    className="absolute right-1.5 top-1.5 rounded-lg bg-black/60 p-1 text-white opacity-0 transition group-hover:opacity-100 hover:bg-red-500"
+                    title="Delete image"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  defaultValue={image.tagName || ""}
+                  onClick={(event) => event.stopPropagation()}
+                  onBlur={(event) => handleTagBlur(image, event.target.value)}
+                  placeholder="Add tag..."
+                  className="w-full max-w-30 rounded-lg border border-transparent bg-transparent px-1.5 py-1 text-[11px] font-semibold text-black outline-none focus:border-[#d6d6d6] focus:bg-white"
+                />
               </div>
             ))}
           </div>
@@ -536,12 +679,12 @@ function FinalizeReview({ rowKey, employeeId, meetings, finalization, onClose, o
                       No images from this meeting.
                     </p>
                   ) : (
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+                    <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
                       {meeting.images.map((image, imageIndex) => (
                         <div
                           key={image.id}
                           onClick={() => setViewer({ images: meeting.images, index: imageIndex })}
-                          className={`group relative aspect-square cursor-pointer overflow-hidden rounded-xl border-2 transition ${
+                          className={`group relative aspect-square w-full max-w-30 cursor-pointer overflow-hidden rounded-xl border-2 transition ${
                             image.isFinalSelected ? "border-green-500" : "border-[#d6d6d6]/60"
                           }`}
                           title="Click to view full screen"
@@ -701,7 +844,7 @@ export default function ClientMeetingsPage() {
 
           <Link
             to="/management"
-            className="inline-flex items-center gap-2 rounded-xl border border-[#d6d6d6]/70 bg-white px-4 py-2.5 text-sm font-black text-black hover:bg-[#f4f4f4]/30"
+            className="inline-flex items-center gap-2 rounded-xl bg-black px-4 py-2.5 text-sm font-black text-white hover:bg-[#222222]"
           >
             <ArrowLeft size={17} /> Back to sheet
           </Link>
@@ -709,7 +852,7 @@ export default function ClientMeetingsPage() {
       </header>
 
       <main className="px-3 py-6 sm:px-5 lg:px-7">
-        <section className="mx-auto max-w-5xl">
+        <section className="mx-auto w-full max-w-none">
           <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
             <div>
               <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.2em] text-[#333333]">

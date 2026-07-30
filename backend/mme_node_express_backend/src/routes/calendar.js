@@ -120,14 +120,19 @@ router.get("/", async (req, res, next) => {
       }
 
       // ── Client meeting events (from the Meeting Manager) ─────
+      // Joined against sheet_rows so meetings belonging to a client that has
+      // since been deleted from the worksheet (row archived) never show up
+      // here, even for any older data saved before cascading deletes existed.
       let meetingRows = [];
       try {
         [meetingRows] = await connection.query(
           `SELECT cm.id, cm.meeting_datetime, cm.discussion_notes, cm.linked_row_key
            FROM client_meetings cm
-           WHERE cm.meeting_datetime IS NOT NULL
+           JOIN sheet_rows sr ON sr.row_key = cm.linked_row_key AND sr.sheet_id = ?
+           WHERE sr.is_archived = FALSE
+             AND cm.meeting_datetime IS NOT NULL
              AND DATE(cm.meeting_datetime) BETWEEN ? AND ?`,
-          [startDate, endDate],
+          [sheetId, startDate, endDate],
         );
       } catch {
         // client_meetings table may not exist yet — skip gracefully
@@ -139,9 +144,11 @@ router.get("/", async (req, res, next) => {
         [callRows] = await connection.query(
           `SELECT cc.id, cc.call_datetime, cc.call_discussion, cc.linked_row_key
            FROM client_calls cc
-           WHERE cc.call_datetime IS NOT NULL
+           JOIN sheet_rows sr ON sr.row_key = cc.linked_row_key AND sr.sheet_id = ?
+           WHERE sr.is_archived = FALSE
+             AND cc.call_datetime IS NOT NULL
              AND DATE(cc.call_datetime) BETWEEN ? AND ?`,
-          [startDate, endDate],
+          [sheetId, startDate, endDate],
         );
       } catch {
         // client_calls table may not exist yet — skip gracefully

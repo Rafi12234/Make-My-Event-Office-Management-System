@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import AddColumnModal from "../components/AddColumnModal";
+import ConfirmDialog from "../components/ConfirmDialog";
 import EmployeeIdentityModal from "../components/EmployeeIdentityModal";
 import ExcelImportModal from "../components/ExcelImportModal";
 import {
@@ -293,6 +294,7 @@ export default function ManagementPage() {
   const navigate = useNavigate();
   const [employee, setEmployee] = useState(() => loadCurrentEmployee());
   const [employeeDirectory, setEmployeeDirectory] = useState([]);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [workspace, setWorkspace] = useState(() => ({
     id: "meeting-management",
     name: "Meeting Management",
@@ -599,6 +601,15 @@ export default function ManagementPage() {
     navigate("/", { replace: true });
   }
 
+  function requestLogout() {
+    setShowLogoutConfirm(true);
+  }
+
+  function confirmLogout() {
+    setShowLogoutConfirm(false);
+    handleLogout();
+  }
+
   function addRow() {
     setWorkspace((current) => ({
       ...current,
@@ -606,19 +617,31 @@ export default function ManagementPage() {
     }));
   }
 
-  function deleteRow(rowId) {
-    setWorkspace((current) => ({
-      ...current,
-      rows: current.rows
-        .filter((row) => row.id !== rowId)
-        .map((row, index) => ({ ...row, rowNumber: index + 1 })),
-    }));
+  // Deleting a row is meant to be permanent as soon as it's confirmed (see the
+  // delete confirmation modal's copy), so it's saved to the backend right
+  // away instead of just flipping `hasUnsavedChanges` — otherwise refreshing
+  // the page before pressing "Save Changes" would silently bring the row back.
+  async function deleteRow(rowId) {
+    const nextRows = workspace.rows
+      .filter((row) => row.id !== rowId)
+      .map((row, index) => ({ ...row, rowNumber: index + 1 }));
+
     setRowHeights((prev) => {
       const next = { ...prev };
       delete next[rowId];
       localStorage.setItem("mme_row_heights_v1", JSON.stringify(next));
       return next;
     });
+
+    if (!employee?.id) {
+      // No identified employee yet — nothing to save against, so fall back
+      // to a local-only removal (persisted next time someone saves).
+      setWorkspace((current) => ({ ...current, rows: nextRows }));
+      setHasUnsavedChanges(true);
+      return;
+    }
+
+    await handleSaveChanges(nextRows);
   }
 
   function updateCell(rowId, columnId, value) {
@@ -658,14 +681,19 @@ export default function ManagementPage() {
     setNotice({ type: "success", message: "Management sheet cleared. Press Save Changes to persist." });
   }
 
-  async function handleSaveChanges() {
+  // Accepts an optional `rowsOverride` so callers that already know the next
+  // row set (e.g. deleteRow, which removes a row before saving) can save that
+  // exact snapshot without waiting for a separate setWorkspace render cycle.
+  async function handleSaveChanges(rowsOverride) {
     if (!employee?.id || isSaving) return;
     setIsSaving(true);
     try {
+      const sourceRows = rowsOverride ?? workspace.rows;
+
       // Rows left completely blank (every column empty) are dropped so they
       // never get persisted as ghost rows.
-      const nonBlankRows = workspace.rows.filter((row) => !isRowBlank(row, workspace.columns));
-      const rowsRemoved = nonBlankRows.length !== workspace.rows.length;
+      const nonBlankRows = sourceRows.filter((row) => !isRowBlank(row, workspace.columns));
+      const rowsRemoved = nonBlankRows.length !== sourceRows.length;
 
       // Event Date must never be saved blank — any row missing it gets
       // defaulted to the literal "N/A" (same convention as imported cells).
@@ -832,6 +860,16 @@ export default function ManagementPage() {
       {!employee && <EmployeeIdentityModal onSubmit={handleEmployeeSubmit} />}
       {showAddColumn && <AddColumnModal onClose={() => setShowAddColumn(false)} onAdd={addColumn} />}
       {importPreview && <ExcelImportModal preview={importPreview} onClose={() => setImportPreview(null)} onConfirm={confirmImport} />}
+      {showLogoutConfirm && (
+        <ConfirmDialog
+          title="Log out?"
+          message="You'll be signed out of the workspace and will need to log in again to continue."
+          confirmLabel="Logout"
+          cancelLabel="Cancel"
+          onCancel={() => setShowLogoutConfirm(false)}
+          onConfirm={confirmLogout}
+        />
+      )}
 
       <input
         ref={fileInputRef}
@@ -853,7 +891,7 @@ export default function ManagementPage() {
 
           <div className="flex items-center gap-2 sm:gap-3">
             <button
-              onClick={handleSaveChanges}
+              onClick={() => handleSaveChanges()}
               disabled={!hasUnsavedChanges || isSaving || !employee?.id}
               className={`hidden items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold transition md:flex ${
                 hasUnsavedChanges && !isSaving
@@ -867,7 +905,7 @@ export default function ManagementPage() {
               {isSaving ? "Saving..." : hasUnsavedChanges ? "Save Changes" : "Saved"}
             </button>
 
-            <button onClick={handleLogout} title="Logout" className="flex items-center gap-2 rounded-2xl border border-[#d6d6d6]/70 bg-white px-3 py-2.5 text-left transition hover:bg-red-50 hover:border-red-200 sm:px-4">
+            <button onClick={requestLogout} title="Logout" className="flex items-center gap-2 rounded-2xl border border-[#d6d6d6]/70 bg-white px-3 py-2.5 text-left transition hover:bg-red-50 hover:border-red-200 sm:px-4">
               <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#f4f4f4] text-black"><UserRound size={16} /></div>
               <div className="hidden sm:block">
                 <p className="max-w-36 truncate text-xs font-black text-black">{employee?.fullName || "Employee"}</p>
@@ -1247,25 +1285,28 @@ export default function ManagementPage() {
 
             <h2 className="mt-5 text-xl font-black text-black">Delete this row?</h2>
             <p className="mt-2 text-sm leading-6 text-black/60">
-              This row will be permanently removed. This action cannot be undone
-              unless you discard unsaved changes.
+              This row will be permanently removed and saved immediately.
+              This action cannot be undone.
             </p>
 
             <div className="mt-7 flex gap-3">
               <button
                 onClick={() => setConfirmDeleteRowId(null)}
-                className="flex-1 rounded-2xl border border-black/20 bg-white py-3 text-sm font-black text-black transition hover:bg-[#f4f4f4]/30"
+                disabled={isSaving}
+                className="flex-1 rounded-2xl border border-black/20 bg-white py-3 text-sm font-black text-black transition hover:bg-[#f4f4f4]/30 disabled:opacity-60"
               >
                 Cancel
               </button>
               <button
-                onClick={() => {
-                  deleteRow(confirmDeleteRowId);
+                onClick={async () => {
+                  const rowId = confirmDeleteRowId;
                   setConfirmDeleteRowId(null);
+                  await deleteRow(rowId);
                 }}
-                className="flex-1 rounded-2xl bg-red-500 py-3 text-sm font-black text-white transition hover:bg-red-600"
+                disabled={isSaving}
+                className="flex-1 rounded-2xl bg-red-500 py-3 text-sm font-black text-white transition hover:bg-red-600 disabled:opacity-60"
               >
-                Yes, delete
+                {isSaving ? "Deleting..." : "Yes, delete"}
               </button>
             </div>
           </div>

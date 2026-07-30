@@ -60,6 +60,13 @@ export async function toggleImageFinalSelection(rowKey, imageId) {
   });
 }
 
+export async function updateMeetingImageTag(rowKey, imageId, tagName) {
+  return apiRequest(`/meetings/${rowKey}/images/${imageId}/tag`, {
+    method: "PATCH",
+    body: JSON.stringify({ tagName }),
+  });
+}
+
 export async function finalizeClient(rowKey, employeeId) {
   return apiRequest(`/meetings/${rowKey}/finalize`, {
     method: "POST",
@@ -73,10 +80,11 @@ export async function deleteMeeting(rowKey, meetingId) {
   });
 }
 
-export async function uploadMeetingImages(rowKey, meetingId, files, employeeId) {
+export async function uploadMeetingImages(rowKey, meetingId, files, employeeId, tagNames) {
   const formData = new FormData();
   for (const file of files) formData.append("images", file);
   if (employeeId) formData.append("employeeId", String(employeeId));
+  if (tagNames?.length) formData.append("tagNames", JSON.stringify(tagNames));
 
   return apiRequest(`/meetings/${rowKey}/${meetingId}/images`, {
     method: "POST",

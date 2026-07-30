@@ -176,7 +176,7 @@ async function copyForwardFromPreviousMeeting(connection, rowKey, newMeetingId, 
   }
 
   const [previousImages] = await connection.execute(
-    `SELECT stored_file_name, original_file_name, file_url, file_size_bytes, uploaded_by
+    `SELECT stored_file_name, original_file_name, tag_name, file_url, file_size_bytes, uploaded_by
      FROM client_meeting_images WHERE meeting_id = ? ORDER BY id ASC`,
     [previous.id],
   );
@@ -184,12 +184,13 @@ async function copyForwardFromPreviousMeeting(connection, rowKey, newMeetingId, 
   for (const image of previousImages) {
     await connection.execute(
       `INSERT INTO client_meeting_images
-        (meeting_id, stored_file_name, original_file_name, file_url, file_size_bytes, uploaded_by)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+        (meeting_id, stored_file_name, original_file_name, tag_name, file_url, file_size_bytes, uploaded_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
         newMeetingId,
         image.stored_file_name,
         image.original_file_name,
+        image.tag_name,
         image.file_url,
         image.file_size_bytes,
         image.uploaded_by || employeeId,
@@ -232,7 +233,7 @@ router.get("/:rowKey", async (req, res, next) => {
     if (meetingIds.length) {
       const placeholders = meetingIds.map(() => "?").join(",");
       [images] = await connection.query(
-        `SELECT id, meeting_id, original_file_name, file_url, is_final_selected, created_at
+        `SELECT id, meeting_id, original_file_name, tag_name, file_url, is_final_selected, created_at
          FROM client_meeting_images
          WHERE meeting_id IN (${placeholders})
          ORDER BY id ASC`,
@@ -248,6 +249,7 @@ router.get("/:rowKey", async (req, res, next) => {
       imagesByMeeting.get(image.meeting_id).push({
         id: image.id,
         originalFileName: image.original_file_name,
+        tagName: image.tag_name || "",
         url: image.file_url,
         isFinalSelected: Boolean(image.is_final_selected),
         createdAt: image.created_at,
@@ -403,6 +405,46 @@ router.patch("/:rowKey/:meetingId/complete", async (req, res, next) => {
   }
 });
 
+// ─── PATCH /api/meetings/:rowKey/images/:imageId/tag — rename an image's tag ───
+
+router.patch("/:rowKey/images/:imageId/tag", async (req, res, next) => {
+  const { rowKey, imageId } = req.params;
+  const iId = isValidId(imageId);
+
+  if (!isValidRowKey(rowKey) || !iId) {
+    return res.status(400).json({ message: "Invalid reference." });
+  }
+
+  const tagName = String(req.body.tagName ?? "").slice(0, 120).trim();
+
+  const connection = await pool.getConnection();
+  try {
+    const [[image]] = await connection.query(
+      `SELECT cmi.id
+       FROM client_meeting_images cmi
+       JOIN client_meetings cm ON cm.id = cmi.meeting_id
+       WHERE cmi.id = ? AND cm.linked_row_key = ?
+       LIMIT 1`,
+      [iId, rowKey],
+    );
+
+    if (!image) {
+      return res.status(404).json({ message: "Image not found." });
+    }
+
+    await connection.execute(
+      `UPDATE client_meeting_images SET tag_name = ? WHERE id = ?`,
+      [tagName || null, iId],
+    );
+
+    res.json({ data: { id: iId, tagName } });
+  } catch (error) {
+    next(error);
+  } finally {
+    connection.release();
+  }
+});
+
 // ─── PATCH /api/meetings/:rowKey/images/:imageId/final — toggle final image ───
 
 router.patch("/:rowKey/images/:imageId/final", async (req, res, next) => {
@@ -534,6 +576,16 @@ router.post(
 
     const employeeId = isValidId(req.body.employeeId);
 
+    // Optional per-file tag names, sent as a JSON array of strings aligned
+    // by index with the uploaded files (e.g. ["Stage", "Entry Gate"]).
+    let tagNames = [];
+    try {
+      const parsed = JSON.parse(req.body.tagNames || "[]");
+      if (Array.isArray(parsed)) tagNames = parsed;
+    } catch {
+      tagNames = [];
+    }
+
     const connection = await pool.getConnection();
     try {
       const [meetingRows] = await connection.execute(
@@ -547,17 +599,19 @@ router.post(
       }
 
       const inserted = [];
-      for (const file of req.files) {
+      for (const [fileIndex, file] of req.files.entries()) {
         const fileUrl = `/uploads/meeting-images/${file.filename}`;
+        const tagName = String(tagNames[fileIndex] || "").slice(0, 120).trim() || null;
 
         const [result] = await connection.execute(
           `INSERT INTO client_meeting_images
-            (meeting_id, stored_file_name, original_file_name, file_url, file_size_bytes, uploaded_by)
-           VALUES (?, ?, ?, ?, ?, ?)`,
+            (meeting_id, stored_file_name, original_file_name, tag_name, file_url, file_size_bytes, uploaded_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             file.filename,
             file.originalname.slice(0, 255),
+            tagName,
             fileUrl,
             file.size,
             employeeId,
@@ -567,6 +621,7 @@ router.post(
         inserted.push({
           id: result.insertId,
           originalFileName: file.originalname,
+          tagName: tagName || "",
           url: fileUrl,
         });
       }
