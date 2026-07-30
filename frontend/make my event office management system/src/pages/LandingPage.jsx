@@ -13,18 +13,9 @@ function Navbar() {
           <img src={mmeLogo} alt="Make My Event" className="h-14 w-14 rounded-full object-cover shadow-sm" />
         </Link>
 
-        <div className="hidden items-center gap-8 lg:flex">
-          <Link
-            to="/calendar"
-            className="text-sm font-semibold text-[#a9a9a9] transition hover:text-black"
-          >
-            Calendar
-          </Link>
-        </div>
-
         <div className="hidden items-center gap-3 lg:flex">
           <Link
-            to="/management"
+            to="/login"
             className="rounded-lg bg-black px-5 py-2 text-sm font-bold text-white transition hover:bg-[#222]"
           >
             Log In
@@ -44,14 +35,7 @@ function Navbar() {
         <div className="border-t border-[#d6d6d6] bg-white px-5 py-4 shadow-lg lg:hidden">
           <div className="flex flex-col gap-1">
             <Link
-              to="/calendar"
-              onClick={() => setOpen(false)}
-              className="rounded-lg px-4 py-3 text-sm font-semibold text-black hover:bg-[#f4f4f4]"
-            >
-              Calendar
-            </Link>
-            <Link
-              to="/management"
+              to="/login"
               onClick={() => setOpen(false)}
               className="mt-2 rounded-lg bg-black px-4 py-2.5 text-center text-sm font-bold text-white"
             >
@@ -99,16 +83,10 @@ export default function LandingPage() {
 
             <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Link
-                to="/management"
+                to="/login"
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-black px-8 py-4 text-sm font-bold text-white transition hover:bg-[#222] sm:w-auto"
               >
                 Log In
-              </Link>
-              <Link
-                to="/calendar"
-                className="inline-flex w-full items-center justify-center rounded-xl border border-[#d6d6d6] bg-white px-8 py-4 text-sm font-bold text-black transition hover:bg-[#f4f4f4] sm:w-auto"
-              >
-                View Calendar
               </Link>
             </div>
           </div>

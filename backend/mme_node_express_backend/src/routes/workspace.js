@@ -319,11 +319,46 @@ router.put("/default", async (req, res, next) => {
       );
     }
 
-    const activeRowKeys = [];
+    const activeRowKeys = workspace.rows.map((row) => String(row.id));
+
+    // Permanently delete rows removed from the payload BEFORE upserting the
+    // active rows below, instead of just archiving them — a row removed on
+    // the sheet must actually disappear from the database, not just be
+    // hidden. Deleting first also frees up (sheet_id, row_position) so a
+    // later row shifting into a deleted row's old position never collides
+    // with it (`sheet_cells` rows for the deleted `sheet_rows` are removed
+    // automatically via their ON DELETE CASCADE foreign key).
+    let rowKeysBeingRemoved = [];
+    if (activeRowKeys.length) {
+      const activeRowPlaceholders = activeRowKeys.map(() => "?").join(",");
+      const [removedRows] = await connection.query(
+        `SELECT row_key FROM sheet_rows
+         WHERE sheet_id = ? AND row_key NOT IN (${activeRowPlaceholders})`,
+        [sheet.id, ...activeRowKeys],
+      );
+      rowKeysBeingRemoved = removedRows.map((row) => row.row_key);
+
+      await connection.query(
+        `DELETE FROM sheet_rows
+         WHERE sheet_id = ? AND row_key NOT IN (${activeRowPlaceholders})`,
+        [sheet.id, ...activeRowKeys],
+      );
+    } else {
+      const [removedRows] = await connection.execute(
+        `SELECT row_key FROM sheet_rows WHERE sheet_id = ?`,
+        [sheet.id],
+      );
+      rowKeysBeingRemoved = removedRows.map((row) => row.row_key);
+
+      await connection.execute(
+        `DELETE FROM sheet_rows WHERE sheet_id = ?`,
+        [sheet.id],
+      );
+    }
+
     for (let index = 0; index < workspace.rows.length; index += 1) {
       const row = workspace.rows[index];
       const rowKey = String(row.id);
-      activeRowKeys.push(rowKey);
 
       await connection.execute(
         `INSERT INTO sheet_rows
@@ -415,36 +450,6 @@ router.put("/default", async (req, res, next) => {
           ],
         );
       }
-    }
-
-    let rowKeysBeingRemoved = [];
-    if (activeRowKeys.length) {
-      const placeholders = activeRowKeys.map(() => "?").join(",");
-
-      const [removedRows] = await connection.query(
-        `SELECT row_key FROM sheet_rows
-         WHERE sheet_id = ? AND row_key NOT IN (${placeholders}) AND is_archived = FALSE`,
-        [sheet.id, ...activeRowKeys],
-      );
-      rowKeysBeingRemoved = removedRows.map((row) => row.row_key);
-
-      await connection.query(
-        `UPDATE sheet_rows SET is_archived = TRUE, archived_at = NOW(), updated_by = ?
-         WHERE sheet_id = ? AND row_key NOT IN (${placeholders})`,
-        [employeeId, sheet.id, ...activeRowKeys],
-      );
-    } else {
-      const [removedRows] = await connection.execute(
-        `SELECT row_key FROM sheet_rows WHERE sheet_id = ? AND is_archived = FALSE`,
-        [sheet.id],
-      );
-      rowKeysBeingRemoved = removedRows.map((row) => row.row_key);
-
-      await connection.execute(
-        `UPDATE sheet_rows SET is_archived = TRUE, archived_at = NOW(), updated_by = ?
-         WHERE sheet_id = ?`,
-        [employeeId, sheet.id],
-      );
     }
 
     await deleteClientDataForRowKeys(connection, rowKeysBeingRemoved);

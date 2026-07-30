@@ -12,6 +12,7 @@ import {
   UserRound,
   X,
 } from "lucide-react";
+import ConfirmDialog from "../components/ConfirmDialog";
 import {
   clearCurrentEmployee,
   loadCurrentEmployee,
@@ -283,6 +284,7 @@ export default function CalendarPage() {
   const [isLoading,        setIsLoading]        = useState(true);
   const [notice,           setNotice]           = useState(null);
   const [employee,         setEmployee]         = useState(() => loadCurrentEmployee());
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   const calendarDays = useMemo(() => buildCalendarDays(year, month), [year, month]);
   const TODAY        = todayISO();
@@ -418,9 +420,26 @@ export default function CalendarPage() {
   const callCount     = events.filter((e) => e.source === "client_call").length;
   const manualCount   = events.filter((e) => e.source === "manual").length;
 
+  function confirmLogout() {
+    setShowLogoutConfirm(false);
+    clearCurrentEmployee();
+    setEmployee(null);
+    navigate("/", { replace: true });
+  }
+
   // ── Render ─────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-[#ffffff] text-black">
+      {showLogoutConfirm && (
+        <ConfirmDialog
+          title="Log out?"
+          message="You'll be signed out of the workspace and will need to log in again to continue."
+          confirmLabel="Logout"
+          cancelLabel="Cancel"
+          onCancel={() => setShowLogoutConfirm(false)}
+          onConfirm={confirmLogout}
+        />
+      )}
 
       {/* ── Header ──────────────────────────────────────────────── */}
       <header className="sticky top-0 z-40 border-b border-[#d6d6d6]/50 bg-white/95 backdrop-blur-xl">
@@ -441,7 +460,7 @@ export default function CalendarPage() {
           <div className="flex items-center gap-2 sm:gap-3">
             {employee ? (
               <button
-                onClick={() => { clearCurrentEmployee(); setEmployee(null); }}
+                onClick={() => setShowLogoutConfirm(true)}
                 className="flex items-center gap-2 rounded-2xl border border-[#d6d6d6]/70 bg-white px-3 py-2.5 text-left transition hover:bg-[#f4f4f4]/30 sm:px-4"
               >
                 <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#f4f4f4] text-black">
