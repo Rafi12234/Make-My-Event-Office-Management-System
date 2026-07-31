@@ -1,0 +1,433 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model Employee {
+  id           BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  fullName     String    @map("full_name") @db.VarChar(150)
+  email        String    @unique @db.VarChar(190)
+  roleId       Int?      @map("role_id") @db.UnsignedTinyInt
+  passwordHash String?   @map("password_hash") @db.VarChar(255)
+  createdById  BigInt?   @map("created_by") @db.UnsignedBigInt
+  isActive     Boolean?  @default(true) @map("is_active")
+  lastUsedAt   DateTime? @map("last_used_at") @db.DateTime(0)
+  createdAt    DateTime? @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt    DateTime? @default(now()) @map("updated_at") @db.DateTime(0)
+
+  role             Role?      @relation(fields: [roleId], references: [id], onUpdate: NoAction, map: "fk_emp_role")
+  createdBy        Employee?  @relation("EmployeeCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "fk_emp_created_by")
+  createdEmployees Employee[] @relation("EmployeeCreatedBy")
+
+  activityLogs             ActivityLog[]
+  assignedCalendarEvents   CalendarEvent[]      @relation("CalendarEventAssignedEmployee")
+  createdCalendarEvents    CalendarEvent[]      @relation("CalendarEventCreatedBy")
+  updatedCalendarEvents    CalendarEvent[]      @relation("CalendarEventUpdatedBy")
+  createdClientCalls       ClientCall[]         @relation("ClientCallCreatedBy")
+  updatedClientCalls       ClientCall[]         @relation("ClientCallUpdatedBy")
+  finalizations            ClientFinalization[]
+  uploadedMeetingImages    ClientMeetingImage[]
+  createdClientMeetings    ClientMeeting[]      @relation("ClientMeetingCreatedBy")
+  updatedClientMeetings    ClientMeeting[]      @relation("ClientMeetingUpdatedBy")
+  completedClientMeetings ClientMeeting[]      @relation("ClientMeetingCompletedBy")
+  excelImports             ExcelImport[]
+  createdManagementSheets  ManagementSheet[]    @relation("ManagementSheetCreatedBy")
+  updatedManagementSheets  ManagementSheet[]    @relation("ManagementSheetUpdatedBy")
+  selectedSheetCells       SheetCell[]          @relation("SheetCellEmployeeValue")
+  createdSheetCells        SheetCell[]          @relation("SheetCellCreatedBy")
+  updatedSheetCells        SheetCell[]          @relation("SheetCellUpdatedBy")
+  createdSheetColumns      SheetColumn[]        @relation("SheetColumnCreatedBy")
+  updatedSheetColumns      SheetColumn[]        @relation("SheetColumnUpdatedBy")
+  createdSheetRows         SheetRow[]           @relation("SheetRowCreatedBy")
+  updatedSheetRows         SheetRow[]           @relation("SheetRowUpdatedBy")
+
+  @@index([createdById], map: "fk_emp_created_by")
+  @@index([roleId], map: "fk_emp_role")
+  @@map("employees")
+}
+
+model Role {
+  id        Int      @id @default(autoincrement()) @db.UnsignedTinyInt
+  name      RoleName @unique(map: "uq_role_name")
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(0)
+
+  employees Employee[]
+
+  @@map("roles")
+}
+
+enum RoleName {
+  Admin
+  Employee
+
+  @@map("roles_name")
+}
+
+model ActivityLog {
+  id          BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  employeeId  BigInt?   @map("employee_id") @db.UnsignedBigInt
+  action      String?   @db.VarChar(100)
+  entityType  String?   @map("entity_type") @db.VarChar(100)
+  entityId    BigInt?   @map("entity_id")
+  description String?   @db.Text
+  createdAt   DateTime? @default(now()) @map("created_at") @db.DateTime(0)
+
+  employee Employee? @relation(fields: [employeeId], references: [id], onUpdate: NoAction, map: "activity_logs_ibfk_1")
+
+  @@index([employeeId], map: "employee_id")
+  @@map("activity_logs")
+}
+
+model ManagementSheet {
+  id          BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  sheetName   String    @unique(map: "sheet_name") @map("sheet_name") @db.VarChar(150)
+  description String?   @db.Text
+  isDefault   Boolean?  @default(false) @map("is_default")
+  isActive    Boolean?  @default(true) @map("is_active")
+  createdById BigInt?   @map("created_by") @db.UnsignedBigInt
+  updatedById BigInt?   @map("updated_by") @db.UnsignedBigInt
+  createdAt   DateTime? @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt   DateTime? @default(now()) @map("updated_at") @db.DateTime(0)
+
+  createdBy Employee? @relation("ManagementSheetCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "management_sheets_ibfk_1")
+  updatedBy Employee? @relation("ManagementSheetUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "management_sheets_ibfk_2")
+
+  excelImports ExcelImport[]
+  sheetColumns SheetColumn[]
+  sheetRows    SheetRow[]
+
+  @@index([createdById], map: "created_by")
+  @@index([updatedById], map: "updated_by")
+  @@map("management_sheets")
+}
+
+model SheetColumn {
+  id              BigInt                   @id @default(autoincrement()) @db.UnsignedBigInt
+  sheetId         BigInt                   @map("sheet_id") @db.UnsignedBigInt
+  columnKey       String                   @map("column_key") @db.Char(36)
+  columnName      String                   @map("column_name") @db.VarChar(150)
+  dataType        SheetColumnDataType      @default(text) @map("data_type")
+  calendarRole    SheetColumnCalendarRole? @default(none) @map("calendar_role")
+  dropdownOptions Json?                    @map("dropdown_options")
+  displayOrder    Int?                     @default(0) @map("display_order")
+  widthPx         Int?                     @default(180) @map("width_px")
+  isRequired      Boolean?                 @default(false) @map("is_required")
+  isVisible       Boolean?                 @default(true) @map("is_visible")
+  isActive        Boolean?                 @default(true) @map("is_active")
+  createdById     BigInt?                  @map("created_by") @db.UnsignedBigInt
+  updatedById     BigInt?                  @map("updated_by") @db.UnsignedBigInt
+  createdAt       DateTime?                @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt       DateTime?                @default(now()) @map("updated_at") @db.DateTime(0)
+
+  sheet     ManagementSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "sheet_columns_ibfk_1")
+  createdBy Employee?       @relation("SheetColumnCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "sheet_columns_ibfk_2")
+  updatedBy Employee?       @relation("SheetColumnUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "sheet_columns_ibfk_3")
+
+  cells SheetCell[]
+
+  @@unique([sheetId, columnKey], map: "sheet_id")
+  @@unique([sheetId, columnName], map: "sheet_id_2")
+  @@index([createdById], map: "created_by")
+  @@index([updatedById], map: "updated_by")
+  @@map("sheet_columns")
+}
+
+enum SheetColumnDataType {
+  text
+  long_text
+  email
+  phone
+  number
+  decimal
+  currency
+  integer
+  date
+  time
+  datetime
+  boolean
+  employee
+  status
+  priority
+  venue
+  shift
+  meeting_manager
+  last_meeting_time
+  next_meeting_time
+
+  @@map("sheet_columns_data_type")
+}
+
+enum SheetColumnCalendarRole {
+  none
+  event_title
+  start_datetime
+  end_datetime
+  description
+  assignee
+  status
+  priority
+
+  @@map("sheet_columns_calendar_role")
+}
+
+model SheetRow {
+  id          BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  rowKey      String    @map("row_key") @db.Char(36)
+  sheetId     BigInt    @map("sheet_id") @db.UnsignedBigInt
+  rowPosition Int       @map("row_position") @db.UnsignedInt
+  createdById BigInt?   @map("created_by") @db.UnsignedBigInt
+  updatedById BigInt?   @map("updated_by") @db.UnsignedBigInt
+  isArchived  Boolean?  @default(false) @map("is_archived")
+  archivedAt  DateTime? @map("archived_at") @db.DateTime(0)
+  createdAt   DateTime? @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt   DateTime? @default(now()) @map("updated_at") @db.DateTime(0)
+
+  sheet     ManagementSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "sheet_rows_ibfk_1")
+  createdBy Employee?       @relation("SheetRowCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "sheet_rows_ibfk_2")
+  updatedBy Employee?       @relation("SheetRowUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "sheet_rows_ibfk_3")
+
+  cells SheetCell[]
+
+  @@unique([sheetId, rowKey], map: "sheet_id")
+  @@unique([sheetId, rowPosition], map: "sheet_id_2")
+  @@index([createdById], map: "created_by")
+  @@index([updatedById], map: "updated_by")
+  @@map("sheet_rows")
+}
+
+model SheetCell {
+  id              BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  rowId           BigInt    @map("row_id") @db.UnsignedBigInt
+  columnId        BigInt    @map("column_id") @db.UnsignedBigInt
+  valueText       String?   @map("value_text") @db.LongText
+  valueInteger    BigInt?   @map("value_integer")
+  valueDecimal    Decimal?  @map("value_decimal") @db.Decimal(20, 4)
+  valueDate       DateTime? @map("value_date") @db.Date
+  valueTime       DateTime? @map("value_time") @db.Time(0)
+  valueDatetime   DateTime? @map("value_datetime") @db.DateTime(0)
+  valueBoolean    Boolean?  @map("value_boolean")
+  valueEmployeeId BigInt?   @map("value_employee_id") @db.UnsignedBigInt
+  valueJson       Json?     @map("value_json")
+  displayValue    String?   @map("display_value") @db.Text
+  createdById     BigInt?   @map("created_by") @db.UnsignedBigInt
+  updatedById     BigInt?   @map("updated_by") @db.UnsignedBigInt
+  createdAt       DateTime? @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt       DateTime? @default(now()) @map("updated_at") @db.DateTime(0)
+
+  row           SheetRow    @relation(fields: [rowId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "sheet_cells_ibfk_1")
+  column        SheetColumn @relation(fields: [columnId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "sheet_cells_ibfk_2")
+  valueEmployee Employee?   @relation("SheetCellEmployeeValue", fields: [valueEmployeeId], references: [id], onUpdate: NoAction, map: "sheet_cells_ibfk_3")
+  createdBy     Employee?   @relation("SheetCellCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "sheet_cells_ibfk_4")
+  updatedBy     Employee?   @relation("SheetCellUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "sheet_cells_ibfk_5")
+
+  @@unique([rowId, columnId], map: "row_id")
+  @@index([columnId], map: "column_id")
+  @@index([createdById], map: "created_by")
+  @@index([updatedById], map: "updated_by")
+  @@index([valueEmployeeId], map: "value_employee_id")
+  @@map("sheet_cells")
+}
+
+model ClientMeeting {
+  id              BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  linkedRowKey    String    @map("linked_row_key") @db.Char(36)
+  meetingDatetime DateTime? @map("meeting_datetime") @db.DateTime(0)
+  discussionNotes String?   @map("discussion_notes") @db.Text
+  requirements    Json?
+  createdById     BigInt?   @map("created_by") @db.UnsignedBigInt
+  updatedById     BigInt?   @map("updated_by") @db.UnsignedBigInt
+  createdAt       DateTime  @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.DateTime(0)
+  isCompleted     Boolean   @default(false) @map("is_completed")
+  completedById   BigInt?   @map("completed_by") @db.UnsignedBigInt
+  completedAt     DateTime? @map("completed_at") @db.DateTime(0)
+
+  createdBy   Employee? @relation("ClientMeetingCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "client_meetings_ibfk_1")
+  updatedBy   Employee? @relation("ClientMeetingUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "client_meetings_ibfk_2")
+  completedBy Employee? @relation("ClientMeetingCompletedBy", fields: [completedById], references: [id], onUpdate: NoAction, map: "fk_client_meetings_completed_by")
+
+  images ClientMeetingImage[]
+
+  @@index([createdById], map: "client_meetings_ibfk_1")
+  @@index([updatedById], map: "client_meetings_ibfk_2")
+  @@index([completedById], map: "fk_client_meetings_completed_by")
+  @@index([meetingDatetime], map: "idx_client_meetings_datetime")
+  @@index([linkedRowKey], map: "idx_client_meetings_row")
+  @@map("client_meetings")
+}
+
+model ClientMeetingImage {
+  id               BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  meetingId        BigInt   @map("meeting_id") @db.UnsignedBigInt
+  storedFileName   String   @map("stored_file_name") @db.VarChar(255)
+  originalFileName String?  @map("original_file_name") @db.VarChar(255)
+  tagName          String?  @map("tag_name") @db.VarChar(120)
+  fileUrl          String   @map("file_url") @db.VarChar(500)
+  fileSizeBytes    Int?     @map("file_size_bytes") @db.UnsignedInt
+  uploadedById     BigInt?  @map("uploaded_by") @db.UnsignedBigInt
+  createdAt        DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  isFinalSelected  Boolean  @default(false) @map("is_final_selected")
+
+  meeting    ClientMeeting @relation(fields: [meetingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "client_meeting_images_ibfk_1")
+  uploadedBy Employee?     @relation(fields: [uploadedById], references: [id], onUpdate: NoAction, map: "client_meeting_images_ibfk_2")
+
+  @@index([uploadedById], map: "client_meeting_images_ibfk_2")
+  @@index([meetingId], map: "idx_meeting_images_meeting")
+  @@map("client_meeting_images")
+}
+
+model ClientCall {
+  id             BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  linkedRowKey   String    @map("linked_row_key") @db.Char(36)
+  callDatetime   DateTime? @map("call_datetime") @db.DateTime(0)
+  callDiscussion String?   @map("call_discussion") @db.Text
+  createdById    BigInt?   @map("created_by") @db.UnsignedBigInt
+  updatedById    BigInt?   @map("updated_by") @db.UnsignedBigInt
+  createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.DateTime(0)
+
+  createdBy Employee? @relation("ClientCallCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "client_calls_ibfk_1")
+  updatedBy Employee? @relation("ClientCallUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "client_calls_ibfk_2")
+
+  @@index([createdById], map: "client_calls_ibfk_1")
+  @@index([updatedById], map: "client_calls_ibfk_2")
+  @@index([linkedRowKey], map: "idx_client_calls_row")
+  @@map("client_calls")
+}
+
+model ClientFinalization {
+  id            BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  linkedRowKey  String    @unique(map: "uq_client_finalizations_row") @map("linked_row_key") @db.Char(36)
+  finalizedById BigInt?   @map("finalized_by") @db.UnsignedBigInt
+  finalizedAt   DateTime  @map("finalized_at") @db.DateTime(0)
+  createdAt     DateTime? @default(now()) @map("created_at") @db.Timestamp(0)
+  updatedAt     DateTime? @default(now()) @map("updated_at") @db.Timestamp(0)
+
+  finalizedBy Employee? @relation(fields: [finalizedById], references: [id], onUpdate: NoAction, map: "fk_client_finalizations_employee")
+
+  @@index([finalizedById], map: "fk_client_finalizations_employee")
+  @@map("client_finalizations")
+}
+
+model CalendarEvent {
+  id                 BigInt                 @id @default(autoincrement()) @db.UnsignedBigInt
+  title              String                 @db.VarChar(255)
+  description        String?                @db.Text
+  eventDate          DateTime               @map("event_date") @db.Date
+  eventTime          DateTime?              @map("event_time") @db.Time(0)
+  eventType          CalendarEventType      @default(task) @map("event_type")
+  clientName         String?                @map("client_name") @db.VarChar(150)
+  companyName        String?                @map("company_name") @db.VarChar(150)
+  linkedRowKey       String?                @map("linked_row_key") @db.Char(36)
+  assignedEmployeeId BigInt?                @map("assigned_employee_id") @db.UnsignedBigInt
+  priority           CalendarEventPriority? @default(Medium)
+  status             CalendarEventStatus?   @default(Pending)
+  createdById        BigInt?                @map("created_by") @db.UnsignedBigInt
+  updatedById        BigInt?                @map("updated_by") @db.UnsignedBigInt
+  createdAt          DateTime               @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt          DateTime               @default(now()) @map("updated_at") @db.DateTime(0)
+
+  assignedEmployee Employee? @relation("CalendarEventAssignedEmployee", fields: [assignedEmployeeId], references: [id], onUpdate: NoAction, map: "calendar_events_ibfk_1")
+  createdBy        Employee? @relation("CalendarEventCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "calendar_events_ibfk_2")
+  updatedBy        Employee? @relation("CalendarEventUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "calendar_events_ibfk_3")
+
+  @@index([assignedEmployeeId], map: "calendar_events_ibfk_1")
+  @@index([createdById], map: "calendar_events_ibfk_2")
+  @@index([updatedById], map: "calendar_events_ibfk_3")
+  @@index([eventDate], map: "idx_calendar_event_date")
+  @@index([linkedRowKey], map: "idx_calendar_linked_row")
+  @@map("calendar_events")
+}
+
+enum CalendarEventType {
+  meeting
+  followup
+  deadline
+  task
+  other
+
+  @@map("calendar_events_event_type")
+}
+
+enum CalendarEventPriority {
+  Low
+  Medium
+  High
+  Urgent
+
+  @@map("calendar_events_priority")
+}
+
+enum CalendarEventStatus {
+  Pending
+  Completed
+  Cancelled
+
+  @@map("calendar_events_status")
+}
+
+model ExcelImport {
+  id               BigInt             @id @default(autoincrement()) @db.UnsignedBigInt
+  sheetId          BigInt?            @map("sheet_id") @db.UnsignedBigInt
+  importedById     BigInt?            @map("imported_by") @db.UnsignedBigInt
+  originalFileName String             @map("original_file_name") @db.VarChar(255)
+  storedFilePath   String?            @map("stored_file_path") @db.VarChar(500)
+  importMode       ExcelImportMode?   @default(append) @map("import_mode")
+  status           ExcelImportStatus? @default(pending)
+  totalColumns     Int?               @default(0) @map("total_columns")
+  totalRows        Int?               @default(0) @map("total_rows")
+  importedRows     Int?               @default(0) @map("imported_rows")
+  failedRows       Int?               @default(0) @map("failed_rows")
+  detectedHeaders  Json?              @map("detected_headers")
+  columnMapping    Json?              @map("column_mapping")
+  errorMessage     String?            @map("error_message") @db.Text
+  createdAt        DateTime?          @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt        DateTime?          @default(now()) @map("updated_at") @db.DateTime(0)
+
+  sheet      ManagementSheet? @relation(fields: [sheetId], references: [id], onUpdate: NoAction, map: "excel_imports_ibfk_1")
+  importedBy Employee?        @relation(fields: [importedById], references: [id], onUpdate: NoAction, map: "excel_imports_ibfk_2")
+
+  errors ExcelImportError[]
+
+  @@index([importedById], map: "imported_by")
+  @@index([sheetId], map: "sheet_id")
+  @@map("excel_imports")
+}
+
+enum ExcelImportMode {
+  create_new_sheet
+  append
+  replace
+  merge
+
+  @@map("excel_imports_import_mode")
+}
+
+enum ExcelImportStatus {
+  pending
+  processing
+  completed
+  partial
+  failed
+
+  @@map("excel_imports_status")
+}
+
+model ExcelImportError {
+  id              BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  importId        BigInt    @map("import_id") @db.UnsignedBigInt
+  excelRowNumber  Int?      @map("excel_row_number")
+  excelColumnName String?   @map("excel_column_name") @db.VarChar(150)
+  errorCode       String?   @map("error_code") @db.VarChar(100)
+  errorMessage    String    @map("error_message") @db.Text
+  rowData         Json?     @map("row_data")
+  createdAt       DateTime? @default(now()) @map("created_at") @db.DateTime(0)
+
+  import ExcelImport @relation(fields: [importId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "excel_import_errors_ibfk_1")
+
+  @@index([importId], map: "import_id")
+  @@map("excel_import_errors")
+}

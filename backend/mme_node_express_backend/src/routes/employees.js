@@ -1,6 +1,6 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import { pool } from "../config/db.js";
+import { prisma } from "../config/prisma.js";
 import {
   setEmployeeCookie,
   requireEmployee,
@@ -11,13 +11,12 @@ const router = Router();
 
 router.get("/", async (req, res, next) => {
   try {
-    const [rows] = await pool.execute(
-      `SELECT id, full_name AS fullName, email, last_used_at AS lastUsedAt
-       FROM employees
-       WHERE is_active = TRUE
-       ORDER BY full_name ASC`,
-    );
-    res.json({ data: rows });
+    const employees = await prisma.employee.findMany({
+      where: { isActive: true },
+      select: { id: true, fullName: true, email: true, lastUsedAt: true },
+      orderBy: { fullName: "asc" },
+    });
+    res.json({ data: employees });
   } catch (error) {
     next(error);
   }
@@ -32,44 +31,39 @@ router.post("/identify", async (req, res, next) => {
   }
 
   try {
-    const [rows] = await pool.execute(
-      `SELECT e.id, e.full_name, e.email, e.password_hash, e.is_active, r.name AS role
-       FROM employees e
-       LEFT JOIN roles r ON r.id = e.role_id
-       WHERE e.email = ? LIMIT 1`,
-      [email],
-    );
-
-    const employee = rows[0];
+    const employee = await prisma.employee.findUnique({
+      where: { email },
+      include: { role: true },
+    });
 
     if (!employee) {
       return res.status(401).json({ message: "No account found with this email. Contact your admin." });
     }
-    if (!employee.is_active) {
+    if (!employee.isActive) {
       return res.status(403).json({ message: "Your account has been deactivated. Contact your admin." });
     }
-    if (!employee.password_hash) {
+    if (!employee.passwordHash) {
       return res.status(401).json({ message: "Password not set for this account. Contact your admin." });
     }
 
-    const valid = await bcrypt.compare(password, employee.password_hash);
+    const valid = await bcrypt.compare(password, employee.passwordHash);
     if (!valid) {
       return res.status(401).json({ message: "Incorrect password." });
     }
 
-    await pool.execute(
-      `UPDATE employees SET last_used_at = NOW() WHERE id = ?`,
-      [employee.id],
-    );
+    await prisma.employee.update({
+      where: { id: employee.id },
+      data: { lastUsedAt: new Date() },
+    });
 
     setEmployeeCookie(res, { id: employee.id, role: employee.role || "Employee" });
 
     res.json({
       data: {
         id:       employee.id,
-        fullName: employee.full_name,
+        fullName: employee.fullName,
         email:    employee.email,
-        role:     employee.role || "Employee",
+        role:     employee.role?.name || "Employee",
       },
     });
   } catch (error) {
@@ -84,15 +78,11 @@ router.post("/identify", async (req, res, next) => {
  */
 router.get("/me", requireEmployee, async (req, res, next) => {
   try {
-    const [rows] = await pool.execute(
-      `SELECT id, full_name AS fullName, email
-       FROM employees
-       WHERE id = ? AND is_active = TRUE
-       LIMIT 1`,
-      [req.employee.id],
-    );
+    const employee = await prisma.employee.findFirst({
+      where: { id: BigInt(req.employee.id), isActive: true },
+      select: { id: true, fullName: true, email: true },
+    });
 
-    const employee = rows[0];
     if (!employee) {
       return res.status(401).json({ message: "Not authenticated." });
     }

@@ -93,6 +93,18 @@ jobs:
           test -f "${BACKEND_DIR}/package.json"
           test -f "${BACKEND_DIR}/package-lock.json"
           test -f "${BACKEND_DIR}/src/server.js"
+          test -f "${BACKEND_DIR}/src/utils/dbDates.js"
+          test -f "${BACKEND_DIR}/prisma/schema.prisma"
+          test -f "${BACKEND_DIR}/prisma.config.ts"
+
+          # cPanel's manual "Run NPM Install" does not run the
+          # postinstall "prisma generate" hook, so the generated
+          # Prisma Client (node_modules/.prisma/client) never gets
+          # created there. CI generates it (via npm ci's postinstall)
+          # and this workflow uploads it directly over SFTP below —
+          # confirm it actually exists before we rely on it.
+          test -f "${BACKEND_DIR}/node_modules/.prisma/client/index.js"
+          test -f "${BACKEND_DIR}/node_modules/.prisma/client/default.js"
 
           test -f "${FRONTEND_DIR}/dist/index.html"
           test -d "${FRONTEND_DIR}/dist/assets"
@@ -217,6 +229,7 @@ jobs:
             echo "-mkdir src/config"
             echo "-mkdir src/middleware"
             echo "-mkdir src/routes"
+            echo "-mkdir src/utils"
             echo "lcd \"$BACKEND_ROOT/src\""
             echo "put server.js src/server.js"
             echo "lcd \"$BACKEND_ROOT/src/config\""
@@ -225,12 +238,39 @@ jobs:
             echo "put * src/middleware/"
             echo "lcd \"$BACKEND_ROOT/src/routes\""
             echo "put * src/routes/"
+            echo "lcd \"$BACKEND_ROOT/src/utils\""
+            echo "put * src/utils/"
+
+            echo "cd ${APP_DIR}"
+            echo "-mkdir prisma"
+            echo "-mkdir prisma/migrations"
+            echo "-mkdir prisma/migrations/0_init"
+            echo "lcd \"$BACKEND_ROOT/prisma\""
+            echo "put schema.prisma prisma/schema.prisma"
+            echo "lcd \"$BACKEND_ROOT/prisma/migrations/0_init\""
+            echo "put migration.sql prisma/migrations/0_init/migration.sql"
+
+            # Upload the already-generated Prisma Client. cPanel's
+            # "Run NPM Install" button does not run the postinstall
+            # "prisma generate" hook, so without this the server ends
+            # up with @prisma/client installed but no generated code,
+            # causing: "does not provide an export named 'PrismaClient'".
+            # This generated output is pure JS + WASM (no native
+            # binaries), so it is portable between the CI runner and
+            # the cPanel server regardless of OS/Node version.
+            echo "cd ${APP_DIR}"
+            echo "-mkdir node_modules"
+            echo "-mkdir node_modules/.prisma"
+            echo "-mkdir node_modules/.prisma/client"
+            echo "lcd \"$BACKEND_ROOT/node_modules/.prisma/client\""
+            echo "put * node_modules/.prisma/client/"
 
             echo "cd ${APP_DIR}"
             echo "lcd \"$BACKEND_ROOT\""
             echo "put app.js"
             echo "put package.json"
             echo "put package-lock.json"
+            echo "put prisma.config.ts"
 
             echo "-mkdir tmp"
             echo "lcd \"$GITHUB_WORKSPACE\""
@@ -271,28 +311,87 @@ jobs:
                 --fail \
                 --silent \
                 --show-error \
+                -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" \
+                -H "Accept: application/json" \
                 "${PRODUCTION_URL}/api/health"
             )"; then
               echo "$RESPONSE"
 
-              echo "$RESPONSE" |
+              if echo "$RESPONSE" |
                 jq -e '
                   .success == true and
                   .status == "ok" and
                   .database == "connected"
-                '
+                ' > /dev/null; then
+                echo "Backend health check passed."
 
-              echo "Backend health check passed."
+                exit 0
+              fi
 
-              exit 0
+              echo "Response was not the expected JSON (likely an intermediary page, e.g. a hosting WAF/bot-check interstitial, instead of the app)."
+              echo "--- first 300 characters of response ---"
+              echo "$RESPONSE" | head -c 300
+              echo
             fi
 
             sleep 5
           done
 
           echo "Backend health check failed."
+          echo ""
+          echo "A persistent 503 (not a WAF/JS-challenge HTML page) means the Node.js"
+          echo "process itself is not starting on the server — almost always because"
+          echo "package.json changed (new/updated dependencies) but 'npm install' was"
+          echo "never run in cPanel, since this deployment method has no remote shell"
+          echo "access and can only transfer files via SFTP."
+          echo ""
+          echo "Fix: log into cPanel -> Setup Node.js App -> open this application ->"
+          echo "click 'Run NPM Install' -> then click 'Restart'. This is required once"
+          echo "after every commit that changes backend/mme_node_express_backend/package.json."
 
           exit 1
+
+      # ---------------------------------------------------------
+      # 10b. On health-check failure, pull the server-side error
+      #      logs via SFTP so the actual crash reason (e.g. "Cannot
+      #      find module '@prisma/client'") is visible right here in
+      #      the Actions log — no remote shell exec is available, so
+      #      this only performs read-only SFTP "get" operations.
+      # ---------------------------------------------------------
+      - name: Fetch backend error logs (diagnostics)
+        if: failure()
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USERNAME: ${{ secrets.SSH_USERNAME }}
+          SSH_PORT: ${{ vars.SSH_PORT }}
+        run: |
+          CPANEL_HOME="$(dirname "${APP_DIR}")"
+          DOMAIN="$(echo "${PRODUCTION_URL}" | sed -E 's#^https?://##')"
+
+          {
+            echo "-get ${CPANEL_HOME}/logs/${DOMAIN}.error.log domain-error.log"
+            echo "-get ${APP_DIR}/stderr.log app-stderr.log"
+            echo "-get ${APP_DIR}/logs/error.log app-error.log"
+            echo "bye"
+          } > sftp_diag.txt
+
+          sftp \
+            -i "$HOME/.ssh/mme_deploy_key" \
+            -P "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -b sftp_diag.txt \
+            "$SSH_USERNAME@$SSH_HOST" || true
+
+          for f in domain-error.log app-stderr.log app-error.log; do
+            echo "--- ${f} (last 100 lines) ---"
+            if [ -f "$f" ]; then
+              tail -n 100 "$f"
+            else
+              echo "(not found at the expected path, or not readable via SFTP)"
+            fi
+            echo ""
+          done
 
       # ---------------------------------------------------------
       # 11. Verify React frontend
@@ -322,6 +421,7 @@ jobs:
               --show-error \
               --retry 5 \
               --retry-delay 3 \
+              -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" \
               "${PRODUCTION_URL}/"
           )"
 
