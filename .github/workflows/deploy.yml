@@ -287,20 +287,27 @@ jobs:
                 --fail \
                 --silent \
                 --show-error \
+                -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" \
+                -H "Accept: application/json" \
                 "${PRODUCTION_URL}/api/health"
             )"; then
               echo "$RESPONSE"
 
-              echo "$RESPONSE" |
+              if echo "$RESPONSE" |
                 jq -e '
                   .success == true and
                   .status == "ok" and
                   .database == "connected"
-                '
+                ' > /dev/null; then
+                echo "Backend health check passed."
 
-              echo "Backend health check passed."
+                exit 0
+              fi
 
-              exit 0
+              echo "Response was not the expected JSON (likely an intermediary page, e.g. a hosting WAF/bot-check interstitial, instead of the app)."
+              echo "--- first 300 characters of response ---"
+              echo "$RESPONSE" | head -c 300
+              echo
             fi
 
             sleep 5
@@ -338,6 +345,7 @@ jobs:
               --show-error \
               --retry 5 \
               --retry-delay 3 \
+              -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" \
               "${PRODUCTION_URL}/"
           )"
 
