@@ -1,6 +1,11 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { prisma } from "../config/prisma.js";
+import {
+  setEmployeeCookie,
+  requireEmployee,
+  SESSION_COOKIE,
+} from "../middleware/employeeAuth.js";
 
 const router = Router();
 
@@ -51,6 +56,8 @@ router.post("/identify", async (req, res, next) => {
       data: { lastUsedAt: new Date() },
     });
 
+    setEmployeeCookie(res, { id: employee.id, role: employee.role || "Employee" });
+
     res.json({
       data: {
         id:       employee.id,
@@ -62,6 +69,37 @@ router.post("/identify", async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+/**
+ * GET /api/employees/me
+ * Returns the currently logged-in employee based on the session cookie.
+ * Used by the server-side session (no more sessionStorage-only gating).
+ */
+router.get("/me", requireEmployee, async (req, res, next) => {
+  try {
+    const employee = await prisma.employee.findFirst({
+      where: { id: BigInt(req.employee.id), isActive: true },
+      select: { id: true, fullName: true, email: true },
+    });
+
+    if (!employee) {
+      return res.status(401).json({ message: "Not authenticated." });
+    }
+
+    res.json({ data: { ...employee, role: req.employee.role } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/employees/logout
+ * Clears the session cookie server-side.
+ */
+router.post("/logout", (req, res) => {
+  res.clearCookie(SESSION_COOKIE);
+  res.json({ data: { success: true } });
 });
 
 export default router;

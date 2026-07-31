@@ -3,6 +3,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import morgan from "morgan";
+import cookieParser from "cookie-parser";
 import path from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -20,6 +21,7 @@ import {
   errorHandler,
   notFoundHandler,
 } from "./middleware/errorHandler.js";
+import { requireEmployee, isValidSession } from "./middleware/employeeAuth.js";
 
 const app = express();
 
@@ -66,6 +68,8 @@ app.use(
     credentials: true,
   }),
 );
+
+app.use(cookieParser());
 
 app.use(
   express.json({
@@ -129,12 +133,12 @@ app.get("/api/health", async (req, res, next) => {
 */
 
 app.use("/api/employees", employeeRoutes);
-app.use("/api/workspace", workspaceRoutes);
-app.use("/api/calendar", calendarRoutes);
+app.use("/api/workspace", requireEmployee, workspaceRoutes);
+app.use("/api/calendar", requireEmployee, calendarRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
-app.use("/api/meetings", meetingRoutes);
-app.use("/api/calls", callRoutes);
+app.use("/api/meetings", requireEmployee, meetingRoutes);
+app.use("/api/calls", requireEmployee, callRoutes);
 
 /*
 |--------------------------------------------------------------------------
@@ -184,6 +188,29 @@ if (existsSync(frontendIndexFile)) {
       },
     }),
   );
+
+  /*
+   * Server-side route guard for the SPA.
+   *
+   * These page paths require a logged-in employee. Since the app is a SPA
+   * served via the wildcard fallback below, this is the point where a
+   * direct/refreshed request for a protected URL gets redirected to
+   * /login BEFORE any HTML/JS is sent — the browser never sees the
+   * protected page at all when unauthenticated.
+   */
+  const PROTECTED_PAGE_PREFIXES = ["/management", "/calendar"];
+
+  app.get("/{*splat}", (req, res, next) => {
+    const isProtectedPage = PROTECTED_PAGE_PREFIXES.some(
+      (prefix) => req.path === prefix || req.path.startsWith(`${prefix}/`),
+    );
+
+    if (isProtectedPage && !isValidSession(req)) {
+      return res.redirect(302, "/login");
+    }
+
+    next();
+  });
 
   /*
    * React Router fallback.
