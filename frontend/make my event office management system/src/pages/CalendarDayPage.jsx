@@ -13,11 +13,9 @@ import {
   X,
 } from "lucide-react";
 import ConfirmDialog from "../components/ConfirmDialog";
-import EmployeeIdentityModal from "../components/EmployeeIdentityModal";
 import {
   clearCurrentEmployee,
   loadCurrentEmployee,
-  saveCurrentEmployee,
 } from "../services/managementStorage";
 import { loadCalendarMonth } from "../services/calendarStorage";
 import { loadClientCalls } from "../services/callsStorage";
@@ -342,7 +340,6 @@ export default function CalendarDayPage() {
   const [worksheetColumns, setWorksheetColumns] = useState([]);
   const [isLoading,        setIsLoading]        = useState(true);
   const [employee,         setEmployee]         = useState(() => loadCurrentEmployee());
-  const [showIdentity,     setShowIdentity]     = useState(false);
   const [notice,           setNotice]           = useState(null);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
@@ -439,15 +436,15 @@ export default function CalendarDayPage() {
   function showMsg(type, message) { setNotice({ type, message }); }
 
   // ── Employee ────────────────────────────────────────────────────
-  async function handleIdentify(next) {
-    try {
-      const saved = await saveCurrentEmployee(next);
-      setEmployee(saved);
-      setShowIdentity(false);
-    } catch (err) {
-      showMsg("error", err.message || "Could not save employee.");
+
+  // No employee session (e.g. reached via browser back/forward navigation
+  // after logging out elsewhere in the SPA) — always send the user to the
+  // dedicated /login page rather than showing any inline login UI here.
+  useEffect(() => {
+    if (!employee) {
+      navigate("/login", { replace: true });
     }
-  }
+  }, [employee, navigate]);
 
   function confirmLogout() {
     setShowLogoutConfirm(false);
@@ -459,7 +456,6 @@ export default function CalendarDayPage() {
   // ── Render ──────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-[#ffffff] text-black">
-      {showIdentity && <EmployeeIdentityModal onSubmit={handleIdentify} />}
       {showLogoutConfirm && (
         <ConfirmDialog
           title="Log out?"
@@ -505,14 +501,7 @@ export default function CalendarDayPage() {
                   <p className="text-[10px] text-black/50">Switch employee</p>
                 </div>
               </button>
-            ) : (
-              <button
-                onClick={() => setShowIdentity(true)}
-                className="flex items-center gap-2 rounded-2xl border border-[#d6d6d6]/70 bg-white px-4 py-2.5 text-sm font-black text-black transition hover:bg-[#f4f4f4]/30"
-              >
-                <UserRound size={16} /> Identify
-              </button>
-            )}
+            ) : null}
           </div>
         </div>
       </header>
