@@ -1,36 +1,39 @@
 import { Router } from "express";
-import { pool } from "../config/db.js";
+import { prisma } from "../config/prisma.js";
+import { parseDateTimeLocal } from "../utils/dbDates.js";
 
 const router = Router();
 
 // ─── Helpers ────────────────────────────────────────────────────
 
-async function getDefaultSheetId(connection) {
-  const [rows] = await connection.execute(
-    `SELECT id FROM management_sheets
-     WHERE is_default = TRUE AND is_active = TRUE
-     ORDER BY id ASC LIMIT 1`,
-  );
-  return rows[0]?.id || null;
+async function getDefaultSheetId() {
+  const sheet = await prisma.managementSheet.findFirst({
+    where: { isDefault: true, isActive: true },
+    orderBy: { id: "asc" },
+    select: { id: true },
+  });
+  return sheet?.id || null;
 }
 
-async function getClientName(connection, sheetId, rowKey) {
+async function getClientName(sheetId, rowKey) {
   if (!sheetId) return "";
 
   // Columns are located by their display name rather than column_key,
   // since column_key is not guaranteed to be a readable slug — the same
   // approach used in routes/calendar.js and routes/meetings.js.
-  const [rows] = await connection.execute(
-    `SELECT sc.value_text, sc.display_value
-     FROM sheet_rows sr
-     JOIN sheet_cells sc ON sc.row_id = sr.id
-     JOIN sheet_columns col ON col.id = sc.column_id
-     WHERE sr.sheet_id = ? AND sr.row_key = ? AND LOWER(col.column_name) = 'client name'
-     LIMIT 1`,
-    [sheetId, rowKey],
-  );
+  const row = await prisma.sheetRow.findFirst({
+    where: { sheetId, rowKey },
+    select: {
+      cells: {
+        where: { column: { columnName: { equals: "Client Name" } } },
+        select: { valueText: true, displayValue: true },
+        take: 1,
+      },
+    },
+  });
 
-  return rows[0]?.value_text || rows[0]?.display_value || "";
+  const cell = row?.cells?.[0];
+  return cell?.valueText || cell?.displayValue || "";
 }
 
 function isValidRowKey(rowKey) {
@@ -50,23 +53,18 @@ router.get("/:rowKey", async (req, res, next) => {
     return res.status(400).json({ message: "Invalid client reference." });
   }
 
-  const connection = await pool.getConnection();
   try {
-    const sheetId = await getDefaultSheetId(connection);
-    const clientName = await getClientName(connection, sheetId, rowKey);
+    const sheetId = await getDefaultSheetId();
+    const clientName = await getClientName(sheetId, rowKey);
 
-    const [calls] = await connection.execute(
-      `SELECT cc.id, cc.call_datetime, cc.call_discussion,
-              cc.created_at, cc.updated_at,
-              e1.full_name AS created_by_name,
-              e2.full_name AS updated_by_name
-       FROM client_calls cc
-       LEFT JOIN employees e1 ON e1.id = cc.created_by
-       LEFT JOIN employees e2 ON e2.id = cc.updated_by
-       WHERE cc.linked_row_key = ?
-       ORDER BY cc.call_datetime IS NULL, cc.call_datetime ASC, cc.id ASC`,
-      [rowKey],
-    );
+    const calls = await prisma.clientCall.findMany({
+      where: { linkedRowKey: rowKey },
+      include: {
+        createdBy: { select: { fullName: true } },
+        updatedBy: { select: { fullName: true } },
+      },
+      orderBy: [{ callDatetime: { sort: "asc", nulls: "last" } }, { id: "asc" }],
+    });
 
     res.json({
       data: {
@@ -74,19 +72,17 @@ router.get("/:rowKey", async (req, res, next) => {
         clientName,
         calls: calls.map((call) => ({
           id: call.id,
-          callDatetime: call.call_datetime,
-          callDiscussion: call.call_discussion,
-          createdByName: call.created_by_name,
-          updatedByName: call.updated_by_name,
-          createdAt: call.created_at,
-          updatedAt: call.updated_at,
+          callDatetime: call.callDatetime,
+          callDiscussion: call.callDiscussion,
+          createdByName: call.createdBy?.fullName || null,
+          updatedByName: call.updatedBy?.fullName || null,
+          createdAt: call.createdAt,
+          updatedAt: call.updatedAt,
         })),
       },
     });
   } catch (error) {
     next(error);
-  } finally {
-    connection.release();
   }
 });
 
@@ -98,23 +94,25 @@ router.post("/:rowKey", async (req, res, next) => {
     return res.status(400).json({ message: "Invalid client reference." });
   }
 
-  const callDatetime = req.body.callDatetime
-    ? String(req.body.callDatetime).replace("T", " ")
-    : null;
+  const callDatetime = parseDateTimeLocal(req.body.callDatetime);
   const callDiscussion = req.body.callDiscussion
     ? String(req.body.callDiscussion)
     : null;
   const employeeId = isValidId(req.body.employeeId);
 
   try {
-    const [result] = await pool.execute(
-      `INSERT INTO client_calls
-        (linked_row_key, call_datetime, call_discussion, created_by, updated_by)
-       VALUES (?, ?, ?, ?, ?)`,
-      [rowKey, callDatetime, callDiscussion, employeeId, employeeId],
-    );
+    const created = await prisma.clientCall.create({
+      data: {
+        linkedRowKey: rowKey,
+        callDatetime,
+        callDiscussion,
+        createdById: employeeId,
+        updatedById: employeeId,
+      },
+      select: { id: true },
+    });
 
-    res.status(201).json({ data: { id: result.insertId } });
+    res.status(201).json({ data: { id: created.id } });
   } catch (error) {
     next(error);
   }
@@ -130,23 +128,19 @@ router.put("/:rowKey/:callId", async (req, res, next) => {
     return res.status(400).json({ message: "Invalid reference." });
   }
 
-  const callDatetime = req.body.callDatetime
-    ? String(req.body.callDatetime).replace("T", " ")
-    : null;
+  const callDatetime = parseDateTimeLocal(req.body.callDatetime);
   const callDiscussion = req.body.callDiscussion
     ? String(req.body.callDiscussion)
     : null;
   const employeeId = isValidId(req.body.employeeId);
 
   try {
-    const [result] = await pool.execute(
-      `UPDATE client_calls
-       SET call_datetime = ?, call_discussion = ?, updated_by = ?
-       WHERE id = ? AND linked_row_key = ?`,
-      [callDatetime, callDiscussion, employeeId, id, rowKey],
-    );
+    const result = await prisma.clientCall.updateMany({
+      where: { id, linkedRowKey: rowKey },
+      data: { callDatetime, callDiscussion, updatedById: employeeId },
+    });
 
-    if (!result.affectedRows) {
+    if (!result.count) {
       return res.status(404).json({ message: "Call not found." });
     }
 
@@ -167,12 +161,11 @@ router.delete("/:rowKey/:callId", async (req, res, next) => {
   }
 
   try {
-    const [result] = await pool.execute(
-      `DELETE FROM client_calls WHERE id = ? AND linked_row_key = ?`,
-      [id, rowKey],
-    );
+    const result = await prisma.clientCall.deleteMany({
+      where: { id, linkedRowKey: rowKey },
+    });
 
-    if (!result.affectedRows) {
+    if (!result.count) {
       return res.status(404).json({ message: "Call not found." });
     }
 

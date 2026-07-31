@@ -1,4 +1,4 @@
-import { pool } from "../config/db.js";
+import { prisma } from "../config/prisma.js";
 
 /**
  * Express middleware — verifies that the request comes from an active Admin.
@@ -12,16 +12,12 @@ export async function requireAdmin(req, res, next) {
   }
 
   try {
-    const [rows] = await pool.execute(
-      `SELECT e.id
-       FROM employees e
-       JOIN roles r ON r.id = e.role_id
-       WHERE e.id = ? AND r.name = 'Admin' AND e.is_active = TRUE
-       LIMIT 1`,
-      [adminId],
-    );
+    const admin = await prisma.employee.findFirst({
+      where: { id: adminId, isActive: true, role: { name: "Admin" } },
+      select: { id: true },
+    });
 
-    if (!rows.length) {
+    if (!admin) {
       return res.status(403).json({ message: "Forbidden: Admin access only." });
     }
 

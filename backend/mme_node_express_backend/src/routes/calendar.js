@@ -1,5 +1,6 @@
 import { Router } from "express";
-import { pool } from "../config/db.js";
+import { prisma } from "../config/prisma.js";
+import { formatDateOnly, formatTimeOnly, formatDateTime, parseDateOnly, parseTimeOnly } from "../utils/dbDates.js";
 
 const router = Router();
 
@@ -7,20 +8,23 @@ const router = Router();
 
 function extractDate(val) {
   if (!val) return null;
-  const s = String(val);
-  return s.includes("T") ? s.split("T")[0] : s.split(" ")[0];
+  const d = val instanceof Date ? val : new Date(val);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().split("T")[0];
 }
 
 function extractTime(val) {
   if (!val) return null;
-  const s = String(val);
-  const part = s.includes("T") ? s.split("T")[1] : s.split(" ")[1];
-  return part ? part.substring(0, 5) : null;
+  const d = val instanceof Date ? val : new Date(val);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().split("T")[1].substring(0, 5);
 }
 
 function formatTimeVal(val) {
   if (!val) return null;
-  return String(val).substring(0, 5); // "10:30:00" → "10:30"
+  const d = val instanceof Date ? val : new Date(val);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().split("T")[1].substring(0, 5); // "10:30:00" → "10:30"
 }
 
 function inferEventType(columnName) {
@@ -32,15 +36,15 @@ function inferEventType(columnName) {
   return "task";
 }
 
-function cellValueFromRow(row, dataType) {
-  if (dataType === "boolean")                           return row.value_boolean;
-  if (dataType === "integer")                           return row.value_integer;
-  if (["decimal", "currency"].includes(dataType))      return row.value_decimal;
-  if (dataType === "date")                              return row.value_date || "";
-  if (dataType === "time")                              return row.value_time || "";
-  if (["datetime", "last_meeting_time", "next_meeting_time"].includes(dataType)) return row.value_datetime || "";
-  if (dataType === "employee")                          return row.employee_name || row.display_value || "";
-  return row.value_text ?? row.display_value ?? "";
+function cellValueFromRow(cell, dataType) {
+  if (dataType === "boolean")                           return cell.valueBoolean;
+  if (dataType === "integer")                           return cell.valueInteger;
+  if (["decimal", "currency"].includes(dataType))      return cell.valueDecimal;
+  if (dataType === "date")                              return formatDateOnly(cell.valueDate) || "";
+  if (dataType === "time")                              return formatTimeOnly(cell.valueTime) || "";
+  if (["datetime", "last_meeting_time", "next_meeting_time"].includes(dataType)) return formatDateTime(cell.valueDatetime) || "";
+  if (dataType === "employee")                          return cell.valueEmployee?.fullName || cell.displayValue || "";
+  return cell.valueText ?? cell.displayValue ?? "";
 }
 
 // ─── GET /api/calendar?year=YYYY&month=M ───────────────────────
@@ -49,109 +53,94 @@ router.get("/", async (req, res, next) => {
   const year  = parseInt(req.query.year,  10) || new Date().getFullYear();
   const month = parseInt(req.query.month, 10) || (new Date().getMonth() + 1);
 
-  const startDate    = `${year}-${String(month).padStart(2, "0")}-01`;
-  const daysInMonth  = new Date(year, month, 0).getDate();
-  const endDate      = `${year}-${String(month).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`;
+  const startDate   = `${year}-${String(month).padStart(2, "0")}-01`;
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const endDate     = `${year}-${String(month).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`;
 
-  const connection = await pool.getConnection();
+  const rangeStart = new Date(`${startDate}T00:00:00.000Z`);
+  const rangeEnd   = new Date(`${endDate}T23:59:59.999Z`);
+
   try {
     const events = [];
     let worksheetColumns = [];
 
     // ── Worksheet events ──────────────────────────────────────
-    const [sheets] = await connection.execute(
-      `SELECT id FROM management_sheets
-       WHERE is_default = TRUE AND is_active = TRUE
-       ORDER BY id ASC LIMIT 1`,
-    );
+    const sheet = await prisma.managementSheet.findFirst({
+      where: { isDefault: true, isActive: true },
+      orderBy: { id: "asc" },
+      select: { id: true },
+    });
 
-    if (sheets.length) {
-      const sheetId = sheets[0].id;
+    if (sheet) {
+      const sheetId = sheet.id;
 
       // Always fetch all column definitions (for worksheetColumns + rowData building)
-      const [allColumns] = await connection.execute(
-        `SELECT id, column_key, column_name, data_type
-         FROM sheet_columns
-         WHERE sheet_id = ? AND is_active = TRUE
-         ORDER BY display_order ASC, id ASC`,
-        [sheetId],
-      );
+      const allColumns = await prisma.sheetColumn.findMany({
+        where: { sheetId, isActive: true },
+        orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
+      });
 
       worksheetColumns = allColumns.map((c) => ({
-        key: c.column_key,
-        name: c.column_name,
-        type: c.data_type,
+        key: c.columnKey,
+        name: c.columnName,
+        type: c.dataType,
       }));
 
       // Find the "Client Name" column once so every event (worksheet, meeting,
       // or call) can carry the resolved client name + full row values.
       const clientNameCol = allColumns.find(
-        (c) => c.column_name.toLowerCase() === "client name" ||
-               (c.data_type === "text" && c.column_name.toLowerCase().includes("client") && !c.column_name.toLowerCase().includes("email") && !c.column_name.toLowerCase().includes("phone")),
+        (c) => c.columnName.toLowerCase() === "client name" ||
+               (c.dataType === "text" && c.columnName.toLowerCase().includes("client") && !c.columnName.toLowerCase().includes("email") && !c.columnName.toLowerCase().includes("phone")),
       );
 
-      const [dateColumns] = await connection.execute(
-        `SELECT id, column_key, column_name, data_type
-         FROM sheet_columns
-         WHERE sheet_id = ? AND data_type IN ('datetime','date') AND is_active = TRUE`,
-        [sheetId],
-      );
+      const dateColumns = allColumns.filter((c) => c.dataType === "datetime" || c.dataType === "date");
+      const dateColumnIds = dateColumns.map((c) => c.id);
 
       let dateCells = [];
-      if (dateColumns.length) {
-        const columnIds  = dateColumns.map((c) => c.id);
-        const colHolders = columnIds.map(() => "?").join(",");
-
-        [dateCells] = await connection.query(
-          `SELECT sc.id, sc.row_id, sc.column_id,
-                  sc.value_datetime, sc.value_date,
-                  sr.row_key
-           FROM sheet_cells sc
-           JOIN sheet_rows sr ON sr.id = sc.row_id
-           WHERE sc.column_id IN (${colHolders})
-             AND sr.is_archived = FALSE
-             AND (
-               (sc.value_datetime IS NOT NULL AND DATE(sc.value_datetime) BETWEEN ? AND ?)
-               OR
-               (sc.value_date     IS NOT NULL AND sc.value_date           BETWEEN ? AND ?)
-             )`,
-          [...columnIds, startDate, endDate, startDate, endDate],
-        );
+      if (dateColumnIds.length) {
+        dateCells = await prisma.sheetCell.findMany({
+          where: {
+            columnId: { in: dateColumnIds },
+            row: { isArchived: false },
+            OR: [
+              { valueDatetime: { gte: rangeStart, lte: rangeEnd } },
+              { valueDate: { gte: rangeStart, lte: rangeEnd } },
+            ],
+          },
+          include: { row: { select: { rowKey: true } } },
+        });
       }
 
       // ── Client meeting events (from the Meeting Manager) ─────
-      // Joined against sheet_rows so meetings belonging to a client that has
-      // since been deleted from the worksheet (row archived) never show up
-      // here, even for any older data saved before cascading deletes existed.
+      // Joined against sheet_rows (via an IN-list of active row keys) so
+      // meetings belonging to a client that has since been deleted from the
+      // worksheet (row archived) never show up here, even for any older
+      // data saved before cascading deletes existed.
+      const activeRows = await prisma.sheetRow.findMany({
+        where: { sheetId, isArchived: false },
+        select: { rowKey: true },
+      });
+      const activeRowKeys = activeRows.map((r) => r.rowKey);
+
       let meetingRows = [];
-      try {
-        [meetingRows] = await connection.query(
-          `SELECT cm.id, cm.meeting_datetime, cm.discussion_notes, cm.linked_row_key
-           FROM client_meetings cm
-           JOIN sheet_rows sr ON sr.row_key = cm.linked_row_key AND sr.sheet_id = ?
-           WHERE sr.is_archived = FALSE
-             AND cm.meeting_datetime IS NOT NULL
-             AND DATE(cm.meeting_datetime) BETWEEN ? AND ?`,
-          [sheetId, startDate, endDate],
-        );
-      } catch {
-        // client_meetings table may not exist yet — skip gracefully
+      if (activeRowKeys.length) {
+        meetingRows = await prisma.clientMeeting.findMany({
+          where: {
+            linkedRowKey: { in: activeRowKeys },
+            meetingDatetime: { gte: rangeStart, lte: rangeEnd },
+          },
+        });
       }
 
       // ── Client call events (from the Call Manager) ───────────
       let callRows = [];
-      try {
-        [callRows] = await connection.query(
-          `SELECT cc.id, cc.call_datetime, cc.call_discussion, cc.linked_row_key
-           FROM client_calls cc
-           JOIN sheet_rows sr ON sr.row_key = cc.linked_row_key AND sr.sheet_id = ?
-           WHERE sr.is_archived = FALSE
-             AND cc.call_datetime IS NOT NULL
-             AND DATE(cc.call_datetime) BETWEEN ? AND ?`,
-          [sheetId, startDate, endDate],
-        );
-      } catch {
-        // client_calls table may not exist yet — skip gracefully
+      if (activeRowKeys.length) {
+        callRows = await prisma.clientCall.findMany({
+          where: {
+            linkedRowKey: { in: activeRowKeys },
+            callDatetime: { gte: rangeStart, lte: rangeEnd },
+          },
+        });
       }
 
       // ── Resolve full row data (every column) for every rowKey touched above ──
@@ -160,48 +149,32 @@ router.get("/", async (req, res, next) => {
       // shows for that row.
       const rowDataByKey = new Map();
       const relevantRowKeys = new Set([
-        ...dateCells.map((c) => c.row_key),
-        ...meetingRows.map((m) => m.linked_row_key),
-        ...callRows.map((c) => c.linked_row_key),
+        ...dateCells.map((c) => c.row.rowKey),
+        ...meetingRows.map((m) => m.linkedRowKey),
+        ...callRows.map((c) => c.linkedRowKey),
       ]);
 
       if (relevantRowKeys.size) {
-        const keyList    = [...relevantRowKeys];
-        const keyHolders = keyList.map(() => "?").join(",");
+        const columnMap = new Map(allColumns.map((c) => [c.id, c]));
 
-        const [rows] = await connection.query(
-          `SELECT id, row_key FROM sheet_rows WHERE sheet_id = ? AND row_key IN (${keyHolders})`,
-          [sheetId, ...keyList],
-        );
-        const rowIdByKey = new Map(rows.map((r) => [r.row_key, r.id]));
-        const rowIds     = rows.map((r) => r.id);
+        const rows = await prisma.sheetRow.findMany({
+          where: { sheetId, rowKey: { in: [...relevantRowKeys] } },
+          select: {
+            rowKey: true,
+            cells: {
+              include: { valueEmployee: { select: { fullName: true } } },
+            },
+          },
+        });
 
-        if (rowIds.length) {
-          const rowHolders = rowIds.map(() => "?").join(",");
-          const [allCells] = await connection.query(
-            `SELECT sc.row_id, sc.column_id,
-                    sc.value_text, sc.value_integer, sc.value_decimal,
-                    sc.value_date, sc.value_time, sc.value_datetime,
-                    sc.value_boolean, sc.display_value,
-                    e.full_name AS employee_name
-             FROM sheet_cells sc
-             LEFT JOIN employees e ON e.id = sc.value_employee_id
-             WHERE sc.row_id IN (${rowHolders})`,
-            rowIds,
-          );
-
-          const columnMap    = new Map(allColumns.map((c) => [c.id, c]));
-          const cellsByRowId = new Map();
-          for (const cell of allCells) {
-            const col = columnMap.get(cell.column_id);
+        for (const row of rows) {
+          const rowData = {};
+          for (const cell of row.cells) {
+            const col = columnMap.get(cell.columnId);
             if (!col) continue;
-            if (!cellsByRowId.has(cell.row_id)) cellsByRowId.set(cell.row_id, {});
-            cellsByRowId.get(cell.row_id)[col.column_key] = cellValueFromRow(cell, col.data_type);
+            rowData[col.columnKey] = cellValueFromRow(cell, col.dataType);
           }
-
-          for (const [rowKey, rowId] of rowIdByKey) {
-            rowDataByKey.set(rowKey, cellsByRowId.get(rowId) || {});
-          }
+          rowDataByKey.set(row.rowKey, rowData);
         }
       }
 
@@ -209,40 +182,40 @@ router.get("/", async (req, res, next) => {
       const dateColMap = new Map(dateColumns.map((c) => [c.id, c]));
 
       for (const cell of dateCells) {
-        const dateCol  = dateColMap.get(cell.column_id);
-        const rawVal   = cell.value_datetime || cell.value_date;
+        const dateCol  = dateColMap.get(cell.columnId);
+        const rawVal   = cell.valueDatetime || cell.valueDate;
         const dateStr  = extractDate(rawVal);
-        const timeStr  = cell.value_datetime ? extractTime(cell.value_datetime) : null;
-        const rowData  = rowDataByKey.get(cell.row_key) || {};
-        const resolvedClientName = clientNameCol ? (rowData[clientNameCol.column_key] || "") : "";
+        const timeStr  = cell.valueDatetime ? extractTime(cell.valueDatetime) : null;
+        const rowData  = rowDataByKey.get(cell.row.rowKey) || {};
+        const resolvedClientName = clientNameCol ? (rowData[clientNameCol.columnKey] || "") : "";
 
         events.push({
           id:         `ws_${cell.id}`,
           source:     "worksheet",
           date:       dateStr,
           time:       timeStr,
-          columnKey:  dateCol.column_key,
-          columnName: dateCol.column_name,
-          rowKey:     cell.row_key,
+          columnKey:  dateCol.columnKey,
+          columnName: dateCol.columnName,
+          rowKey:     cell.row.rowKey,
           clientName: resolvedClientName,
           rowData,
-          eventType:  inferEventType(dateCol.column_name),
+          eventType:  inferEventType(dateCol.columnName),
         });
       }
 
       // ── Build client meeting events ───────────────────────────
       for (const meeting of meetingRows) {
-        const rowData    = rowDataByKey.get(meeting.linked_row_key) || {};
-        const clientName = clientNameCol ? (rowData[clientNameCol.column_key] || "") : "";
+        const rowData    = rowDataByKey.get(meeting.linkedRowKey) || {};
+        const clientName = clientNameCol ? (rowData[clientNameCol.columnKey] || "") : "";
 
         events.push({
           id:          `cm_${meeting.id}`,
           source:      "client_meeting",
-          date:        extractDate(meeting.meeting_datetime),
-          time:        extractTime(meeting.meeting_datetime),
+          date:        extractDate(meeting.meetingDatetime),
+          time:        extractTime(meeting.meetingDatetime),
           title:       clientName ? `Meeting with ${clientName}` : "Client meeting",
-          description: meeting.discussion_notes || null,
-          rowKey:      meeting.linked_row_key,
+          description: meeting.discussionNotes || null,
+          rowKey:      meeting.linkedRowKey,
           clientName,
           rowData,
           eventType:   "meeting",
@@ -251,17 +224,17 @@ router.get("/", async (req, res, next) => {
 
       // ── Build client call events ──────────────────────────────
       for (const call of callRows) {
-        const rowData    = rowDataByKey.get(call.linked_row_key) || {};
-        const clientName = clientNameCol ? (rowData[clientNameCol.column_key] || "") : "";
+        const rowData    = rowDataByKey.get(call.linkedRowKey) || {};
+        const clientName = clientNameCol ? (rowData[clientNameCol.columnKey] || "") : "";
 
         events.push({
           id:          `cc_${call.id}`,
           source:      "client_call",
-          date:        extractDate(call.call_datetime),
-          time:        extractTime(call.call_datetime),
+          date:        extractDate(call.callDatetime),
+          time:        extractTime(call.callDatetime),
           title:       clientName ? `Call with ${clientName}` : "Client call",
-          description: call.call_discussion || null,
-          rowKey:      call.linked_row_key,
+          description: call.callDiscussion || null,
+          rowKey:      call.linkedRowKey,
           clientName,
           rowData,
           eventType:   "call",
@@ -270,39 +243,29 @@ router.get("/", async (req, res, next) => {
     }
 
     // ── Manual calendar events ────────────────────────────────
-    try {
-      const [manualEvents] = await connection.execute(
-        `SELECT ce.id, ce.title, ce.description, ce.event_date,
-                ce.event_time, ce.event_type, ce.client_name, ce.company_name,
-                ce.priority, ce.status, ce.linked_row_key,
-                e.full_name AS assigned_employee_name
-         FROM calendar_events ce
-         LEFT JOIN employees e ON e.id = ce.assigned_employee_id
-         WHERE ce.event_date BETWEEN ? AND ?
-         ORDER BY ce.event_date ASC, ce.event_time ASC`,
-        [startDate, endDate],
-      );
+    const manualEvents = await prisma.calendarEvent.findMany({
+      where: { eventDate: { gte: rangeStart, lte: rangeEnd } },
+      include: { assignedEmployee: { select: { fullName: true } } },
+      orderBy: [{ eventDate: "asc" }, { eventTime: "asc" }],
+    });
 
-      for (const ev of manualEvents) {
-        events.push({
-          id:               `ev_${ev.id}`,
-          dbId:             ev.id,
-          source:           "manual",
-          date:             ev.event_date,
-          time:             formatTimeVal(ev.event_time),
-          title:            ev.title,
-          description:      ev.description || null,
-          eventType:        ev.event_type,
-          clientName:       ev.client_name || null,
-          companyName:      ev.company_name || null,
-          priority:         ev.priority,
-          status:           ev.status,
-          linkedRowKey:     ev.linked_row_key || null,
-          assignedEmployee: ev.assigned_employee_name || null,
-        });
-      }
-    } catch {
-      // calendar_events table may not exist yet — skip manual events gracefully
+    for (const ev of manualEvents) {
+      events.push({
+        id:               `ev_${ev.id}`,
+        dbId:             ev.id,
+        source:           "manual",
+        date:             extractDate(ev.eventDate),
+        time:             formatTimeVal(ev.eventTime),
+        title:            ev.title,
+        description:      ev.description || null,
+        eventType:        ev.eventType,
+        clientName:       ev.clientName || null,
+        companyName:      ev.companyName || null,
+        priority:         ev.priority,
+        status:           ev.status,
+        linkedRowKey:     ev.linkedRowKey || null,
+        assignedEmployee: ev.assignedEmployee?.fullName || null,
+      });
     }
 
     events.sort((a, b) => {
@@ -313,8 +276,6 @@ router.get("/", async (req, res, next) => {
     res.json({ data: { year, month, events, worksheetColumns } });
   } catch (error) {
     next(error);
-  } finally {
-    connection.release();
   }
 });
 
@@ -334,30 +295,26 @@ router.post("/events", async (req, res, next) => {
 
     const empId = Number(employeeId) || null;
 
-    const [result] = await pool.execute(
-      `INSERT INTO calendar_events
-        (title, description, event_date, event_time, event_type,
-         client_name, company_name, priority, status, linked_row_key,
-         assigned_employee_id, created_by, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        String(title).trim(),
-        description || null,
-        eventDate,
-        eventTime || null,
-        eventType || "task",
-        clientName || null,
-        companyName || null,
-        priority || "Medium",
-        status || "Pending",
-        linkedRowKey || null,
-        Number(assignedEmployeeId) || null,
-        empId,
-        empId,
-      ],
-    );
+    const created = await prisma.calendarEvent.create({
+      data: {
+        title: String(title).trim(),
+        description: description || null,
+        eventDate: parseDateOnly(eventDate),
+        eventTime: parseTimeOnly(eventTime),
+        eventType: eventType || "task",
+        clientName: clientName || null,
+        companyName: companyName || null,
+        priority: priority || "Medium",
+        status: status || "Pending",
+        linkedRowKey: linkedRowKey || null,
+        assignedEmployeeId: Number(assignedEmployeeId) || null,
+        createdById: empId,
+        updatedById: empId,
+      },
+      select: { id: true },
+    });
 
-    res.status(201).json({ data: { id: result.insertId } });
+    res.status(201).json({ data: { id: created.id } });
   } catch (error) {
     next(error);
   }
@@ -378,30 +335,24 @@ router.put("/events/:id", async (req, res, next) => {
       return res.status(422).json({ message: "Title and event date are required." });
     }
 
-    await pool.execute(
-      `UPDATE calendar_events SET
-        title = ?, description = ?, event_date = ?, event_time = ?,
-        event_type = ?, client_name = ?, company_name = ?,
-        priority = ?, status = ?, linked_row_key = ?,
-        assigned_employee_id = ?, updated_by = ?,
-        updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [
-        String(title).trim(),
-        description || null,
-        eventDate,
-        eventTime || null,
-        eventType || "task",
-        clientName || null,
-        companyName || null,
-        priority || "Medium",
-        status || "Pending",
-        linkedRowKey || null,
-        Number(assignedEmployeeId) || null,
-        Number(employeeId) || null,
-        id,
-      ],
-    );
+    await prisma.calendarEvent.updateMany({
+      where: { id },
+      data: {
+        title: String(title).trim(),
+        description: description || null,
+        eventDate: parseDateOnly(eventDate),
+        eventTime: parseTimeOnly(eventTime),
+        eventType: eventType || "task",
+        clientName: clientName || null,
+        companyName: companyName || null,
+        priority: priority || "Medium",
+        status: status || "Pending",
+        linkedRowKey: linkedRowKey || null,
+        assignedEmployeeId: Number(assignedEmployeeId) || null,
+        updatedById: Number(employeeId) || null,
+        updatedAt: new Date(),
+      },
+    });
 
     res.json({ message: "Event updated." });
   } catch (error) {
@@ -414,7 +365,7 @@ router.put("/events/:id", async (req, res, next) => {
 router.delete("/events/:id", async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
-    await pool.execute(`DELETE FROM calendar_events WHERE id = ?`, [id]);
+    await prisma.calendarEvent.deleteMany({ where: { id } });
     res.json({ message: "Event deleted." });
   } catch (error) {
     next(error);

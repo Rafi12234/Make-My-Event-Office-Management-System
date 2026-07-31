@@ -7,7 +7,7 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { verifyDatabaseConnection } from "./config/db.js";
+import { verifyDatabaseConnection } from "./config/prisma.js";
 import employeeRoutes from "./routes/employees.js";
 import workspaceRoutes from "./routes/workspace.js";
 import calendarRoutes from "./routes/calendar.js";

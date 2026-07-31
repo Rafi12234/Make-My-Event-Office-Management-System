@@ -1,6 +1,6 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import { pool } from "../config/db.js";
+import { prisma } from "../config/prisma.js";
 
 const router = Router();
 
@@ -18,28 +18,22 @@ router.post("/admin-login", async (req, res, next) => {
   }
 
   try {
-    const [rows] = await pool.execute(
-      `SELECT e.id, e.full_name, e.email, e.password_hash, r.name AS role
-       FROM employees e
-       JOIN roles r ON r.id = e.role_id
-       WHERE e.email = ? AND e.is_active = TRUE
-       LIMIT 1`,
-      [email],
-    );
+    const employee = await prisma.employee.findFirst({
+      where: { email, isActive: true },
+      include: { role: true },
+    });
 
-    const employee = rows[0];
-
-    if (!employee || employee.role !== "Admin") {
+    if (!employee || employee.role?.name !== "Admin") {
       return res.status(401).json({ message: "Invalid credentials or insufficient access." });
     }
 
-    if (!employee.password_hash) {
+    if (!employee.passwordHash) {
       return res.status(401).json({
         message: "Admin password not set. Run the password setup command from the README.",
       });
     }
 
-    const valid = await bcrypt.compare(password, employee.password_hash);
+    const valid = await bcrypt.compare(password, employee.passwordHash);
     if (!valid) {
       return res.status(401).json({ message: "Incorrect password." });
     }
@@ -47,9 +41,9 @@ router.post("/admin-login", async (req, res, next) => {
     res.json({
       data: {
         id:       employee.id,
-        fullName: employee.full_name,
+        fullName: employee.fullName,
         email:    employee.email,
-        role:     employee.role,
+        role:     employee.role.name,
       },
     });
   } catch (error) {

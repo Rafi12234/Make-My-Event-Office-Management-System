@@ -1,6 +1,6 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import { pool } from "../config/db.js";
+import { prisma } from "../config/prisma.js";
 import { requireAdmin } from "../middleware/adminAuth.js";
 
 const router = Router();
@@ -10,20 +10,25 @@ router.use(requireAdmin); // every route below requires admin auth
 // Returns all employees with role + created-by info.
 router.get("/employees", async (req, res, next) => {
   try {
-    const [rows] = await pool.execute(
-      `SELECT e.id,
-              e.full_name      AS fullName,
-              e.email,
-              e.is_active      AS isActive,
-              r.name           AS role,
-              e.created_at     AS createdAt,
-              c.full_name      AS createdByName
-       FROM employees e
-       LEFT JOIN roles     r ON r.id = e.role_id
-       LEFT JOIN employees c ON c.id = e.created_by
-       ORDER BY e.created_at DESC`,
-    );
-    res.json({ data: rows });
+    const employees = await prisma.employee.findMany({
+      include: {
+        role: true,
+        createdBy: { select: { fullName: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    res.json({
+      data: employees.map((employee) => ({
+        id: employee.id,
+        fullName: employee.fullName,
+        email: employee.email,
+        isActive: employee.isActive,
+        role: employee.role?.name || null,
+        createdAt: employee.createdAt,
+        createdByName: employee.createdBy?.fullName || null,
+      })),
+    });
   } catch (error) {
     next(error);
   }
@@ -50,31 +55,34 @@ router.post("/employees", async (req, res, next) => {
   }
 
   try {
-    const [[roleRow]] = await pool.execute(
-      `SELECT id FROM roles WHERE name = ? LIMIT 1`, [role],
-    );
+    const roleRow = await prisma.role.findUnique({ where: { name: role } });
     if (!roleRow) return res.status(500).json({ message: "Role not found in database." });
 
     const passwordHash = password ? await bcrypt.hash(password, 10) : null;
 
-    await pool.execute(
-      `INSERT INTO employees (full_name, email, role_id, password_hash, created_by, is_active)
-       VALUES (?, ?, ?, ?, ?, TRUE)`,
-      [fullName, email, roleRow.id, passwordHash, req.adminId],
-    );
+    const created = await prisma.employee.create({
+      data: {
+        fullName,
+        email,
+        roleId: roleRow.id,
+        passwordHash,
+        createdById: req.adminId,
+        isActive: true,
+      },
+      include: { role: true },
+    });
 
-    const [[created]] = await pool.execute(
-      `SELECT e.id, e.full_name AS fullName, e.email,
-              e.is_active AS isActive, r.name AS role
-       FROM employees e
-       LEFT JOIN roles r ON r.id = e.role_id
-       WHERE e.email = ? LIMIT 1`,
-      [email],
-    );
-
-    res.status(201).json({ data: created });
+    res.status(201).json({
+      data: {
+        id: created.id,
+        fullName: created.fullName,
+        email: created.email,
+        isActive: created.isActive,
+        role: created.role?.name || null,
+      },
+    });
   } catch (error) {
-    if (error.code === "ER_DUP_ENTRY") {
+    if (error.code === "P2002") {
       return res.status(409).json({ message: "An employee with this email already exists." });
     }
     next(error);
@@ -93,12 +101,10 @@ router.patch("/employees/:id", async (req, res, next) => {
   const isActive = Boolean(req.body.isActive);
 
   try {
-    await pool.execute(
-      `UPDATE employees
-       SET is_active = ?, updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [isActive, targetId],
-    );
+    await prisma.employee.update({
+      where: { id: targetId },
+      data: { isActive },
+    });
     res.json({ success: true });
   } catch (error) {
     next(error);

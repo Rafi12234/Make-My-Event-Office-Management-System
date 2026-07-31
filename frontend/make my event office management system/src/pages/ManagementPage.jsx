@@ -43,29 +43,21 @@ import { parseSpreadsheetFile } from "../utils/excelImport";
 import { loadClientMeetings } from "../services/meetingsStorage";
 import { loadClientCalls } from "../services/callsStorage";
 
+/* ─── Utility helpers ─── */
+
 function normalizeHeader(value) {
   return String(value).trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-// A cell is treated as "Not Available" when the source Excel cell was blank
-// or literally contained N/A (any casing, with or without the slash). Once a
-// cell is marked N/A, it is stored and displayed as the literal text "N/A"
-// regardless of the column's data type (number, date, etc.) and no
-// type-specific input/functionality is offered for it.
 function isNotAvailableValue(raw) {
   const text = String(raw ?? "").trim();
   return text === "" || /^n\/?a$/i.test(text);
 }
 
-// A row with no value in any column is considered a "ghost" row (e.g. left
-// over from a bulk database wipe) and should never be shown or persisted.
 function isRowBlank(row, columns) {
   return columns.every((column) => String(row.values[column.id] ?? "").trim() === "");
 }
 
-// Builds a comparable "fingerprint" of a row's full data (every column,
-// trimmed and case-insensitive) so two rows can be checked for an exact
-// match regardless of column order.
 function buildRowSignature(values, columns) {
   return columns
     .map((column) => String(values[column.id] ?? "").trim().toLowerCase())
@@ -79,9 +71,8 @@ function formatMeetingTimeDisplay(value, emptyLabel) {
   return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
-// Hover preview shown next to the "Manage Meetings"/"Manage Calls" buttons,
-// splitting that client's meetings/calls into "Upcoming" and "Previous" so
-// an employee can see the full history without leaving the sheet.
+/* ─── Hover Preview Panel ─── */
+
 function HoverPreviewPanel({ preview, onMouseEnter, onMouseLeave }) {
   const isMeetings = preview.type === "meetings";
   const now = preview.fetchedAt;
@@ -103,7 +94,7 @@ function HoverPreviewPanel({ preview, onMouseEnter, onMouseLeave }) {
   function renderItem(item) {
     const time = getTime(item);
     return (
-      <li key={item.id} className="rounded-xl border border-[#d6d6d6]/50 px-3 py-2">
+      <li key={item.id} className="animate-[fadeInUp_0.2s_ease-out] rounded-xl border border-[#d6d6d6]/50 px-3 py-2 transition-all duration-200 hover:border-[#333333]/20 hover:shadow-sm">
         <p className="text-xs font-bold text-black">
           {time ? formatMeetingTimeDisplay(time, "Not scheduled") : "Not scheduled"}
         </p>
@@ -135,14 +126,19 @@ function HoverPreviewPanel({ preview, onMouseEnter, onMouseLeave }) {
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       style={{ position: "fixed", top: preview.top, left: preview.left }}
-      className="z-[130] max-h-96 w-80 overflow-auto rounded-2xl border border-[#d6d6d6] bg-white p-4 shadow-2xl"
+      className="animate-[scaleIn_0.2s_ease-out] z-[130] max-h-96 w-80 origin-top-left overflow-auto rounded-2xl border border-[#d6d6d6] bg-white p-4 shadow-2xl"
     >
       <p className="mb-3 flex items-center gap-1.5 text-xs font-black uppercase tracking-[0.14em] text-[#333333]">
         {isMeetings ? <CalendarClock size={14} /> : <Phone size={14} />}
         {isMeetings ? "Meetings" : "Calls"} · {preview.clientName || "Client"}
       </p>
 
-      {preview.status === "loading" && <p className="text-sm text-black/50">Loading…</p>}
+      {preview.status === "loading" && (
+        <div className="flex items-center gap-2 py-3">
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#d6d6d6] border-t-black" />
+          <span className="text-sm text-black/50">Loading…</span>
+        </div>
+      )}
       {preview.status === "error" && <p className="text-sm text-red-600">{preview.error}</p>}
       {preview.status === "ready" && (
         <div className="space-y-4">
@@ -154,25 +150,23 @@ function HoverPreviewPanel({ preview, onMouseEnter, onMouseLeave }) {
   );
 }
 
+/* ─── Cell Editor ─── */
+
 function CellEditor({ column, value, onChange, employeeNames }) {
   const baseClass =
-    "h-full min-h-11 w-full border-0 bg-transparent px-3 py-2.5 text-sm text-black outline-none transition placeholder:text-black/25 focus:bg-[#f4f4f4]/25 focus:ring-2 focus:ring-inset focus:ring-[#333333]/40";
+    "h-full min-h-11 w-full border-0 bg-transparent px-3 py-2.5 text-sm text-black outline-none transition-all duration-200 placeholder:text-black/25 focus:bg-[#f4f4f4]/40 focus:ring-2 focus:ring-inset focus:ring-[#333333]/30";
 
-  // "N/A" is just a stand-in for "no value yet" — every cell must stay
-  // editable through its normal dropdown/input/date-picker so an employee
-  // can fill it in later. Treat it as blank for the editor itself; the
-  // literal "N/A" placeholder hints at the original state until replaced.
   const isNotAvailable = value === "N/A";
   const editableValue = isNotAvailable ? "" : value;
 
   if (column.type === "checkbox") {
     return (
-      <label className="flex min-h-11 items-center justify-center">
+      <label className="flex min-h-11 cursor-pointer items-center justify-center">
         <input
           type="checkbox"
           checked={editableValue === true || editableValue === "true" || editableValue === "1"}
           onChange={(event) => onChange(event.target.checked)}
-          className="h-5 w-5 accent-black"
+          className="h-5 w-5 accent-black transition-transform duration-150 hover:scale-110"
         />
       </label>
     );
@@ -266,11 +260,13 @@ function CellEditor({ column, value, onChange, employeeNames }) {
   );
 }
 
+/* ─── Empty State ─── */
+
 function EmptyState({ onAddRow, onUpload }) {
   return (
     <div className="flex min-h-[420px] items-center justify-center p-8 text-center">
-      <div className="max-w-lg">
-        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-[26px] bg-[#f4f4f4] text-black">
+      <div className="max-w-lg animate-[fadeInUp_0.5s_ease-out]">
+        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-[26px] bg-[#f4f4f4] text-black transition-transform duration-300 hover:scale-105">
           <LayoutGrid size={36} />
         </div>
         <h2 className="mt-6 text-2xl font-black text-black">Your management sheet is ready</h2>
@@ -278,10 +274,10 @@ function EmptyState({ onAddRow, onUpload }) {
           Add the first row manually or upload an existing Excel file. No formulas or complicated spreadsheet setup is needed.
         </p>
         <div className="mt-7 flex flex-col justify-center gap-3 sm:flex-row">
-          <button onClick={onAddRow} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-black px-6 py-3.5 font-black text-white hover:bg-[#222222]">
+          <button onClick={onAddRow} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-black px-6 py-3.5 font-black text-white transition-all duration-200 hover:bg-[#222222] hover:shadow-lg hover:shadow-black/20 active:scale-[0.97]">
             <Plus size={18} /> Add first row
           </button>
-          <button onClick={onUpload} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-black/20 bg-white px-6 py-3.5 font-black text-black hover:bg-[#f4f4f4]/30">
+          <button onClick={onUpload} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-black/20 bg-white px-6 py-3.5 font-black text-black transition-all duration-200 hover:bg-[#f4f4f4]/30 hover:shadow-md active:scale-[0.97]">
             <Upload size={18} /> Upload Excel
           </button>
         </div>
@@ -289,6 +285,8 @@ function EmptyState({ onAddRow, onUpload }) {
     </div>
   );
 }
+
+/* ─── Main Component ─── */
 
 export default function ManagementPage() {
   const navigate = useNavigate();
@@ -309,9 +307,6 @@ export default function ManagementPage() {
   const [notice, setNotice] = useState(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  // Shown right after an Excel import successfully adds at least one new
-  // row, prompting the employee to persist the import to the database
-  // immediately instead of leaving it as an unsaved change.
   const [savePromptRowCount, setSavePromptRowCount] = useState(0);
   const fileInputRef = useRef(null);
   const hasMounted = useRef(false);
@@ -324,9 +319,6 @@ export default function ManagementPage() {
   const filterDropdownRef = useRef(null);
   const [confirmDeleteRowId, setConfirmDeleteRowId] = useState(null);
   const [resizeCursor, setResizeCursor] = useState(null);
-  // Hover preview for the "Manage Meetings"/"Manage Calls" buttons — shows
-  // that client's upcoming and previous meetings/calls without navigating
-  // away from the sheet.
   const [hoverPreview, setHoverPreview] = useState(null);
   const hoverHideTimeout = useRef(null);
   const [filters, setFilters] = useState({
@@ -523,7 +515,6 @@ export default function ManagementPage() {
           loadEmployeeDirectory(),
         ]);
         if (cancelled) return;
-        // Drop any fully empty rows so leftover/ghost rows never appear.
         setWorkspace({
           ...nextWorkspace,
           rows: nextWorkspace.rows.filter((row) => !isRowBlank(row, nextWorkspace.columns)),
@@ -574,8 +565,6 @@ export default function ManagementPage() {
     return () => window.clearTimeout(timeout);
   }, [notice]);
 
-  // Trap the browser history while an employee is logged in so the back
-  // button cannot silently exit the workspace without logging out.
   useEffect(() => {
     if (!employee) return undefined;
 
@@ -617,10 +606,6 @@ export default function ManagementPage() {
     }));
   }
 
-  // Deleting a row is meant to be permanent as soon as it's confirmed (see the
-  // delete confirmation modal's copy), so it's saved to the backend right
-  // away instead of just flipping `hasUnsavedChanges` — otherwise refreshing
-  // the page before pressing "Save Changes" would silently bring the row back.
   async function deleteRow(rowId) {
     const nextRows = workspace.rows
       .filter((row) => row.id !== rowId)
@@ -634,8 +619,6 @@ export default function ManagementPage() {
     });
 
     if (!employee?.id) {
-      // No identified employee yet — nothing to save against, so fall back
-      // to a local-only removal (persisted next time someone saves).
       setWorkspace((current) => ({ ...current, rows: nextRows }));
       setHasUnsavedChanges(true);
       return;
@@ -670,7 +653,7 @@ export default function ManagementPage() {
       })),
     }));
     setShowAddColumn(false);
-    setNotice({ type: "success", message: `“${column.name}” column added.` });
+    setNotice({ type: "success", message: `"${column.name}" column added.` });
   }
 
   function resetWorkspace() {
@@ -681,22 +664,15 @@ export default function ManagementPage() {
     setNotice({ type: "success", message: "Management sheet cleared. Press Save Changes to persist." });
   }
 
-  // Accepts an optional `rowsOverride` so callers that already know the next
-  // row set (e.g. deleteRow, which removes a row before saving) can save that
-  // exact snapshot without waiting for a separate setWorkspace render cycle.
   async function handleSaveChanges(rowsOverride) {
     if (!employee?.id || isSaving) return;
     setIsSaving(true);
     try {
       const sourceRows = rowsOverride ?? workspace.rows;
 
-      // Rows left completely blank (every column empty) are dropped so they
-      // never get persisted as ghost rows.
       const nonBlankRows = sourceRows.filter((row) => !isRowBlank(row, workspace.columns));
       const rowsRemoved = nonBlankRows.length !== sourceRows.length;
 
-      // Event Date must never be saved blank — any row missing it gets
-      // defaulted to the literal "N/A" (same convention as imported cells).
       const eventDateColumn = workspace.columns.find((column) => column.id === "event_date");
       const rows = eventDateColumn
         ? nonBlankRows.map((row) => {
@@ -737,9 +713,6 @@ export default function ManagementPage() {
       const parsed = await parseSpreadsheetFile(file);
       if (!parsed.rows.length) throw new Error("The spreadsheet contains headers but no data rows.");
 
-      // Mandatory-column rule: every one of MANDATORY_EXCEL_COLUMNS must be
-      // present (case/whitespace-insensitive). Missing any of them fails the
-      // whole import before a preview is even shown.
       const normalizedHeaders = new Set(parsed.headers.map(normalizeHeader));
       const missingColumns = MANDATORY_EXCEL_COLUMNS.filter(
         (name) => !normalizedHeaders.has(normalizeHeader(name)),
@@ -764,26 +737,12 @@ export default function ManagementPage() {
   function confirmImport() {
     if (!importPreview) return;
 
-    // Only headers matching an existing (system-dedicated) column are
-    // imported. Any extra/unrecognized column in the Excel file is simply
-    // ignored — no new columns are auto-created from an import anymore.
     const headerMap = new Map(workspace.columns.map((column) => [normalizeHeader(column.name), column]));
 
-    // Duplicate detection must only compare the columns that actually came
-    // from the Excel file. In-app-only fields (Assigned Employee, Meeting
-    // Notes, Last/Next Meeting Time, etc.) are never present in an import,
-    // so a freshly-imported row always has them blank — if we compared
-    // those too, a row that was later enriched in-app would no longer match
-    // its own re-imported source data and would be added again as a "new"
-    // row. Comparing only the imported columns fixes that.
     const importedColumns = importPreview.headers
       .map((header) => headerMap.get(normalizeHeader(header)))
       .filter(Boolean);
 
-    // Every row already in the system gets a fingerprint (based only on the
-    // imported columns) so an imported row whose data matches one exactly is
-    // skipped instead of being added again. If even a single cell differs,
-    // it's treated as new data and added as its own row.
     const seenSignatures = new Set(
       workspace.rows.map((row) => buildRowSignature(row.values, importedColumns)),
     );
@@ -798,8 +757,6 @@ export default function ManagementPage() {
         const column = headerMap.get(normalizeHeader(header));
         if (!column) return;
         const rawValue = sourceRow[header];
-        // Blank cells or a literal "N/A" are stored/shown as "N/A" no
-        // matter the column's data type, and disable that cell's editor.
         values[column.id] = isNotAvailableValue(rawValue) ? "N/A" : String(rawValue);
       });
 
@@ -832,8 +789,6 @@ export default function ManagementPage() {
     });
     setImportPreview(null);
 
-    // At least one new row was actually added — immediately offer to save
-    // the import to the database instead of leaving it as an unsaved change.
     if (importedRows.length > 0) {
       setSavePromptRowCount(importedRows.length);
     }
@@ -844,10 +799,12 @@ export default function ManagementPage() {
     setSavePromptRowCount(0);
   }
 
+  /* ─── Loading ─── */
+
   if (isLoadingWorkspace) {
     return (
       <div className="grid min-h-screen place-items-center bg-[#ffffff] text-black">
-        <div className="text-center">
+        <div className="animate-[fadeInUp_0.4s_ease-out] text-center">
           <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-[#d6d6d6] border-t-black" />
           <p className="mt-4 font-black">Loading shared management data...</p>
         </div>
@@ -855,8 +812,38 @@ export default function ManagementPage() {
     );
   }
 
+  /* ─── Render ─── */
+
   return (
     <div className="min-h-screen bg-[#ffffff] text-black">
+      {/* ── Global keyframes ── */}
+      <style>{`
+        @keyframes fadeInUp {
+          from { opacity: 0; transform: translateY(12px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fadeInDown {
+          from { opacity: 0; transform: translateY(-10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes scaleIn {
+          from { opacity: 0; transform: scale(0.92); }
+          to { opacity: 1; transform: scale(1); }
+        }
+        @keyframes slideInRight {
+          from { opacity: 0; transform: translateX(20px); }
+          to { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes shimmer {
+          0% { background-position: -200% 0; }
+          100% { background-position: 200% 0; }
+        }
+      `}</style>
+
       {!employee && <EmployeeIdentityModal onSubmit={handleEmployeeSubmit} />}
       {showAddColumn && <AddColumnModal onClose={() => setShowAddColumn(false)} onAdd={addColumn} />}
       {importPreview && <ExcelImportModal preview={importPreview} onClose={() => setImportPreview(null)} onConfirm={confirmImport} />}
@@ -879,10 +866,11 @@ export default function ManagementPage() {
         className="hidden"
       />
 
-      <header className="sticky top-0 z-40 border-b border-[#d6d6d6]/50 bg-white/95 backdrop-blur-xl">
+      {/* ─── Header ─── */}
+      <header className="sticky top-0 z-40 border-b border-[#d6d6d6]/50 bg-white/95 backdrop-blur-xl transition-all duration-300">
         <div className="flex min-h-18 items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-4">
-            <img src={mmeLogo} alt="Make My Event" className="h-11 w-11 shrink-0 rounded-2xl object-cover shadow-lg shadow-black/20" />
+            <img src={mmeLogo} alt="Make My Event" className="h-11 w-11 shrink-0 rounded-2xl object-cover shadow-lg shadow-black/20 transition-transform duration-300 hover:scale-105" />
             <div className="min-w-0">
               <p className="truncate text-base font-black text-black sm:text-lg">Make My Event</p>
               <p className="truncate text-[10px] font-bold uppercase tracking-[0.18em] text-[#333333] sm:text-xs">Management Workspace</p>
@@ -893,9 +881,9 @@ export default function ManagementPage() {
             <button
               onClick={() => handleSaveChanges()}
               disabled={!hasUnsavedChanges || isSaving || !employee?.id}
-              className={`hidden items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold transition md:flex ${
+              className={`hidden items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold transition-all duration-200 md:flex ${
                 hasUnsavedChanges && !isSaving
-                  ? "border-black bg-black text-white shadow-md shadow-black/20 hover:bg-[#222222] cursor-pointer"
+                  ? "border-black bg-black text-white shadow-md shadow-black/20 hover:bg-[#222222] hover:shadow-lg hover:shadow-black/30 active:scale-[0.97] cursor-pointer"
                   : "pointer-events-none border-[#d6d6d6]/60 bg-[#ffffff] text-black/40 opacity-60 cursor-not-allowed"
               }`}
             >
@@ -905,20 +893,21 @@ export default function ManagementPage() {
               {isSaving ? "Saving..." : hasUnsavedChanges ? "Save Changes" : "Saved"}
             </button>
 
-            <button onClick={requestLogout} title="Logout" className="flex items-center gap-2 rounded-2xl border border-[#d6d6d6]/70 bg-white px-3 py-2.5 text-left transition hover:bg-red-50 hover:border-red-200 sm:px-4">
-              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#f4f4f4] text-black"><UserRound size={16} /></div>
+            <button onClick={requestLogout} title="Logout" className="group flex items-center gap-2 rounded-2xl border border-[#d6d6d6]/70 bg-white px-3 py-2.5 text-left transition-all duration-200 hover:bg-red-50 hover:border-red-200 hover:shadow-md hover:shadow-red-100/50 sm:px-4">
+              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#f4f4f4] text-black transition-colors duration-200 group-hover:bg-red-100 group-hover:text-red-500"><UserRound size={16} /></div>
               <div className="hidden sm:block">
                 <p className="max-w-36 truncate text-xs font-black text-black">{employee?.fullName || "Employee"}</p>
                 <p className="max-w-36 truncate text-[10px] text-red-400 font-semibold">Logout</p>
               </div>
-              <LogOut size={15} className="text-red-400" />
+              <LogOut size={15} className="text-red-400 transition-transform duration-200 group-hover:translate-x-0.5" />
             </button>
           </div>
         </div>
       </header>
 
+      {/* ─── Main ─── */}
       <main className="px-3 py-5 sm:px-5 lg:px-7">
-        <section className="mx-auto max-w-[1800px]">
+        <section className="mx-auto max-w-[1800px] animate-[fadeInUp_0.4s_ease-out]">
           <div className="mb-5 flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
             <div>
               <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.2em] text-[#333333]">
@@ -931,50 +920,53 @@ export default function ManagementPage() {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <Link to="/calendar" className="inline-flex items-center gap-2 rounded-xl border border-[#d6d6d6]/70 bg-white px-4 py-2.5 text-sm font-black text-black hover:bg-[#f4f4f4]/30">
+              <Link to="/calendar" className="inline-flex items-center gap-2 rounded-xl border border-[#d6d6d6]/70 bg-white px-4 py-2.5 text-sm font-black text-black transition-all duration-200 hover:bg-[#f4f4f4]/30 hover:shadow-md hover:border-[#333333]/20 active:scale-[0.97]">
                 <CalendarDays size={17} /> Calendar
               </Link>
-              <button onClick={resetWorkspace} className="inline-flex items-center gap-2 rounded-xl border border-[#d6d6d6]/70 bg-white px-4 py-2.5 text-sm font-black text-black hover:bg-[#f4f4f4]/30">
+              <button onClick={resetWorkspace} className="inline-flex items-center gap-2 rounded-xl border border-[#d6d6d6]/70 bg-white px-4 py-2.5 text-sm font-black text-black transition-all duration-200 hover:bg-[#f4f4f4]/30 hover:shadow-md hover:border-[#333333]/20 active:scale-[0.97]">
                 <RotateCcw size={17} /> Reset demo
               </button>
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-[24px] border border-[#d6d6d6]/60 bg-white shadow-[0_20px_60px_rgba(0,0,0,0.12)]">
+          {/* ─── Sheet Container ─── */}
+          <div className="overflow-hidden rounded-[24px] border border-[#d6d6d6]/60 bg-white shadow-[0_20px_60px_rgba(0,0,0,0.08)] transition-shadow duration-300 hover:shadow-[0_20px_60px_rgba(0,0,0,0.12)]">
+            {/* Toolbar */}
             <div className="flex flex-col gap-3 border-b border-[#d6d6d6]/50 bg-white p-3.5 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex flex-wrap gap-2">
-                <button onClick={addRow} className="inline-flex items-center gap-2 rounded-xl bg-black px-4 py-2.5 text-sm font-black text-white shadow-md shadow-black/15 hover:bg-[#222222]">
+                <button onClick={addRow} className="inline-flex items-center gap-2 rounded-xl bg-black px-4 py-2.5 text-sm font-black text-white shadow-md shadow-black/15 transition-all duration-200 hover:bg-[#222222] hover:shadow-lg hover:shadow-black/25 active:scale-[0.97]">
                   <Plus size={17} /> Add row
                 </button>
-                <button onClick={() => setShowAddColumn(true)} className="inline-flex items-center gap-2 rounded-xl border border-black/20 bg-white px-4 py-2.5 text-sm font-black text-black hover:bg-[#f4f4f4]/30">
+                <button onClick={() => setShowAddColumn(true)} className="inline-flex items-center gap-2 rounded-xl border border-black/20 bg-white px-4 py-2.5 text-sm font-black text-black transition-all duration-200 hover:bg-[#f4f4f4]/30 hover:shadow-md active:scale-[0.97]">
                   <Columns3 size={17} /> Add column
                 </button>
-                <button disabled={isImporting} onClick={() => fileInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-xl border border-black/20 bg-white px-4 py-2.5 text-sm font-black text-black hover:bg-[#f4f4f4]/30 disabled:opacity-60">
+                <button disabled={isImporting} onClick={() => fileInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-xl border border-black/20 bg-white px-4 py-2.5 text-sm font-black text-black transition-all duration-200 hover:bg-[#f4f4f4]/30 hover:shadow-md active:scale-[0.97] disabled:opacity-60 disabled:hover:shadow-none">
                   {isImporting ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#d6d6d6] border-t-black" /> : <FileSpreadsheet size={17} />}
                   {isImporting ? "Reading file..." : "Upload Excel"}
                 </button>
+
                 {/* ── Filters dropdown ── */}
                 <div className="relative" ref={filterDropdownRef}>
                   <button
                     onClick={() => { setShowFilters((v) => !v); setHoveredSection(null); }}
-                    className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-black transition ${
+                    className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-black transition-all duration-200 active:scale-[0.97] ${
                       showFilters || activeFilterCount > 0
-                        ? "border-black bg-black text-white"
-                        : "border-black/20 bg-white text-black hover:bg-[#f4f4f4]/30"
+                        ? "border-black bg-black text-white shadow-md shadow-black/15"
+                        : "border-black/20 bg-white text-black hover:bg-[#f4f4f4]/30 hover:shadow-md"
                     }`}
                   >
                     <SlidersHorizontal size={17} />
                     Filters
                     {activeFilterCount > 0 && (
-                      <span className={`rounded-full px-1.5 py-0.5 text-xs font-black ${
+                      <span className={`rounded-full px-1.5 py-0.5 text-xs font-black transition-colors duration-200 ${
                         showFilters || activeFilterCount > 0 ? "bg-white/20 text-white" : "bg-black/10 text-black"
                       }`}>{activeFilterCount}</span>
                     )}
-                    <ChevronDown size={15} className={`transition-transform ${showFilters ? "rotate-180" : ""}`} />
+                    <ChevronDown size={15} className={`transition-transform duration-300 ${showFilters ? "rotate-180" : ""}`} />
                   </button>
 
                   {showFilters && (
-                    <div className="absolute left-0 top-full z-50 mt-2 flex rounded-2xl border border-[#d6d6d6]/60 bg-white shadow-[0_20px_60px_rgba(0,0,0,0.12)]" style={{ minWidth: 520 }}>
+                    <div className="animate-[fadeInDown_0.2s_ease-out] absolute left-0 top-full z-50 mt-2 flex rounded-2xl border border-[#d6d6d6]/60 bg-white shadow-[0_20px_60px_rgba(0,0,0,0.12)]" style={{ minWidth: 520 }}>
                       {/* Left — category list */}
                       <div className="w-52 shrink-0 border-r border-[#d6d6d6]/40 py-2">
                         {[
@@ -987,7 +979,7 @@ export default function ManagementPage() {
                             key={key}
                             onMouseEnter={() => setHoveredSection(key)}
                             onClick={() => setHoveredSection(key)}
-                            className={`flex w-full items-center justify-between px-4 py-2.5 text-left text-sm font-bold transition ${
+                            className={`flex w-full items-center justify-between px-4 py-2.5 text-left text-sm font-bold transition-all duration-150 ${
                               hoveredSection === key
                                 ? "bg-black text-white"
                                 : "text-black hover:bg-[#f4f4f4]/40"
@@ -996,7 +988,7 @@ export default function ManagementPage() {
                             <span className="flex items-center gap-2">
                               {label}
                               {hasValue && (
-                                <span className={`h-2 w-2 rounded-full ${hoveredSection === key ? "bg-[#d6d6d6]" : "bg-[#333333]"}`} />
+                                <span className={`h-2 w-2 rounded-full transition-colors duration-200 ${hoveredSection === key ? "bg-[#d6d6d6]" : "bg-[#333333]"}`} />
                               )}
                             </span>
                             <span className="text-xs opacity-60">›</span>
@@ -1007,7 +999,7 @@ export default function ManagementPage() {
                           <div className="mx-3 mt-2 border-t border-[#d6d6d6]/40 pt-2">
                             <button
                               onClick={clearFilters}
-                              className="flex w-full items-center gap-1.5 rounded-xl px-2 py-2 text-xs font-black text-red-500 hover:bg-red-50"
+                              className="flex w-full items-center gap-1.5 rounded-xl px-2 py-2 text-xs font-black text-red-500 transition-all duration-200 hover:bg-red-50"
                             >
                               <X size={13} /> Clear all ({activeFilterCount})
                             </button>
@@ -1018,7 +1010,7 @@ export default function ManagementPage() {
                       {/* Right — options panel */}
                       <div className="flex-1 p-5">
                         {hoveredSection === null && (
-                          <div className="flex h-full min-h-32 items-center justify-center text-center">
+                          <div className="flex h-full min-h-32 items-center justify-center text-center animate-[fadeIn_0.2s_ease-out]">
                             <div>
                               <SlidersHorizontal size={28} className="mx-auto text-[#a9a9a9]" />
                               <p className="mt-3 text-sm font-bold text-black/50">Hover a category to filter</p>
@@ -1027,7 +1019,7 @@ export default function ManagementPage() {
                         )}
 
                         {hoveredSection === "date" && (
-                          <div>
+                          <div className="animate-[fadeIn_0.15s_ease-out]">
                             <p className="mb-3 text-[10px] font-black uppercase tracking-[0.18em] text-[#333333]">Date Range (Meeting)</p>
                             <div className="flex flex-col gap-3">
                               <div>
@@ -1036,7 +1028,7 @@ export default function ManagementPage() {
                                   type="date"
                                   value={filters.dateFrom}
                                   onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value }))}
-                                  className="w-full rounded-xl border border-[#d6d6d6] px-3 py-2 text-sm text-black outline-none focus:border-[#333333] focus:ring-4 focus:ring-[#d6d6d6]/20"
+                                  className="w-full rounded-xl border border-[#d6d6d6] px-3 py-2 text-sm text-black outline-none transition-all duration-200 focus:border-[#333333] focus:ring-4 focus:ring-[#d6d6d6]/20"
                                 />
                               </div>
                               <div>
@@ -1045,7 +1037,7 @@ export default function ManagementPage() {
                                   type="date"
                                   value={filters.dateTo}
                                   onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))}
-                                  className="w-full rounded-xl border border-[#d6d6d6] px-3 py-2 text-sm text-black outline-none focus:border-[#333333] focus:ring-4 focus:ring-[#d6d6d6]/20"
+                                  className="w-full rounded-xl border border-[#d6d6d6] px-3 py-2 text-sm text-black outline-none transition-all duration-200 focus:border-[#333333] focus:ring-4 focus:ring-[#d6d6d6]/20"
                                 />
                               </div>
                             </div>
@@ -1053,11 +1045,11 @@ export default function ManagementPage() {
                         )}
 
                         {hoveredSection === "shift" && (
-                          <div>
+                          <div className="animate-[fadeIn_0.15s_ease-out]">
                             <p className="mb-3 text-[10px] font-black uppercase tracking-[0.18em] text-[#333333]">Shift</p>
                             <div className="space-y-2">
                               {SHIFT_OPTIONS.map((opt) => (
-                                <label key={opt} className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-[#f4f4f4]/30">
+                                <label key={opt} className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 transition-colors duration-150 hover:bg-[#f4f4f4]/30">
                                   <input type="checkbox" checked={filters.shifts.has(opt)} onChange={() => toggleFilter("shifts", opt)} className="h-4 w-4 accent-black" />
                                   <span className="text-sm font-bold text-black">{opt}</span>
                                 </label>
@@ -1067,11 +1059,11 @@ export default function ManagementPage() {
                         )}
 
                         {hoveredSection === "venue" && (
-                          <div>
+                          <div className="animate-[fadeIn_0.15s_ease-out]">
                             <p className="mb-3 text-[10px] font-black uppercase tracking-[0.18em] text-[#333333]">Venue</p>
                             <div className="grid grid-cols-2 gap-1">
                               {VENUE_OPTIONS.map((opt) => (
-                                <label key={opt} className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-[#f4f4f4]/30">
+                                <label key={opt} className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 transition-colors duration-150 hover:bg-[#f4f4f4]/30">
                                   <input type="checkbox" checked={filters.venues.has(opt)} onChange={() => toggleFilter("venues", opt)} className="h-4 w-4 accent-black" />
                                   <span className="text-sm font-bold text-black">{opt}</span>
                                 </label>
@@ -1081,7 +1073,7 @@ export default function ManagementPage() {
                         )}
 
                         {hoveredSection === "employee" && (
-                          <div>
+                          <div className="animate-[fadeIn_0.15s_ease-out]">
                             <p className="mb-3 text-[10px] font-black uppercase tracking-[0.18em] text-[#333333]">Assigned Employee</p>
                             <div className="relative">
                               <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#333333]" />
@@ -1091,12 +1083,12 @@ export default function ManagementPage() {
                                 onChange={(e) => setFilters((f) => ({ ...f, assigneeText: e.target.value }))}
                                 placeholder="Type employee name…"
                                 autoFocus
-                                className="w-full rounded-xl border border-[#d6d6d6] py-2.5 pl-9 pr-8 text-sm font-medium text-black outline-none placeholder:text-black/35 focus:border-[#333333] focus:ring-4 focus:ring-[#d6d6d6]/20"
+                                className="w-full rounded-xl border border-[#d6d6d6] py-2.5 pl-9 pr-8 text-sm font-medium text-black outline-none transition-all duration-200 placeholder:text-black/35 focus:border-[#333333] focus:ring-4 focus:ring-[#d6d6d6]/20"
                               />
                               {filters.assigneeText && (
                                 <button
                                   onClick={() => setFilters((f) => ({ ...f, assigneeText: "" }))}
-                                  className="absolute right-3 top-1/2 -translate-y-1/2 text-black/40 hover:text-black"
+                                  className="absolute right-3 top-1/2 -translate-y-1/2 text-black/40 transition-colors duration-150 hover:text-black"
                                 >
                                   <X size={14} />
                                 </button>
@@ -1119,17 +1111,18 @@ export default function ManagementPage() {
                 </p>
                 <div className="relative min-w-0 flex-1 lg:w-72 lg:flex-none">
                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#333333]" size={17} />
-                  <input value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="Search all cells..." className="w-full rounded-xl border border-[#d6d6d6]/70 bg-[#ffffff] py-2.5 pl-10 pr-9 text-sm outline-none focus:border-[#333333] focus:ring-4 focus:ring-[#d6d6d6]/20" />
-                  {searchText && <button onClick={() => setSearchText("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-black/40 hover:text-black"><X size={15} /></button>}
+                  <input value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="Search all cells..." className="w-full rounded-xl border border-[#d6d6d6]/70 bg-[#ffffff] py-2.5 pl-10 pr-9 text-sm outline-none transition-all duration-200 focus:border-[#333333] focus:ring-4 focus:ring-[#d6d6d6]/20 focus:shadow-md" />
+                  {searchText && <button onClick={() => setSearchText("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-black/40 transition-colors duration-150 hover:text-black"><X size={15} /></button>}
                 </div>
               </div>
             </div>
 
+            {/* ─── Table ─── */}
             {workspace.rows.length === 0 ? (
               <EmptyState onAddRow={addRow} onUpload={() => fileInputRef.current?.click()} />
             ) : (
               <div className="max-h-[calc(100vh-265px)] min-h-[420px] overflow-auto">
-                <table className="border-separate border-spacing-0 text-left">
+                <table className="w-full border-separate border-spacing-0 text-left" style={{ minWidth: "100%" }}>
                   <thead className="sticky top-0 z-20">
                     <tr>
                       <th className="sticky left-0 z-30 w-14 min-w-14 border-b border-r border-[#d6d6d6]/60 bg-black px-2 py-3 text-center text-xs font-black text-white">#</th>
@@ -1145,27 +1138,34 @@ export default function ManagementPage() {
                           </div>
                           <div
                             onMouseDown={(e) => startColumnResize(e, column.id)}
-                            className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize hover:bg-white/40"
+                            className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize transition-colors duration-150 hover:bg-white/40"
                           />
                         </th>
                       ))}
-                      <th className="sticky right-0 z-30 w-16 min-w-16 border-b border-l border-white/15 bg-black px-2 py-3 text-center text-xs font-black text-white">Action</th>
+                      <th className="sticky right-0 z-30 w-[52px] min-w-[52px] border-b border-l border-white/15 bg-black px-2 py-3 text-center text-xs font-black text-white">Action</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredRows.map((row) => {
+                    {filteredRows.map((row, index) => {
                       const rowH = rowHeights[row.id];
                       return (
-                        <tr key={row.id} className="group" style={rowH ? { height: `${rowH}px` } : undefined}>
+                        <tr
+                          key={row.id}
+                          className="group"
+                          style={{
+                            ...(rowH ? { height: `${rowH}px` } : {}),
+                            animation: `fadeInUp 0.3s ease-out ${Math.min(index * 0.03, 0.5)}s both`,
+                          }}
+                        >
                           <td
-                            className="sticky left-0 z-10 border-b border-r border-[#d6d6d6]/50 bg-[#ffffff] text-center text-xs font-black text-black/45 group-hover:bg-[#f4f4f4]/35"
+                            className="sticky left-0 z-10 border-b border-r border-[#d6d6d6]/50 bg-[#ffffff] text-center text-xs font-black text-black/45 transition-colors duration-150 group-hover:bg-[#f8f8f8]"
                             style={rowH ? { height: `${rowH}px` } : undefined}
                           >
                             <div className="relative flex w-full min-h-11 items-center justify-center px-2" style={rowH ? { height: `${rowH}px` } : undefined}>
                               {row.rowNumber}
                               <div
                                 onMouseDown={(e) => startRowResize(e, row.id)}
-                                className="absolute bottom-0 left-0 right-0 h-1.5 cursor-row-resize hover:bg-black/30"
+                                className="absolute bottom-0 left-0 right-0 h-1.5 cursor-row-resize transition-colors duration-150 hover:bg-black/20"
                               />
                             </div>
                           </td>
@@ -1173,32 +1173,32 @@ export default function ManagementPage() {
                             <td
                               key={column.id}
                               style={{ width: column.width, minWidth: column.width, ...(rowH ? { height: `${rowH}px` } : {}) }}
-                              className="border-b border-r border-[#d6d6d6]/45 bg-white align-top group-hover:bg-[#fffbfd]"
+                              className="border-b border-r border-[#d6d6d6]/45 bg-white align-top transition-colors duration-150 group-hover:bg-[#fafafa]"
                             >
                               {column.type === "meeting_manager" ? (
-                                <div className="flex h-full min-h-11 flex-wrap items-center justify-center gap-1.5 p-1.5">
+                                <div className="flex h-full min-h-11 items-center justify-center gap-2 p-1.5">
                                   <button
                                     type="button"
                                     onClick={() => navigate(`/management/meetings/${row.id}`)}
                                     onMouseEnter={(event) => handlePreviewHover(event, row, "meetings")}
                                     onMouseLeave={scheduleHoverHide}
-                                    className="inline-flex items-center gap-1.5 rounded-xl bg-black px-3 py-2 text-xs font-black text-white hover:bg-[#222222]"
+                                    className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-xl bg-black px-3 py-2 text-xs font-black text-white transition-all duration-200 hover:bg-[#222222] hover:shadow-md hover:shadow-black/20 active:scale-[0.96]"
                                   >
-                                    <CalendarClock size={14} /> Manage Meetings
+                                    <CalendarClock size={14} /> Meetings
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => navigate(`/management/calls/${row.id}`)}
                                     onMouseEnter={(event) => handlePreviewHover(event, row, "calls")}
                                     onMouseLeave={scheduleHoverHide}
-                                    className="inline-flex items-center gap-1.5 rounded-xl bg-black px-3 py-2 text-xs font-black text-white hover:bg-[#222222]"
+                                    className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-xl bg-black px-3 py-2 text-xs font-black text-white transition-all duration-200 hover:bg-[#222222] hover:shadow-md hover:shadow-black/20 active:scale-[0.96]"
                                   >
-                                    <Phone size={14} /> Manage Calls
+                                    <Phone size={14} /> Calls
                                   </button>
                                 </div>
                               ) : column.type === "last_meeting_time" || column.type === "next_meeting_time" ? (
                                 <div
-                                  className={`flex h-full min-h-11 items-center justify-center p-1.5 text-center text-xs font-bold ${
+                                  className={`flex h-full min-h-11 items-center justify-center p-1.5 text-center text-xs font-bold transition-colors duration-150 ${
                                     row.values[column.id] ? "text-black/75" : "text-black/35 italic"
                                   }`}
                                   title="Automatically set from the Meeting Manager"
@@ -1219,11 +1219,11 @@ export default function ManagementPage() {
                             </td>
                           ))}
                           <td
-                            className="sticky right-0 z-10 border-b border-l border-[#d6d6d6]/50 bg-white px-2 text-center group-hover:bg-[#fffbfd]"
+                            className="sticky right-0 z-10 border-b border-l border-[#d6d6d6]/50 bg-white px-1 text-center transition-colors duration-150 group-hover:bg-[#fafafa]"
                             style={rowH ? { height: `${rowH}px` } : undefined}
                           >
                             <div className="flex min-h-11 items-center justify-center" style={rowH ? { height: `${rowH}px` } : undefined}>
-                              <button onClick={() => setConfirmDeleteRowId(row.id)} className="rounded-xl p-2 text-black/35 transition hover:bg-red-50 hover:text-red-500" title="Delete row"><Trash2 size={17} /></button>
+                              <button onClick={() => setConfirmDeleteRowId(row.id)} className="rounded-xl p-2 text-black/30 transition-all duration-200 hover:bg-red-50 hover:text-red-500 hover:shadow-sm active:scale-90" title="Delete row"><Trash2 size={16} /></button>
                             </div>
                           </td>
                         </tr>
@@ -1233,18 +1233,18 @@ export default function ManagementPage() {
                 </table>
 
                 {filteredRows.length === 0 && (
-                  <div className="grid min-h-72 place-items-center p-8 text-center">
+                  <div className="grid min-h-72 place-items-center p-8 text-center animate-[fadeIn_0.3s_ease-out]">
                     <div>
                       <Search className="mx-auto text-[#a9a9a9]" size={34} />
                       <p className="mt-4 font-black text-black">No matching rows</p>
                       <div className="mt-3 flex flex-wrap justify-center gap-3">
                         {searchText && (
-                          <button onClick={() => setSearchText("")} className="text-sm font-black text-[#333333] hover:text-black">
+                          <button onClick={() => setSearchText("")} className="text-sm font-black text-[#333333] transition-colors duration-150 hover:text-black">
                             Clear search
                           </button>
                         )}
                         {activeFilterCount > 0 && (
-                          <button onClick={clearFilters} className="text-sm font-black text-[#333333] hover:text-black">
+                          <button onClick={clearFilters} className="text-sm font-black text-[#333333] transition-colors duration-150 hover:text-black">
                             Clear filters ({activeFilterCount})
                           </button>
                         )}
@@ -1255,6 +1255,7 @@ export default function ManagementPage() {
               </div>
             )}
 
+            {/* Footer */}
             <div className="flex flex-col justify-between gap-2 border-t border-[#d6d6d6]/50 bg-[#ffffff] px-4 py-3 text-xs text-black/50 sm:flex-row sm:items-center">
               <p>Drag column edges to resize width · Drag row edges to resize height · Press <strong>Save Changes</strong> to persist edits to the database.</p>
               <p className="font-bold">Supported imports: .xlsx and .csv</p>
@@ -1263,22 +1264,32 @@ export default function ManagementPage() {
         </section>
       </main>
 
+      {/* ─── Toast / Notice ─── */}
       {notice && (
-        <div className={`fixed bottom-5 right-5 z-[120] flex max-w-md items-start gap-3 rounded-2xl border px-5 py-4 shadow-2xl ${notice.type === "error" ? "border-red-200 bg-red-50 text-red-700" : notice.type === "info" ? "border-[#d6d6d6] bg-white text-black" : "border-[#d6d6d6] bg-white text-black"}`}>
+        <div
+          className={`animate-[slideInRight_0.35s_ease-out] fixed bottom-5 right-5 z-[120] flex max-w-md items-start gap-3 rounded-2xl border px-5 py-4 shadow-2xl transition-all duration-300 ${
+            notice.type === "error"
+              ? "border-red-200 bg-red-50 text-red-700"
+              : notice.type === "info"
+              ? "border-[#d6d6d6] bg-white text-black"
+              : "border-[#d6d6d6] bg-white text-black"
+          }`}
+        >
           {notice.type === "error" ? <X className="mt-0.5 shrink-0" size={18} /> : notice.type === "info" ? <CalendarDays className="mt-0.5 shrink-0 text-[#333333]" size={18} /> : <Check className="mt-0.5 shrink-0 text-[#333333]" size={18} />}
           <p className="text-sm font-bold leading-6">{notice.message}</p>
-          <button onClick={() => setNotice(null)} className="ml-2 opacity-50 hover:opacity-100"><X size={15} /></button>
+          <button onClick={() => setNotice(null)} className="ml-2 opacity-50 transition-opacity duration-150 hover:opacity-100"><X size={15} /></button>
         </div>
       )}
 
+      {/* ─── Hover Preview ─── */}
       {hoverPreview && (
         <HoverPreviewPanel preview={hoverPreview} onMouseEnter={cancelHoverHide} onMouseLeave={scheduleHoverHide} />
       )}
 
-      {/* ── Delete row confirmation modal ── */}
+      {/* ─── Delete row confirmation modal ─── */}
       {confirmDeleteRowId !== null && (
-        <div className="fixed inset-0 z-[110] grid place-items-center bg-black/50 px-5 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-[28px] border border-[#d6d6d6] bg-white p-7 shadow-2xl">
+        <div className="animate-[fadeIn_0.15s_ease-out] fixed inset-0 z-[110] grid place-items-center bg-black/50 px-5 backdrop-blur-sm">
+          <div className="animate-[scaleIn_0.25s_ease-out] w-full max-w-sm rounded-[28px] border border-[#d6d6d6] bg-white p-7 shadow-2xl">
             <div className="flex h-13 w-13 items-center justify-center rounded-2xl bg-red-50 text-red-500">
               <Trash2 size={24} />
             </div>
@@ -1293,7 +1304,7 @@ export default function ManagementPage() {
               <button
                 onClick={() => setConfirmDeleteRowId(null)}
                 disabled={isSaving}
-                className="flex-1 rounded-2xl border border-black/20 bg-white py-3 text-sm font-black text-black transition hover:bg-[#f4f4f4]/30 disabled:opacity-60"
+                className="flex-1 rounded-2xl border border-black/20 bg-white py-3 text-sm font-black text-black transition-all duration-200 hover:bg-[#f4f4f4]/30 hover:shadow-md active:scale-[0.97] disabled:opacity-60"
               >
                 Cancel
               </button>
@@ -1304,7 +1315,7 @@ export default function ManagementPage() {
                   await deleteRow(rowId);
                 }}
                 disabled={isSaving}
-                className="flex-1 rounded-2xl bg-red-500 py-3 text-sm font-black text-white transition hover:bg-red-600 disabled:opacity-60"
+                className="flex-1 rounded-2xl bg-red-500 py-3 text-sm font-black text-white shadow-md shadow-red-200 transition-all duration-200 hover:bg-red-600 hover:shadow-lg hover:shadow-red-300 active:scale-[0.97] disabled:opacity-60"
               >
                 {isSaving ? "Deleting..." : "Yes, delete"}
               </button>
@@ -1313,10 +1324,10 @@ export default function ManagementPage() {
         </div>
       )}
 
-      {/* ── Post-import save prompt ── */}
+      {/* ─── Post-import save prompt ─── */}
       {savePromptRowCount > 0 && (
-        <div className="fixed inset-0 z-[110] grid place-items-center bg-black/50 px-5 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-[28px] border border-[#d6d6d6] bg-white p-7 shadow-2xl">
+        <div className="animate-[fadeIn_0.15s_ease-out] fixed inset-0 z-[110] grid place-items-center bg-black/50 px-5 backdrop-blur-sm">
+          <div className="animate-[scaleIn_0.25s_ease-out] w-full max-w-sm rounded-[28px] border border-[#d6d6d6] bg-white p-7 shadow-2xl">
             <div className="flex h-13 w-13 items-center justify-center rounded-2xl bg-[#f4f4f4] text-black">
               <Save size={24} />
             </div>
@@ -1324,21 +1335,21 @@ export default function ManagementPage() {
             <h2 className="mt-5 text-xl font-black text-black">Save these rows now?</h2>
             <p className="mt-2 text-sm leading-6 text-black/60">
               {savePromptRowCount} row(s) were added from your Excel import. Save now to persist
- them to the main system, or save later from the toolbar.
+              them to the main system, or save later from the toolbar.
             </p>
 
             <div className="mt-7 flex gap-3">
               <button
                 onClick={() => setSavePromptRowCount(0)}
                 disabled={isSaving}
-                className="flex-1 rounded-2xl border border-black/20 bg-white py-3 text-sm font-black text-black transition hover:bg-[#f4f4f4]/30 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex-1 rounded-2xl border border-black/20 bg-white py-3 text-sm font-black text-black transition-all duration-200 hover:bg-[#f4f4f4]/30 hover:shadow-md active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Not now
               </button>
               <button
                 onClick={handleSavePromptConfirm}
                 disabled={isSaving}
-                className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-black py-3 text-sm font-black text-white transition hover:bg-[#222222] disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-black py-3 text-sm font-black text-white shadow-md shadow-black/15 transition-all duration-200 hover:bg-[#222222] hover:shadow-lg hover:shadow-black/25 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isSaving ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current/30 border-t-current" /> : <Save size={15} />}
                 {isSaving ? "Saving..." : "Save now"}
@@ -1346,6 +1357,16 @@ export default function ManagementPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Mobile save FAB ── */}
+      {hasUnsavedChanges && !isSaving && employee?.id && (
+        <button
+          onClick={() => handleSaveChanges()}
+          className="animate-[fadeInUp_0.3s_ease-out] fixed bottom-5 left-5 z-[100] flex items-center gap-2 rounded-2xl bg-black px-5 py-3.5 text-sm font-black text-white shadow-xl shadow-black/30 transition-all duration-200 hover:bg-[#222222] hover:shadow-2xl active:scale-[0.96] md:hidden"
+        >
+          <Save size={16} /> Save
+        </button>
       )}
     </div>
   );

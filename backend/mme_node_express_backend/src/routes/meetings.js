@@ -4,7 +4,8 @@ import crypto from "node:crypto";
 import { mkdirSync, unlink } from "node:fs";
 import { fileURLToPath } from "node:url";
 import multer from "multer";
-import { pool } from "../config/db.js";
+import { prisma } from "../config/prisma.js";
+import { parseDateTimeLocal } from "../utils/dbDates.js";
 
 const router = Router();
 
@@ -69,33 +70,35 @@ const upload = multer({
 
 // ─── Helpers ────────────────────────────────────────────────────
 
-async function getDefaultSheetId(connection) {
-  const [rows] = await connection.execute(
-    `SELECT id FROM management_sheets
-     WHERE is_default = TRUE AND is_active = TRUE
-     ORDER BY id ASC LIMIT 1`,
-  );
-  return rows[0]?.id || null;
+async function getDefaultSheetId() {
+  const sheet = await prisma.managementSheet.findFirst({
+    where: { isDefault: true, isActive: true },
+    orderBy: { id: "asc" },
+    select: { id: true },
+  });
+  return sheet?.id || null;
 }
 
-async function getClientName(connection, sheetId, rowKey) {
+async function getClientName(sheetId, rowKey) {
   if (!sheetId) return "";
 
   // Columns in this system are not guaranteed to have a readable
   // column_key (many are auto-generated UUIDs), so the "Client Name"
   // column is located by its display name instead — the same approach
   // already used in routes/calendar.js.
-  const [rows] = await connection.execute(
-    `SELECT sc.value_text, sc.display_value
-     FROM sheet_rows sr
-     JOIN sheet_cells sc ON sc.row_id = sr.id
-     JOIN sheet_columns col ON col.id = sc.column_id
-     WHERE sr.sheet_id = ? AND sr.row_key = ? AND LOWER(col.column_name) = 'client name'
-     LIMIT 1`,
-    [sheetId, rowKey],
-  );
+  const row = await prisma.sheetRow.findFirst({
+    where: { sheetId, rowKey },
+    select: {
+      cells: {
+        where: { column: { columnName: { equals: "Client Name" } } },
+        select: { valueText: true, displayValue: true },
+        take: 1,
+      },
+    },
+  });
 
-  return rows[0]?.value_text || rows[0]?.display_value || "";
+  const cell = row?.cells?.[0];
+  return cell?.valueText || cell?.displayValue || "";
 }
 
 function isValidRowKey(rowKey) {
@@ -146,12 +149,11 @@ function parseRequirements(value) {
 // (e.g. a "copied forward" meeting) still references the same
 // stored_file_name — images can be shared across meetings when a new
 // meeting inherits the previous meeting's images.
-async function deleteImageFileIfUnreferenced(connection, storedFileName) {
-  const [[row]] = await connection.query(
-    `SELECT COUNT(*) AS count FROM client_meeting_images WHERE stored_file_name = ?`,
-    [storedFileName],
-  );
-  if (!row.count) {
+async function deleteImageFileIfUnreferenced(storedFileName) {
+  const count = await prisma.clientMeetingImage.count({
+    where: { storedFileName },
+  });
+  if (!count) {
     unlink(path.join(meetingImagesDirectory, storedFileName), () => {});
   }
 }
@@ -159,43 +161,33 @@ async function deleteImageFileIfUnreferenced(connection, storedFileName) {
 // When a new meeting is created, it inherits the requirements and
 // images of the most recently created meeting for the same client, so
 // employees only need to adjust what changed instead of starting over.
-async function copyForwardFromPreviousMeeting(connection, rowKey, newMeetingId, employeeId) {
-  const [[previous]] = await connection.query(
-    `SELECT id, requirements FROM client_meetings
-     WHERE linked_row_key = ? AND id != ?
-     ORDER BY id DESC LIMIT 1`,
-    [rowKey, newMeetingId],
-  );
+async function copyForwardFromPreviousMeeting(rowKey, newMeetingId, employeeId) {
+  const previous = await prisma.clientMeeting.findFirst({
+    where: { linkedRowKey: rowKey, id: { not: newMeetingId } },
+    orderBy: { id: "desc" },
+    include: { images: { orderBy: { id: "asc" } } },
+  });
   if (!previous) return;
 
   if (previous.requirements) {
-    await connection.execute(
-      `UPDATE client_meetings SET requirements = ? WHERE id = ?`,
-      [previous.requirements, newMeetingId],
-    );
+    await prisma.clientMeeting.update({
+      where: { id: newMeetingId },
+      data: { requirements: previous.requirements },
+    });
   }
 
-  const [previousImages] = await connection.execute(
-    `SELECT stored_file_name, original_file_name, tag_name, file_url, file_size_bytes, uploaded_by
-     FROM client_meeting_images WHERE meeting_id = ? ORDER BY id ASC`,
-    [previous.id],
-  );
-
-  for (const image of previousImages) {
-    await connection.execute(
-      `INSERT INTO client_meeting_images
-        (meeting_id, stored_file_name, original_file_name, tag_name, file_url, file_size_bytes, uploaded_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [
-        newMeetingId,
-        image.stored_file_name,
-        image.original_file_name,
-        image.tag_name,
-        image.file_url,
-        image.file_size_bytes,
-        image.uploaded_by || employeeId,
-      ],
-    );
+  for (const image of previous.images) {
+    await prisma.clientMeetingImage.create({
+      data: {
+        meetingId: newMeetingId,
+        storedFileName: image.storedFileName,
+        originalFileName: image.originalFileName,
+        tagName: image.tagName,
+        fileUrl: image.fileUrl,
+        fileSizeBytes: image.fileSizeBytes,
+        uploadedById: image.uploadedById || employeeId,
+      },
+    });
   }
 }
 
@@ -207,90 +199,57 @@ router.get("/:rowKey", async (req, res, next) => {
     return res.status(400).json({ message: "Invalid client reference." });
   }
 
-  const connection = await pool.getConnection();
   try {
-    const sheetId = await getDefaultSheetId(connection);
-    const clientName = await getClientName(connection, sheetId, rowKey);
+    const sheetId = await getDefaultSheetId();
+    const clientName = await getClientName(sheetId, rowKey);
 
-    const [meetings] = await connection.execute(
-      `SELECT cm.id, cm.meeting_datetime, cm.requirements,
-              cm.is_completed, cm.completed_at,
-              cm.created_at, cm.updated_at,
-              e1.full_name AS created_by_name,
-              e2.full_name AS updated_by_name,
-              e3.full_name AS completed_by_name
-       FROM client_meetings cm
-       LEFT JOIN employees e1 ON e1.id = cm.created_by
-       LEFT JOIN employees e2 ON e2.id = cm.updated_by
-       LEFT JOIN employees e3 ON e3.id = cm.completed_by
-       WHERE cm.linked_row_key = ?
-       ORDER BY cm.meeting_datetime IS NULL, cm.meeting_datetime ASC, cm.id ASC`,
-      [rowKey],
-    );
+    const meetings = await prisma.clientMeeting.findMany({
+      where: { linkedRowKey: rowKey },
+      include: {
+        createdBy: { select: { fullName: true } },
+        updatedBy: { select: { fullName: true } },
+        completedBy: { select: { fullName: true } },
+        images: { orderBy: { id: "asc" } },
+      },
+      orderBy: [{ meetingDatetime: { sort: "asc", nulls: "last" } }, { id: "asc" }],
+    });
 
-    const meetingIds = meetings.map((meeting) => meeting.id);
-    let images = [];
-    if (meetingIds.length) {
-      const placeholders = meetingIds.map(() => "?").join(",");
-      [images] = await connection.query(
-        `SELECT id, meeting_id, original_file_name, tag_name, file_url, is_final_selected, created_at
-         FROM client_meeting_images
-         WHERE meeting_id IN (${placeholders})
-         ORDER BY id ASC`,
-        meetingIds,
-      );
-    }
-
-    const imagesByMeeting = new Map();
-    for (const image of images) {
-      if (!imagesByMeeting.has(image.meeting_id)) {
-        imagesByMeeting.set(image.meeting_id, []);
-      }
-      imagesByMeeting.get(image.meeting_id).push({
-        id: image.id,
-        originalFileName: image.original_file_name,
-        tagName: image.tag_name || "",
-        url: image.file_url,
-        isFinalSelected: Boolean(image.is_final_selected),
-        createdAt: image.created_at,
-      });
-    }
-
-    const [[finalization]] = await connection.query(
-      `SELECT cf.finalized_at, e.full_name AS finalized_by_name
-       FROM client_finalizations cf
-       LEFT JOIN employees e ON e.id = cf.finalized_by
-       WHERE cf.linked_row_key = ?
-       LIMIT 1`,
-      [rowKey],
-    );
+    const finalization = await prisma.clientFinalization.findUnique({
+      where: { linkedRowKey: rowKey },
+      include: { finalizedBy: { select: { fullName: true } } },
+    });
 
     res.json({
       data: {
         rowKey,
         clientName,
         finalization: finalization
-          ? { finalizedAt: finalization.finalized_at, finalizedByName: finalization.finalized_by_name }
+          ? { finalizedAt: finalization.finalizedAt, finalizedByName: finalization.finalizedBy?.fullName || null }
           : null,
         meetings: meetings.map((meeting) => ({
           id: meeting.id,
-          meetingDatetime: meeting.meeting_datetime,
+          meetingDatetime: meeting.meetingDatetime,
           requirements: parseRequirements(meeting.requirements),
-          isCompleted: Boolean(meeting.is_completed),
-          completedByName: meeting.completed_by_name,
-          completedAt: meeting.completed_at,
-          createdByName: meeting.created_by_name,
-          updatedByName: meeting.updated_by_name,
-          createdAt: meeting.created_at,
-          updatedAt: meeting.updated_at,
-          images: imagesByMeeting.get(meeting.id) || [],
+          isCompleted: Boolean(meeting.isCompleted),
+          completedByName: meeting.completedBy?.fullName || null,
+          completedAt: meeting.completedAt,
+          createdByName: meeting.createdBy?.fullName || null,
+          updatedByName: meeting.updatedBy?.fullName || null,
+          createdAt: meeting.createdAt,
+          updatedAt: meeting.updatedAt,
+          images: meeting.images.map((image) => ({
+            id: image.id,
+            originalFileName: image.originalFileName,
+            tagName: image.tagName || "",
+            url: image.fileUrl,
+            isFinalSelected: Boolean(image.isFinalSelected),
+            createdAt: image.createdAt,
+          })),
         })),
       },
     });
   } catch (error) {
     next(error);
-  } finally {
-    connection.release();
   }
 });
 
@@ -302,27 +261,25 @@ router.post("/:rowKey", async (req, res, next) => {
     return res.status(400).json({ message: "Invalid client reference." });
   }
 
-  const meetingDatetime = req.body.meetingDatetime
-    ? String(req.body.meetingDatetime).replace("T", " ")
-    : null;
+  const meetingDatetime = parseDateTimeLocal(req.body.meetingDatetime);
   const employeeId = isValidId(req.body.employeeId);
 
-  const connection = await pool.getConnection();
   try {
-    const [result] = await connection.execute(
-      `INSERT INTO client_meetings
-        (linked_row_key, meeting_datetime, created_by, updated_by)
-       VALUES (?, ?, ?, ?)`,
-      [rowKey, meetingDatetime, employeeId, employeeId],
-    );
+    const created = await prisma.clientMeeting.create({
+      data: {
+        linkedRowKey: rowKey,
+        meetingDatetime,
+        createdById: employeeId,
+        updatedById: employeeId,
+      },
+      select: { id: true },
+    });
 
-    await copyForwardFromPreviousMeeting(connection, rowKey, result.insertId, employeeId);
+    await copyForwardFromPreviousMeeting(rowKey, created.id, employeeId);
 
-    res.status(201).json({ data: { id: result.insertId } });
+    res.status(201).json({ data: { id: created.id } });
   } catch (error) {
     next(error);
-  } finally {
-    connection.release();
   }
 });
 
@@ -336,21 +293,17 @@ router.put("/:rowKey/:meetingId", async (req, res, next) => {
     return res.status(400).json({ message: "Invalid reference." });
   }
 
-  const meetingDatetime = req.body.meetingDatetime
-    ? String(req.body.meetingDatetime).replace("T", " ")
-    : null;
+  const meetingDatetime = parseDateTimeLocal(req.body.meetingDatetime);
   const requirements = sanitizeRequirements(req.body.requirements);
   const employeeId = isValidId(req.body.employeeId);
 
   try {
-    const [result] = await pool.execute(
-      `UPDATE client_meetings
-       SET meeting_datetime = ?, requirements = ?, updated_by = ?
-       WHERE id = ? AND linked_row_key = ?`,
-      [meetingDatetime, JSON.stringify(requirements), employeeId, id, rowKey],
-    );
+    const result = await prisma.clientMeeting.updateMany({
+      where: { id, linkedRowKey: rowKey },
+      data: { meetingDatetime, requirements, updatedById: employeeId },
+    });
 
-    if (!result.affectedRows) {
+    if (!result.count) {
       return res.status(404).json({ message: "Meeting not found." });
     }
 
@@ -372,36 +325,30 @@ router.patch("/:rowKey/:meetingId/complete", async (req, res, next) => {
 
   const employeeId = isValidId(req.body.employeeId);
 
-  const connection = await pool.getConnection();
   try {
-    const [[meeting]] = await connection.query(
-      `SELECT is_completed FROM client_meetings WHERE id = ? AND linked_row_key = ? LIMIT 1`,
-      [id, rowKey],
-    );
+    const meeting = await prisma.clientMeeting.findFirst({
+      where: { id, linkedRowKey: rowKey },
+      select: { isCompleted: true },
+    });
 
     if (!meeting) {
       return res.status(404).json({ message: "Meeting not found." });
     }
 
-    const nextCompleted = !meeting.is_completed;
+    const nextCompleted = !meeting.isCompleted;
 
-    await connection.execute(
-      `UPDATE client_meetings
-       SET is_completed = ?, completed_by = ?, completed_at = ?
-       WHERE id = ?`,
-      [
-        nextCompleted,
-        nextCompleted ? employeeId : null,
-        nextCompleted ? new Date() : null,
-        id,
-      ],
-    );
+    await prisma.clientMeeting.update({
+      where: { id },
+      data: {
+        isCompleted: nextCompleted,
+        completedById: nextCompleted ? employeeId : null,
+        completedAt: nextCompleted ? new Date() : null,
+      },
+    });
 
     res.json({ data: { id, isCompleted: nextCompleted } });
   } catch (error) {
     next(error);
-  } finally {
-    connection.release();
   }
 });
 
@@ -417,31 +364,24 @@ router.patch("/:rowKey/images/:imageId/tag", async (req, res, next) => {
 
   const tagName = String(req.body.tagName ?? "").slice(0, 120).trim();
 
-  const connection = await pool.getConnection();
   try {
-    const [[image]] = await connection.query(
-      `SELECT cmi.id
-       FROM client_meeting_images cmi
-       JOIN client_meetings cm ON cm.id = cmi.meeting_id
-       WHERE cmi.id = ? AND cm.linked_row_key = ?
-       LIMIT 1`,
-      [iId, rowKey],
-    );
+    const image = await prisma.clientMeetingImage.findFirst({
+      where: { id: iId, meeting: { linkedRowKey: rowKey } },
+      select: { id: true },
+    });
 
     if (!image) {
       return res.status(404).json({ message: "Image not found." });
     }
 
-    await connection.execute(
-      `UPDATE client_meeting_images SET tag_name = ? WHERE id = ?`,
-      [tagName || null, iId],
-    );
+    await prisma.clientMeetingImage.update({
+      where: { id: iId },
+      data: { tagName: tagName || null },
+    });
 
     res.json({ data: { id: iId, tagName } });
   } catch (error) {
     next(error);
-  } finally {
-    connection.release();
   }
 });
 
@@ -455,33 +395,26 @@ router.patch("/:rowKey/images/:imageId/final", async (req, res, next) => {
     return res.status(400).json({ message: "Invalid reference." });
   }
 
-  const connection = await pool.getConnection();
   try {
-    const [[image]] = await connection.query(
-      `SELECT cmi.id, cmi.is_final_selected
-       FROM client_meeting_images cmi
-       JOIN client_meetings cm ON cm.id = cmi.meeting_id
-       WHERE cmi.id = ? AND cm.linked_row_key = ?
-       LIMIT 1`,
-      [iId, rowKey],
-    );
+    const image = await prisma.clientMeetingImage.findFirst({
+      where: { id: iId, meeting: { linkedRowKey: rowKey } },
+      select: { id: true, isFinalSelected: true },
+    });
 
     if (!image) {
       return res.status(404).json({ message: "Image not found." });
     }
 
-    const nextSelected = !image.is_final_selected;
+    const nextSelected = !image.isFinalSelected;
 
-    await connection.execute(
-      `UPDATE client_meeting_images SET is_final_selected = ? WHERE id = ?`,
-      [nextSelected, iId],
-    );
+    await prisma.clientMeetingImage.update({
+      where: { id: iId },
+      data: { isFinalSelected: nextSelected },
+    });
 
     res.json({ data: { id: iId, isFinalSelected: nextSelected } });
   } catch (error) {
     next(error);
-  } finally {
-    connection.release();
   }
 });
 
@@ -496,12 +429,11 @@ router.post("/:rowKey/finalize", async (req, res, next) => {
   const employeeId = isValidId(req.body.employeeId);
 
   try {
-    await pool.execute(
-      `INSERT INTO client_finalizations (linked_row_key, finalized_by, finalized_at)
-       VALUES (?, ?, NOW())
-       ON DUPLICATE KEY UPDATE finalized_by = VALUES(finalized_by), finalized_at = VALUES(finalized_at)`,
-      [rowKey, employeeId],
-    );
+    await prisma.clientFinalization.upsert({
+      where: { linkedRowKey: rowKey },
+      create: { linkedRowKey: rowKey, finalizedById: employeeId, finalizedAt: new Date() },
+      update: { finalizedById: employeeId, finalizedAt: new Date() },
+    });
 
     res.json({ data: { rowKey } });
   } catch (error) {
@@ -519,31 +451,27 @@ router.delete("/:rowKey/:meetingId", async (req, res, next) => {
     return res.status(400).json({ message: "Invalid reference." });
   }
 
-  const connection = await pool.getConnection();
   try {
-    const [images] = await connection.execute(
-      `SELECT stored_file_name FROM client_meeting_images WHERE meeting_id = ?`,
-      [id],
-    );
+    const images = await prisma.clientMeetingImage.findMany({
+      where: { meetingId: id },
+      select: { storedFileName: true },
+    });
 
-    const [result] = await connection.execute(
-      `DELETE FROM client_meetings WHERE id = ? AND linked_row_key = ?`,
-      [id, rowKey],
-    );
+    const result = await prisma.clientMeeting.deleteMany({
+      where: { id, linkedRowKey: rowKey },
+    });
 
-    if (!result.affectedRows) {
+    if (!result.count) {
       return res.status(404).json({ message: "Meeting not found." });
     }
 
     for (const image of images) {
-      await deleteImageFileIfUnreferenced(connection, image.stored_file_name);
+      await deleteImageFileIfUnreferenced(image.storedFileName);
     }
 
     res.json({ data: { id } });
   } catch (error) {
     next(error);
-  } finally {
-    connection.release();
   }
 });
 
@@ -586,14 +514,13 @@ router.post(
       tagNames = [];
     }
 
-    const connection = await pool.getConnection();
     try {
-      const [meetingRows] = await connection.execute(
-        `SELECT id FROM client_meetings WHERE id = ? AND linked_row_key = ? LIMIT 1`,
-        [id, rowKey],
-      );
+      const meeting = await prisma.clientMeeting.findFirst({
+        where: { id, linkedRowKey: rowKey },
+        select: { id: true },
+      });
 
-      if (!meetingRows.length) {
+      if (!meeting) {
         removeUploadedFiles(req.files);
         return res.status(404).json({ message: "Meeting not found." });
       }
@@ -603,23 +530,21 @@ router.post(
         const fileUrl = `/uploads/meeting-images/${file.filename}`;
         const tagName = String(tagNames[fileIndex] || "").slice(0, 120).trim() || null;
 
-        const [result] = await connection.execute(
-          `INSERT INTO client_meeting_images
-            (meeting_id, stored_file_name, original_file_name, tag_name, file_url, file_size_bytes, uploaded_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [
-            id,
-            file.filename,
-            file.originalname.slice(0, 255),
+        const created = await prisma.clientMeetingImage.create({
+          data: {
+            meetingId: id,
+            storedFileName: file.filename,
+            originalFileName: file.originalname.slice(0, 255),
             tagName,
             fileUrl,
-            file.size,
-            employeeId,
-          ],
-        );
+            fileSizeBytes: file.size,
+            uploadedById: employeeId,
+          },
+          select: { id: true },
+        });
 
         inserted.push({
-          id: result.insertId,
+          id: created.id,
           originalFileName: file.originalname,
           tagName: tagName || "",
           url: fileUrl,
@@ -630,8 +555,6 @@ router.post(
     } catch (error) {
       removeUploadedFiles(req.files);
       next(error);
-    } finally {
-      connection.release();
     }
   },
 );
@@ -647,30 +570,23 @@ router.delete("/:rowKey/:meetingId/images/:imageId", async (req, res, next) => {
     return res.status(400).json({ message: "Invalid reference." });
   }
 
-  const connection = await pool.getConnection();
   try {
-    const [rows] = await connection.execute(
-      `SELECT cmi.stored_file_name
-       FROM client_meeting_images cmi
-       JOIN client_meetings cm ON cm.id = cmi.meeting_id
-       WHERE cmi.id = ? AND cmi.meeting_id = ? AND cm.linked_row_key = ?
-       LIMIT 1`,
-      [iId, mId, rowKey],
-    );
+    const image = await prisma.clientMeetingImage.findFirst({
+      where: { id: iId, meetingId: mId, meeting: { linkedRowKey: rowKey } },
+      select: { storedFileName: true },
+    });
 
-    if (!rows.length) {
+    if (!image) {
       return res.status(404).json({ message: "Image not found." });
     }
 
-    await connection.execute(`DELETE FROM client_meeting_images WHERE id = ?`, [iId]);
+    await prisma.clientMeetingImage.delete({ where: { id: iId } });
 
-    await deleteImageFileIfUnreferenced(connection, rows[0].stored_file_name);
+    await deleteImageFileIfUnreferenced(image.storedFileName);
 
     res.json({ data: { id: iId } });
   } catch (error) {
     next(error);
-  } finally {
-    connection.release();
   }
 });
 
