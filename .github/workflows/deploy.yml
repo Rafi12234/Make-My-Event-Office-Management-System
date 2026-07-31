@@ -97,6 +97,15 @@ jobs:
           test -f "${BACKEND_DIR}/prisma/schema.prisma"
           test -f "${BACKEND_DIR}/prisma.config.ts"
 
+          # cPanel's manual "Run NPM Install" does not run the
+          # postinstall "prisma generate" hook, so the generated
+          # Prisma Client (node_modules/.prisma/client) never gets
+          # created there. CI generates it (via npm ci's postinstall)
+          # and this workflow uploads it directly over SFTP below —
+          # confirm it actually exists before we rely on it.
+          test -f "${BACKEND_DIR}/node_modules/.prisma/client/index.js"
+          test -f "${BACKEND_DIR}/node_modules/.prisma/client/default.js"
+
           test -f "${FRONTEND_DIR}/dist/index.html"
           test -d "${FRONTEND_DIR}/dist/assets"
 
@@ -240,6 +249,21 @@ jobs:
             echo "put schema.prisma prisma/schema.prisma"
             echo "lcd \"$BACKEND_ROOT/prisma/migrations/0_init\""
             echo "put migration.sql prisma/migrations/0_init/migration.sql"
+
+            # Upload the already-generated Prisma Client. cPanel's
+            # "Run NPM Install" button does not run the postinstall
+            # "prisma generate" hook, so without this the server ends
+            # up with @prisma/client installed but no generated code,
+            # causing: "does not provide an export named 'PrismaClient'".
+            # This generated output is pure JS + WASM (no native
+            # binaries), so it is portable between the CI runner and
+            # the cPanel server regardless of OS/Node version.
+            echo "cd ${APP_DIR}"
+            echo "-mkdir node_modules"
+            echo "-mkdir node_modules/.prisma"
+            echo "-mkdir node_modules/.prisma/client"
+            echo "lcd \"$BACKEND_ROOT/node_modules/.prisma/client\""
+            echo "put * node_modules/.prisma/client/"
 
             echo "cd ${APP_DIR}"
             echo "lcd \"$BACKEND_ROOT\""
