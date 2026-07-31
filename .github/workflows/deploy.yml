@@ -314,6 +314,16 @@ jobs:
           done
 
           echo "Backend health check failed."
+          echo ""
+          echo "A persistent 503 (not a WAF/JS-challenge HTML page) means the Node.js"
+          echo "process itself is not starting on the server — almost always because"
+          echo "package.json changed (new/updated dependencies) but 'npm install' was"
+          echo "never run in cPanel, since this deployment method has no remote shell"
+          echo "access and can only transfer files via SFTP."
+          echo ""
+          echo "Fix: log into cPanel -> Setup Node.js App -> open this application ->"
+          echo "click 'Run NPM Install' -> then click 'Restart'. This is required once"
+          echo "after every commit that changes backend/mme_node_express_backend/package.json."
 
           exit 1
 
