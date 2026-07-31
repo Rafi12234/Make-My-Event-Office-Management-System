@@ -5,6 +5,7 @@ const EMPLOYEE_STORAGE_KEY = "mme_current_employee_v3";
 
 async function apiRequest(path, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
+    credentials: "include",
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
@@ -42,6 +43,10 @@ export async function saveCurrentEmployee({ email, password }) {
 
 export function clearCurrentEmployee() {
   sessionStorage.removeItem(EMPLOYEE_STORAGE_KEY);
+  // Clear the server-side session cookie too. Fire-and-forget: local
+  // storage is already cleared either way, and the caller navigates away
+  // immediately after calling this.
+  apiRequest("/employees/logout", { method: "POST" }).catch(() => {});
 }
 
 export async function loadEmployeeDirectory() {

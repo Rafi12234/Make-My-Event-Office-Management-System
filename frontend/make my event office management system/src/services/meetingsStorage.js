@@ -4,6 +4,7 @@ const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, "");
 
 async function apiRequest(path, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
+    credentials: "include",
     headers: {
       Accept: "application/json",
       ...(options.body instanceof FormData

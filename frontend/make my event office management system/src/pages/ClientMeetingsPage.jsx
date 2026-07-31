@@ -807,7 +807,7 @@ export default function ClientMeetingsPage() {
 
   useEffect(() => {
     if (!employee) {
-      navigate("/management", { replace: true });
+      navigate("/login", { replace: true });
       return;
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial data fetch on mount
