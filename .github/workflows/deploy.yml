@@ -328,6 +328,48 @@ jobs:
           exit 1
 
       # ---------------------------------------------------------
+      # 10b. On health-check failure, pull the server-side error
+      #      logs via SFTP so the actual crash reason (e.g. "Cannot
+      #      find module '@prisma/client'") is visible right here in
+      #      the Actions log — no remote shell exec is available, so
+      #      this only performs read-only SFTP "get" operations.
+      # ---------------------------------------------------------
+      - name: Fetch backend error logs (diagnostics)
+        if: failure()
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USERNAME: ${{ secrets.SSH_USERNAME }}
+          SSH_PORT: ${{ vars.SSH_PORT }}
+        run: |
+          CPANEL_HOME="$(dirname "${APP_DIR}")"
+          DOMAIN="$(echo "${PRODUCTION_URL}" | sed -E 's#^https?://##')"
+
+          {
+            echo "-get ${CPANEL_HOME}/logs/${DOMAIN}.error.log domain-error.log"
+            echo "-get ${APP_DIR}/stderr.log app-stderr.log"
+            echo "-get ${APP_DIR}/logs/error.log app-error.log"
+            echo "bye"
+          } > sftp_diag.txt
+
+          sftp \
+            -i "$HOME/.ssh/mme_deploy_key" \
+            -P "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -b sftp_diag.txt \
+            "$SSH_USERNAME@$SSH_HOST" || true
+
+          for f in domain-error.log app-stderr.log app-error.log; do
+            echo "--- ${f} (last 100 lines) ---"
+            if [ -f "$f" ]; then
+              tail -n 100 "$f"
+            else
+              echo "(not found at the expected path, or not readable via SFTP)"
+            fi
+            echo ""
+          done
+
+      # ---------------------------------------------------------
       # 11. Verify React frontend
       #
       # This does more than check for a doctype — it confirms the
