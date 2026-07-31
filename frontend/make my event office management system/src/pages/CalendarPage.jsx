@@ -413,6 +413,15 @@ export default function CalendarPage() {
 
   // ── Employee ───────────────────────────────────────────────────
 
+  // No employee session (e.g. reached via browser back/forward navigation
+  // after logging out elsewhere in the SPA) — always send the user to the
+  // dedicated /login page rather than showing any inline login UI here.
+  useEffect(() => {
+    if (!employee) {
+      navigate("/login", { replace: true });
+    }
+  }, [employee, navigate]);
+
   // ── Event CRUD ─────────────────────────────────────────────────
 
   const totalEvents  = events.length;

@@ -23,7 +23,6 @@ import {
 } from "lucide-react";
 import AddColumnModal from "../components/AddColumnModal";
 import ConfirmDialog from "../components/ConfirmDialog";
-import EmployeeIdentityModal from "../components/EmployeeIdentityModal";
 import ExcelImportModal from "../components/ExcelImportModal";
 import {
   MANDATORY_EXCEL_COLUMNS,
@@ -36,7 +35,6 @@ import {
   loadCurrentEmployee,
   loadEmployeeDirectory,
   loadWorkspace,
-  saveCurrentEmployee,
   saveWorkspace,
 } from "../services/managementStorage";
 import { parseSpreadsheetFile } from "../utils/excelImport";
@@ -589,11 +587,14 @@ export default function ManagementPage() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, [employee]);
 
-  async function handleEmployeeSubmit(credentials) {
-    const savedEmployee = await saveCurrentEmployee(credentials);
-    setEmployee(savedEmployee);
-    setEmployeeDirectory(await loadEmployeeDirectory());
-  }
+  // No employee session (e.g. reached via browser back/forward navigation
+  // after logging out elsewhere in the SPA) — always send the user to the
+  // dedicated /login page rather than showing any inline login UI here.
+  useEffect(() => {
+    if (!employee) {
+      navigate("/login", { replace: true });
+    }
+  }, [employee, navigate]);
 
   function handleLogout() {
     clearCurrentEmployee();
@@ -857,7 +858,6 @@ export default function ManagementPage() {
 
   return (
     <div className="min-h-screen bg-[#ffffff] text-black">
-      {!employee && <EmployeeIdentityModal onSubmit={handleEmployeeSubmit} />}
       {showAddColumn && <AddColumnModal onClose={() => setShowAddColumn(false)} onAdd={addColumn} />}
       {importPreview && <ExcelImportModal preview={importPreview} onClose={() => setImportPreview(null)} onConfirm={confirmImport} />}
       {showLogoutConfirm && (

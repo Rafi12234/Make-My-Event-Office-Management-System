@@ -3,6 +3,7 @@ const API_BASE_URL =
 
 async function apiRequest(path, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
+    credentials: "include",
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
