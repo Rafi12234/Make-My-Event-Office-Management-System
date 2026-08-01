@@ -1,7 +1,11 @@
 import jwt from "jsonwebtoken";
 
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
-const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000; // 8 hours
+// Effectively unlimited for now (~100 years) — swap back to a real duration
+// (e.g. 8 * 60 * 60 * 1000 for 8 hours) whenever session expiry is wanted
+// again. Drives both the JWT's own expiry and the cookie's maxAge below, so
+// they can never drift out of sync with each other.
+const SESSION_MAX_AGE_MS = 100 * 365 * 24 * 60 * 60 * 1000;
 
 export const SESSION_COOKIE = "mme_session";
 
@@ -13,7 +17,7 @@ export function setEmployeeCookie(res, employee) {
   const token = jwt.sign(
     { id: employee.id, role: employee.role || "Employee" },
     JWT_SECRET,
-    { expiresIn: "8h" },
+    { expiresIn: Math.floor(SESSION_MAX_AGE_MS / 1000) },
   );
 
   res.cookie(SESSION_COOKIE, token, {

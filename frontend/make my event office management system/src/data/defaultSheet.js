@@ -74,6 +74,29 @@ export const DEFAULT_COLUMNS = [
   },
 ];
 
+// Short labels shown in the sheet's column header (UI-only). The full
+// Short labels shown in the sheet's column header (UI-only). The full
+// `name` above is still the source of truth for Excel import matching,
+// placeholders, and notices — only the header text rendered on screen
+// uses this shorter label when one is defined for a column's name. Keyed
+// by the column's display name (not id) so it still matches columns
+// loaded from previously-saved workspaces, whose ids may not line up
+// with the slugs used in DEFAULT_COLUMNS above.
+export const Showed_Column_Name = {
+  "Client Name": "Name",
+  "Venue": "Venue",
+  "Shift": "Shift",
+  "Client Phone Number": "Phone",
+  "Last Meeting Time": "LMT",
+  "Meeting Call Short Note": "Details",
+  "Next Meeting Time": "NMT",
+  "Assigned Employee": "Assigned Employee",
+  "Floor": "Floor",
+  "Guest Count": "Guest",
+  "Event Date": "Date",
+  
+};
+
 // The exact set of column names that a mandatory Excel/CSV import must
 // contain (case/whitespace-insensitive match). If any is missing, the whole
 // import is rejected before the preview is even shown.
