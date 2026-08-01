@@ -33,6 +33,8 @@ model Employee {
   createdClientMeetings    ClientMeeting[]      @relation("ClientMeetingCreatedBy")
   updatedClientMeetings    ClientMeeting[]      @relation("ClientMeetingUpdatedBy")
   completedClientMeetings ClientMeeting[]      @relation("ClientMeetingCompletedBy")
+  createdMeetingItems      MeetingItem[]        @relation("MeetingItemCreatedBy")
+  updatedMeetingItems      MeetingItem[]        @relation("MeetingItemUpdatedBy")
   excelImports             ExcelImport[]
   createdManagementSheets  ManagementSheet[]    @relation("ManagementSheetCreatedBy")
   updatedManagementSheets  ManagementSheet[]    @relation("ManagementSheetUpdatedBy")
@@ -250,6 +252,7 @@ model ClientMeeting {
   completedBy Employee? @relation("ClientMeetingCompletedBy", fields: [completedById], references: [id], onUpdate: NoAction, map: "fk_client_meetings_completed_by")
 
   images ClientMeetingImage[]
+  items  MeetingItem[]
 
   @@index([createdById], map: "client_meetings_ibfk_1")
   @@index([updatedById], map: "client_meetings_ibfk_2")
@@ -262,6 +265,7 @@ model ClientMeeting {
 model ClientMeetingImage {
   id               BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
   meetingId        BigInt   @map("meeting_id") @db.UnsignedBigInt
+  itemId           BigInt?  @map("item_id") @db.UnsignedBigInt
   storedFileName   String   @map("stored_file_name") @db.VarChar(255)
   originalFileName String?  @map("original_file_name") @db.VarChar(255)
   tagName          String?  @map("tag_name") @db.VarChar(120)
@@ -273,10 +277,36 @@ model ClientMeetingImage {
 
   meeting    ClientMeeting @relation(fields: [meetingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "client_meeting_images_ibfk_1")
   uploadedBy Employee?     @relation(fields: [uploadedById], references: [id], onUpdate: NoAction, map: "client_meeting_images_ibfk_2")
+  item       MeetingItem?  @relation(fields: [itemId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "client_meeting_images_ibfk_3")
 
   @@index([uploadedById], map: "client_meeting_images_ibfk_2")
+  @@index([itemId], map: "client_meeting_images_ibfk_3")
   @@index([meetingId], map: "idx_meeting_images_meeting")
   @@map("client_meeting_images")
+}
+
+model MeetingItem {
+  id          BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  meetingId   BigInt   @map("meeting_id") @db.UnsignedBigInt
+  itemKey     String   @map("item_key") @db.VarChar(80)
+  customLabel String?  @map("custom_label") @db.VarChar(160)
+  description String?  @db.Text
+  quantity    Int?     @default(1) @db.UnsignedInt
+  createdById BigInt?  @map("created_by") @db.UnsignedBigInt
+  updatedById BigInt?  @map("updated_by") @db.UnsignedBigInt
+  createdAt   DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.DateTime(0)
+
+  meeting   ClientMeeting @relation(fields: [meetingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "meeting_items_ibfk_1")
+  createdBy Employee?     @relation("MeetingItemCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "meeting_items_ibfk_2")
+  updatedBy Employee?     @relation("MeetingItemUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "meeting_items_ibfk_3")
+
+  images ClientMeetingImage[]
+
+  @@index([meetingId], map: "idx_meeting_items_meeting")
+  @@index([createdById], map: "meeting_items_ibfk_2")
+  @@index([updatedById], map: "meeting_items_ibfk_3")
+  @@map("meeting_items")
 }
 
 model ClientCall {

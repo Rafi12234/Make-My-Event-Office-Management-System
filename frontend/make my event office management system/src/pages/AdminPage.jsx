@@ -18,28 +18,12 @@ import {
 } from "lucide-react";
 import {
   adminLogin,
+  adminLogout,
   createEmployee,
+  fetchAdminMe,
   fetchAllEmployees,
   toggleEmployeeActive,
 } from "../services/adminService";
-
-const SESSION_KEY = "mme_admin_session";
-
-function loadSession() {
-  try {
-    return JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
-  } catch {
-    return null;
-  }
-}
-
-function saveSession(data) {
-  localStorage.setItem(SESSION_KEY, JSON.stringify(data));
-}
-
-function clearSession() {
-  localStorage.removeItem(SESSION_KEY);
-}
 
 // ─── Login Form ──────────────────────────────────────────────────────────────
 function LoginView({ onLogin }) {
@@ -161,7 +145,7 @@ function CreateEmployeeForm({ adminId, onCreated }) {
     setError(null);
     setLoading(true);
     try {
-      const employee = await createEmployee(adminId, form);
+      const employee = await createEmployee(form);
       onCreated(employee);
       setForm({ fullName: "", email: "", role: "Employee", password: "" });
     } catch (err) {
@@ -271,7 +255,7 @@ function EmployeeTable({ employees, adminId, onToggle }) {
     setError(null);
     setTogglingId(emp.id);
     try {
-      await toggleEmployeeActive(adminId, emp.id, !emp.isActive);
+      await toggleEmployeeActive(emp.id, !emp.isActive);
       onToggle(emp.id, !emp.isActive);
     } catch (err) {
       setError(err.message);
@@ -377,11 +361,18 @@ function EmployeeTable({ employees, adminId, onToggle }) {
 
 // ─── Main Admin Page ─────────────────────────────────────────────────────────
 export default function AdminPage() {
-  const [admin, setAdmin] = useState(() => loadSession());
+  const [admin, setAdmin] = useState(null);
+  const [checkingSession, setCheckingSession] = useState(true);
   const [employees, setEmployees] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [notice, setNotice] = useState(null);
+
+  useEffect(() => {
+    fetchAdminMe()
+      .then(setAdmin)
+      .finally(() => setCheckingSession(false));
+  }, []);
 
   useEffect(() => {
     if (!notice) return undefined;
@@ -392,19 +383,18 @@ export default function AdminPage() {
   useEffect(() => {
     if (!admin) return;
     setIsLoading(true);
-    fetchAllEmployees(admin.id)
+    fetchAllEmployees()
       .then(setEmployees)
       .catch((err) => setNotice({ type: "error", message: err.message }))
       .finally(() => setIsLoading(false));
   }, [admin]);
 
   function handleLogin(adminData) {
-    saveSession(adminData);
     setAdmin(adminData);
   }
 
-  function handleLogout() {
-    clearSession();
+  async function handleLogout() {
+    await adminLogout();
     setAdmin(null);
     setEmployees([]);
   }
@@ -425,6 +415,7 @@ export default function AdminPage() {
     });
   }
 
+  if (checkingSession) return null;
   if (!admin) return <LoginView onLogin={handleLogin} />;
 
   return (

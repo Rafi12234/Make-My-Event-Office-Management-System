@@ -158,36 +158,89 @@ async function deleteImageFileIfUnreferenced(storedFileName) {
   }
 }
 
-// When a new meeting is created, it inherits the requirements and
-// images of the most recently created meeting for the same client, so
-// employees only need to adjust what changed instead of starting over.
+// Fixed set of selectable item names for the "Add Items" dropdown. Kept in
+// sync with CLIENT_REQUIREMENT_OPTIONS in the frontend's data/defaultSheet.js
+// — validated defensively here so a client can't store an arbitrary key.
+const ITEM_KEY_OPTIONS = new Set([
+  "stage",
+  "entry_gate",
+  "head_table",
+  "photo_booth",
+  "truss_ceiling_decoration",
+  "tent_ceiling_decoration",
+  "walkway",
+  "tunnel_walkway",
+  "mirror_ramp",
+  "welcome_stand",
+  "centre_pieces",
+  "head_table_chair",
+  "photo_gallery",
+  "comments_board",
+  "sangeet_stage",
+  "sound_system",
+  "led",
+  "other",
+]);
+
+function isValidItemKey(value) {
+  return typeof value === "string" && ITEM_KEY_OPTIONS.has(value);
+}
+
+// Only the "other" item stores a free-text name; every other dropdown
+// option already has a fixed, human-readable label on the frontend.
+function sanitizeCustomLabel(value) {
+  return String(value || "").trim().slice(0, 160);
+}
+
+function parseQuantity(value) {
+  if (value === undefined || value === null || value === "") return 1;
+  const quantity = Number(value);
+  if (!Number.isFinite(quantity) || quantity < 0) return 1;
+  return Math.min(Math.round(quantity), 100000);
+}
+
+// When a new meeting is created, it inherits the item rows (and each
+// item's images) of the most recently created meeting for the same
+// client, so employees only need to adjust what changed instead of
+// starting over.
 async function copyForwardFromPreviousMeeting(rowKey, newMeetingId, employeeId) {
   const previous = await prisma.clientMeeting.findFirst({
     where: { linkedRowKey: rowKey, id: { not: newMeetingId } },
     orderBy: { id: "desc" },
-    include: { images: { orderBy: { id: "asc" } } },
+    include: {
+      items: { include: { images: { orderBy: { id: "asc" } } }, orderBy: { id: "asc" } },
+    },
   });
   if (!previous) return;
 
-  if (previous.requirements) {
-    await prisma.clientMeeting.update({
-      where: { id: newMeetingId },
-      data: { requirements: previous.requirements },
-    });
-  }
-
-  for (const image of previous.images) {
-    await prisma.clientMeetingImage.create({
+  for (const item of previous.items) {
+    const newItem = await prisma.meetingItem.create({
       data: {
         meetingId: newMeetingId,
-        storedFileName: image.storedFileName,
-        originalFileName: image.originalFileName,
-        tagName: image.tagName,
-        fileUrl: image.fileUrl,
-        fileSizeBytes: image.fileSizeBytes,
-        uploadedById: image.uploadedById || employeeId,
+        itemKey: item.itemKey,
+        customLabel: item.customLabel,
+        description: item.description,
+        quantity: item.quantity,
+        createdById: employeeId,
+        updatedById: employeeId,
       },
+      select: { id: true },
     });
+
+    for (const image of item.images) {
+      await prisma.clientMeetingImage.create({
+        data: {
+          meetingId: newMeetingId,
+          itemId: newItem.id,
+          storedFileName: image.storedFileName,
+          originalFileName: image.originalFileName,
+          tagName: image.tagName,
+          fileUrl: image.fileUrl,
+          fileSizeBytes: image.fileSizeBytes,
+          uploadedById: image.uploadedById || employeeId,
+        },
+      });
+    }
   }
 }
 
@@ -210,6 +263,10 @@ router.get("/:rowKey", async (req, res, next) => {
         updatedBy: { select: { fullName: true } },
         completedBy: { select: { fullName: true } },
         images: { orderBy: { id: "asc" } },
+        items: {
+          include: { images: { orderBy: { id: "asc" } } },
+          orderBy: { id: "asc" },
+        },
       },
       orderBy: [{ meetingDatetime: { sort: "asc", nulls: "last" } }, { id: "asc" }],
     });
@@ -244,6 +301,20 @@ router.get("/:rowKey", async (req, res, next) => {
             url: image.fileUrl,
             isFinalSelected: Boolean(image.isFinalSelected),
             createdAt: image.createdAt,
+          })),
+          items: meeting.items.map((item) => ({
+            id: item.id,
+            itemKey: item.itemKey,
+            customLabel: item.customLabel || "",
+            description: item.description || "",
+            quantity: item.quantity ?? 1,
+            images: item.images.map((image) => ({
+              id: image.id,
+              originalFileName: image.originalFileName,
+              url: image.fileUrl,
+              isFinalSelected: Boolean(image.isFinalSelected),
+              createdAt: image.createdAt,
+            })),
           })),
         })),
       },
@@ -283,7 +354,7 @@ router.post("/:rowKey", async (req, res, next) => {
   }
 });
 
-// ─── PUT /api/meetings/:rowKey/:meetingId — update time/requirements ──
+// ─── PUT /api/meetings/:rowKey/:meetingId — update meeting time ────
 
 router.put("/:rowKey/:meetingId", async (req, res, next) => {
   const { rowKey, meetingId } = req.params;
@@ -294,13 +365,20 @@ router.put("/:rowKey/:meetingId", async (req, res, next) => {
   }
 
   const meetingDatetime = parseDateTimeLocal(req.body.meetingDatetime);
-  const requirements = sanitizeRequirements(req.body.requirements);
   const employeeId = isValidId(req.body.employeeId);
+
+  // `requirements` is legacy (superseded by the Items feature below) and
+  // is only touched here if a caller still explicitly sends it, so a plain
+  // "just update the meeting time" request never wipes older data.
+  const data = { meetingDatetime, updatedById: employeeId };
+  if (req.body.requirements !== undefined) {
+    data.requirements = sanitizeRequirements(req.body.requirements);
+  }
 
   try {
     const result = await prisma.clientMeeting.updateMany({
       where: { id, linkedRowKey: rowKey },
-      data: { meetingDatetime, requirements, updatedById: employeeId },
+      data,
     });
 
     if (!result.count) {
@@ -474,6 +552,278 @@ router.delete("/:rowKey/:meetingId", async (req, res, next) => {
     next(error);
   }
 });
+
+// ─── POST /api/meetings/:rowKey/:meetingId/items — add an item row ────
+
+router.post("/:rowKey/:meetingId/items", async (req, res, next) => {
+  const { rowKey, meetingId } = req.params;
+  const id = isValidId(meetingId);
+
+  if (!isValidRowKey(rowKey) || !id) {
+    return res.status(400).json({ message: "Invalid reference." });
+  }
+
+  const itemKey = String(req.body.itemKey || "");
+  if (!isValidItemKey(itemKey)) {
+    return res.status(422).json({ message: "Please choose a valid item from the list." });
+  }
+
+  const isOther = itemKey === "other";
+  const customLabel = isOther ? sanitizeCustomLabel(req.body.customLabel) : "";
+  if (isOther && !customLabel) {
+    return res.status(422).json({ message: "Please enter a name for this item." });
+  }
+
+  const description = String(req.body.description || "").slice(0, 2000);
+  const quantity = parseQuantity(req.body.quantity);
+  const employeeId = isValidId(req.body.employeeId);
+
+  try {
+    const meeting = await prisma.clientMeeting.findFirst({
+      where: { id, linkedRowKey: rowKey },
+      select: { id: true },
+    });
+    if (!meeting) {
+      return res.status(404).json({ message: "Meeting not found." });
+    }
+
+    // "Other" items are custom-named, so a meeting can have several of
+    // them — only the fixed dropdown options must stay unique per meeting.
+    if (!isOther) {
+      const existing = await prisma.meetingItem.findFirst({
+        where: { meetingId: id, itemKey },
+        select: { id: true },
+      });
+      if (existing) {
+        return res.status(409).json({ message: "This item has already been added to the meeting." });
+      }
+    }
+
+    const created = await prisma.meetingItem.create({
+      data: {
+        meetingId: id,
+        itemKey,
+        customLabel: isOther ? customLabel : null,
+        description: description || null,
+        quantity,
+        createdById: employeeId,
+        updatedById: employeeId,
+      },
+    });
+
+    res.status(201).json({
+      data: {
+        id: created.id,
+        itemKey: created.itemKey,
+        customLabel: created.customLabel || "",
+        description: created.description || "",
+        quantity: created.quantity ?? 1,
+        images: [],
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ─── PUT /api/meetings/:rowKey/:meetingId/items/:itemId — edit item row ───
+
+router.put("/:rowKey/:meetingId/items/:itemId", async (req, res, next) => {
+  const { rowKey, meetingId, itemId } = req.params;
+  const mId = isValidId(meetingId);
+  const iId = isValidId(itemId);
+
+  if (!isValidRowKey(rowKey) || !mId || !iId) {
+    return res.status(400).json({ message: "Invalid reference." });
+  }
+
+  const description = String(req.body.description || "").slice(0, 2000);
+  const quantity = parseQuantity(req.body.quantity);
+  const employeeId = isValidId(req.body.employeeId);
+
+  try {
+    const item = await prisma.meetingItem.findFirst({
+      where: { id: iId, meetingId: mId, meeting: { linkedRowKey: rowKey } },
+      select: { id: true, itemKey: true },
+    });
+    if (!item) {
+      return res.status(404).json({ message: "Item not found." });
+    }
+
+    const data = { description: description || null, quantity, updatedById: employeeId };
+    if (item.itemKey === "other" && req.body.customLabel !== undefined) {
+      const customLabel = sanitizeCustomLabel(req.body.customLabel);
+      if (!customLabel) {
+        return res.status(422).json({ message: "Please enter a name for this item." });
+      }
+      data.customLabel = customLabel;
+    }
+
+    const updated = await prisma.meetingItem.update({ where: { id: iId }, data });
+
+    res.json({
+      data: {
+        id: iId,
+        customLabel: updated.customLabel || "",
+        description,
+        quantity,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ─── DELETE /api/meetings/:rowKey/:meetingId/items/:itemId ────────────
+
+router.delete("/:rowKey/:meetingId/items/:itemId", async (req, res, next) => {
+  const { rowKey, meetingId, itemId } = req.params;
+  const mId = isValidId(meetingId);
+  const iId = isValidId(itemId);
+
+  if (!isValidRowKey(rowKey) || !mId || !iId) {
+    return res.status(400).json({ message: "Invalid reference." });
+  }
+
+  try {
+    const item = await prisma.meetingItem.findFirst({
+      where: { id: iId, meetingId: mId, meeting: { linkedRowKey: rowKey } },
+      select: {
+        id: true,
+        images: { select: { storedFileName: true } },
+      },
+    });
+    if (!item) {
+      return res.status(404).json({ message: "Item not found." });
+    }
+
+    // Deleting the item cascades to its images at the DB level; the
+    // physical files are cleaned up afterwards if unreferenced elsewhere.
+    await prisma.meetingItem.delete({ where: { id: iId } });
+
+    for (const image of item.images) {
+      await deleteImageFileIfUnreferenced(image.storedFileName);
+    }
+
+    res.json({ data: { id: iId } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ─── POST /api/meetings/:rowKey/:meetingId/items/:itemId/images — upload ──
+
+router.post(
+  "/:rowKey/:meetingId/items/:itemId/images",
+  (req, res, next) => {
+    upload.array("images", 10)(req, res, (error) => {
+      if (error) {
+        return res.status(422).json({
+          message: error.message || "Image upload failed.",
+        });
+      }
+      next();
+    });
+  },
+  async (req, res, next) => {
+    const { rowKey, meetingId, itemId } = req.params;
+    const mId = isValidId(meetingId);
+    const iId = isValidId(itemId);
+
+    if (!isValidRowKey(rowKey) || !mId || !iId) {
+      removeUploadedFiles(req.files);
+      return res.status(400).json({ message: "Invalid reference." });
+    }
+
+    if (!req.files?.length) {
+      return res.status(422).json({ message: "At least one image is required." });
+    }
+
+    const employeeId = isValidId(req.body.employeeId);
+
+    try {
+      const item = await prisma.meetingItem.findFirst({
+        where: { id: iId, meetingId: mId, meeting: { linkedRowKey: rowKey } },
+        select: { id: true },
+      });
+
+      if (!item) {
+        removeUploadedFiles(req.files);
+        return res.status(404).json({ message: "Item not found." });
+      }
+
+      const inserted = [];
+      for (const file of req.files) {
+        const fileUrl = `/uploads/meeting-images/${file.filename}`;
+
+        const created = await prisma.clientMeetingImage.create({
+          data: {
+            meetingId: mId,
+            itemId: iId,
+            storedFileName: file.filename,
+            originalFileName: file.originalname.slice(0, 255),
+            fileUrl,
+            fileSizeBytes: file.size,
+            uploadedById: employeeId,
+          },
+          select: { id: true },
+        });
+
+        inserted.push({
+          id: created.id,
+          originalFileName: file.originalname,
+          url: fileUrl,
+          isFinalSelected: false,
+        });
+      }
+
+      res.status(201).json({ data: inserted });
+    } catch (error) {
+      removeUploadedFiles(req.files);
+      next(error);
+    }
+  },
+);
+
+// ─── DELETE /api/meetings/:rowKey/:meetingId/items/:itemId/images/:imageId ──
+
+router.delete(
+  "/:rowKey/:meetingId/items/:itemId/images/:imageId",
+  async (req, res, next) => {
+    const { rowKey, meetingId, itemId, imageId } = req.params;
+    const mId = isValidId(meetingId);
+    const iId = isValidId(itemId);
+    const imgId = isValidId(imageId);
+
+    if (!isValidRowKey(rowKey) || !mId || !iId || !imgId) {
+      return res.status(400).json({ message: "Invalid reference." });
+    }
+
+    try {
+      const image = await prisma.clientMeetingImage.findFirst({
+        where: {
+          id: imgId,
+          itemId: iId,
+          meetingId: mId,
+          meeting: { linkedRowKey: rowKey },
+        },
+        select: { storedFileName: true },
+      });
+
+      if (!image) {
+        return res.status(404).json({ message: "Image not found." });
+      }
+
+      await prisma.clientMeetingImage.delete({ where: { id: imgId } });
+
+      await deleteImageFileIfUnreferenced(image.storedFileName);
+
+      res.json({ data: { id: imgId } });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 // ─── POST /api/meetings/:rowKey/:meetingId/images — upload images ──
 

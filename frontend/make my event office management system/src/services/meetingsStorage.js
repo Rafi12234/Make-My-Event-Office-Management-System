@@ -98,3 +98,41 @@ export async function deleteMeetingImage(rowKey, meetingId, imageId) {
     method: "DELETE",
   });
 }
+
+export async function createMeetingItem(rowKey, meetingId, { itemKey, customLabel, description, quantity, employeeId }) {
+  return apiRequest(`/meetings/${rowKey}/${meetingId}/items`, {
+    method: "POST",
+    body: JSON.stringify({ itemKey, customLabel, description, quantity, employeeId }),
+  });
+}
+
+export async function updateMeetingItem(rowKey, meetingId, itemId, { customLabel, description, quantity, employeeId }) {
+  return apiRequest(`/meetings/${rowKey}/${meetingId}/items/${itemId}`, {
+    method: "PUT",
+    body: JSON.stringify({ customLabel, description, quantity, employeeId }),
+  });
+}
+
+export async function deleteMeetingItem(rowKey, meetingId, itemId) {
+  return apiRequest(`/meetings/${rowKey}/${meetingId}/items/${itemId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function uploadMeetingItemImages(rowKey, meetingId, itemId, files, employeeId) {
+  const formData = new FormData();
+  for (const file of files) formData.append("images", file);
+  if (employeeId) formData.append("employeeId", String(employeeId));
+
+  return apiRequest(`/meetings/${rowKey}/${meetingId}/items/${itemId}/images`, {
+    method: "POST",
+    body: formData,
+  });
+}
+
+export async function deleteMeetingItemImage(rowKey, meetingId, itemId, imageId) {
+  return apiRequest(`/meetings/${rowKey}/${meetingId}/items/${itemId}/images/${imageId}`, {
+    method: "DELETE",
+  });
+}
+

@@ -1,15 +1,9 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
 
-function adminHeaders(adminId) {
-  return {
-    "Content-Type": "application/json",
-    "x-admin-id": String(adminId),
-  };
-}
-
 export async function adminLogin(email, password) {
   const res = await fetch(`${API_BASE_URL}/auth/admin-login`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
@@ -18,19 +12,36 @@ export async function adminLogin(email, password) {
   return body.data;
 }
 
-export async function fetchAllEmployees(adminId) {
+export async function fetchAdminMe() {
+  const res = await fetch(`${API_BASE_URL}/auth/admin-me`, {
+    credentials: "include",
+  });
+  if (!res.ok) return null;
+  const body = await res.json();
+  return body.data;
+}
+
+export async function adminLogout() {
+  await fetch(`${API_BASE_URL}/auth/admin-logout`, {
+    method: "POST",
+    credentials: "include",
+  });
+}
+
+export async function fetchAllEmployees() {
   const res = await fetch(`${API_BASE_URL}/admin/employees`, {
-    headers: adminHeaders(adminId),
+    credentials: "include",
   });
   const body = await res.json();
   if (!res.ok) throw new Error(body.message || "Could not load employees.");
   return body.data;
 }
 
-export async function createEmployee(adminId, payload) {
+export async function createEmployee(payload) {
   const res = await fetch(`${API_BASE_URL}/admin/employees`, {
     method: "POST",
-    headers: adminHeaders(adminId),
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   const body = await res.json();
@@ -38,10 +49,11 @@ export async function createEmployee(adminId, payload) {
   return body.data;
 }
 
-export async function toggleEmployeeActive(adminId, employeeId, isActive) {
+export async function toggleEmployeeActive(employeeId, isActive) {
   const res = await fetch(`${API_BASE_URL}/admin/employees/${employeeId}`, {
     method: "PATCH",
-    headers: adminHeaders(adminId),
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ isActive }),
   });
   const body = await res.json();
