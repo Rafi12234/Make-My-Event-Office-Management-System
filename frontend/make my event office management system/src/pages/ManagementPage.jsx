@@ -1135,7 +1135,6 @@ export default function ManagementPage() {
                         >
                           <div className="flex items-start justify-between gap-2 pr-1">
                             <span>{Showed_Column_Name[column.name] ?? column.name}{column.required ? " *" : ""}</span>
-                            <span className="rounded-md bg-white/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#d6d6d6]">{column.type.replace("_", " ")}</span>
                           </div>
                           <div
                             onMouseDown={(e) => startColumnResize(e, column.id)}
