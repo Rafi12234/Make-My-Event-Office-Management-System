@@ -31,9 +31,8 @@ import {
   createEmptyRow,
   Showed_Column_Name,
 } from "../data/defaultSheet";
+import { clearCurrentEmployee, loadCurrentEmployee } from "../services/authStorage";
 import {
-  clearCurrentEmployee,
-  loadCurrentEmployee,
   loadEmployeeDirectory,
   loadWorkspace,
   saveWorkspace,

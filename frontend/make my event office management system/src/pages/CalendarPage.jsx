@@ -16,7 +16,7 @@ import ConfirmDialog from "../components/ConfirmDialog";
 import {
   clearCurrentEmployee,
   loadCurrentEmployee,
-} from "../services/managementStorage";
+} from "../services/authStorage";
 import { loadCalendarMonth } from "../services/calendarStorage";
 import { loadClientCalls } from "../services/callsStorage";
 import { loadClientMeetings } from "../services/meetingsStorage";
