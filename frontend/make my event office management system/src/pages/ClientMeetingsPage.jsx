@@ -8,8 +8,8 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams } from "react-router";
+import BackButton from "../components/BackButton";
 import {
-  ArrowLeft,
   BadgeCheck,
   CalendarClock,
   CheckCircle2,
@@ -1293,6 +1293,7 @@ export default function ClientMeetingsPage() {
       <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 shadow-sm shadow-slate-200/40 backdrop-blur-xl">
         <div className="flex min-h-17 items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
+            <BackButton to="/management" title="Back to sheet" />
             <img src={mmeLogo} alt="Make My Event" className="h-16 w-auto shrink-0 object-contain sm:h-18" />
             <div className="min-w-0 border-l border-slate-200 pl-3">
               <p className="truncate text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
@@ -1300,14 +1301,6 @@ export default function ClientMeetingsPage() {
               </p>
             </div>
           </div>
-
-          <Link
-            to="/management"
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 shadow-sm transition-all duration-200 hover:bg-slate-50 hover:border-slate-300 hover:text-slate-900"
-          >
-            <ArrowLeft size={16} />
-            Back to sheet
-          </Link>
         </div>
       </header>
 
