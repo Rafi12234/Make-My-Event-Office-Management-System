@@ -11,7 +11,6 @@ import {
   UserRound,
   Plus,
   MessageSquare,
-  Clock,
 } from "lucide-react";
 import { loadCurrentEmployee } from "../services/authStorage";
 import {
@@ -87,7 +86,7 @@ function CallCard({ call, rowKey, employeeId, onChanged, onDeleted }) {
       style={{ animation: "slideUp 0.35s ease both" }}
     >
       {/* Card Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-6 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-linear-to-r from-slate-50 to-white px-6 py-4">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-900 text-white">
             <Phone size={17} />
@@ -250,7 +249,12 @@ export default function ClientCallsPage() {
       navigate("/login", { replace: true });
       return;
     }
-    refresh();
+
+    const timer = window.setTimeout(() => {
+      void refresh();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, [employee, navigate, refresh]);
 
   async function handleCreateCall() {
@@ -280,7 +284,7 @@ export default function ClientCallsPage() {
 
       {/* Header */}
       <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 shadow-sm shadow-slate-200/40 backdrop-blur-xl">
-        <div className="flex min-h-[68px] items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
+        <div className="flex min-h-17 items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
             <img
               src={mmeLogo}

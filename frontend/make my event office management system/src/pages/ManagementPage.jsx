@@ -69,6 +69,36 @@ function formatMeetingTimeDisplay(value, emptyLabel) {
   return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
+function getColumnWidthsStorageKey(employeeId) {
+  return `mme_column_widths_v1_${employeeId || "anonymous"}`;
+}
+
+function loadStoredColumnWidths(employeeId) {
+  try {
+    return JSON.parse(localStorage.getItem(getColumnWidthsStorageKey(employeeId)) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function applyStoredColumnWidths(columns, employeeId) {
+  const stored = loadStoredColumnWidths(employeeId);
+  return columns.map((column) => {
+    const width = Number(stored[column.id]);
+    if (!Number.isFinite(width) || width < 60) return column;
+    return { ...column, width };
+  });
+}
+
+function saveStoredColumnWidths(employeeId, columns) {
+  const next = {};
+  for (const column of columns || []) {
+    const width = Number(column.width);
+    if (Number.isFinite(width) && width >= 60) next[column.id] = width;
+  }
+  localStorage.setItem(getColumnWidthsStorageKey(employeeId), JSON.stringify(next));
+}
+
 /* ─── Hover Preview Panel ─── */
 
 function HoverPreviewPanel({ preview, onMouseEnter, onMouseLeave }) {
@@ -319,6 +349,7 @@ export default function ManagementPage() {
   const [resizeCursor, setResizeCursor] = useState(null);
   const [hoverPreview, setHoverPreview] = useState(null);
   const hoverHideTimeout = useRef(null);
+  const workspaceRef = useRef({ columns: [], rows: [] });
   const [filters, setFilters] = useState({
     dateFrom: "",
     dateTo: "",
@@ -332,6 +363,10 @@ export default function ManagementPage() {
     if (employee?.fullName && !names.includes(employee.fullName)) names.push(employee.fullName);
     return names.sort((a, b) => a.localeCompare(b));
   }, [employee, employeeDirectory]);
+
+  useEffect(() => {
+    workspaceRef.current = workspace;
+  }, [workspace]);
 
   function cancelHoverHide() {
     if (hoverHideTimeout.current) {
@@ -470,6 +505,10 @@ export default function ManagementPage() {
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
       setResizeCursor(null);
+
+      // Persist per-employee preferred widths immediately after resizing,
+      // so refresh keeps the same layout until the employee changes widths again.
+      saveStoredColumnWidths(employee?.id, workspaceRef.current.columns);
     }
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
@@ -513,8 +552,10 @@ export default function ManagementPage() {
           loadEmployeeDirectory(),
         ]);
         if (cancelled) return;
+        const columnsWithStoredWidths = applyStoredColumnWidths(nextWorkspace.columns, employee?.id);
         setWorkspace({
           ...nextWorkspace,
+          columns: columnsWithStoredWidths,
           rows: nextWorkspace.rows.filter((row) => !isRowBlank(row, nextWorkspace.columns)),
         });
         setEmployeeDirectory(employees);
@@ -539,7 +580,7 @@ export default function ManagementPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [employee?.id]);
 
   useEffect(() => {
     if (!hasMounted.current) return;
@@ -1193,15 +1234,27 @@ export default function ManagementPage() {
                                 </div>
                               ) : column.type === "last_meeting_time" || column.type === "next_meeting_time" ? (
                                 <div
-                                  className={`flex h-full min-h-11 items-center justify-center p-1.5 text-center text-xs font-bold transition-colors duration-150 ${
-                                    row.values[column.id] ? "text-black/75" : "text-black/35 italic"
+                                  className={`flex h-full min-h-11 flex-col items-center justify-center gap-1 p-1.5 text-center text-xs font-bold transition-colors duration-150 ${
+                                    row.values[column.id] || (column.type === "last_meeting_time" ? row.lastCallDatetime : row.nextCallDatetime)
+                                      ? "text-black/75"
+                                      : "text-black/35 italic"
                                   }`}
-                                  title="Automatically set from the Meeting Manager"
+                                  title="Automatically set from the Meeting and Call managers"
                                 >
-                                  {formatMeetingTimeDisplay(
-                                    row.values[column.id],
-                                    column.type === "last_meeting_time" ? "No Previous Meeting" : "No Upcoming Meeting",
-                                  )}
+                                  <p>
+                                    <span className="font-black text-black/50">Meeting: </span>
+                                    {formatMeetingTimeDisplay(
+                                      row.values[column.id],
+                                      column.type === "last_meeting_time" ? "No Previous Meeting" : "No Upcoming Meeting",
+                                    )}
+                                  </p>
+                                  <p>
+                                    <span className="font-black text-black/50">Call: </span>
+                                    {formatMeetingTimeDisplay(
+                                      column.type === "last_meeting_time" ? row.lastCallDatetime : row.nextCallDatetime,
+                                      column.type === "last_meeting_time" ? "No Previous Call" : "No Upcoming Call",
+                                    )}
+                                  </p>
                                 </div>
                               ) : (
                                 <CellEditor

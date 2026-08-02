@@ -4,7 +4,7 @@ import { mkdirSync, unlink } from "node:fs";
 import { fileURLToPath } from "node:url";
 import multer from "multer";
 import { prisma } from "../config/prisma.js";
-import { parseDateTimeLocal } from "../utils/dbDates.js";
+import { formatDateTime, parseDateTimeLocal } from "../utils/dbDates.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -291,26 +291,26 @@ export async function listMeetings(req, res, next) {
         rowKey,
         clientName,
         finalization: finalization
-          ? { finalizedAt: finalization.finalizedAt, finalizedByName: finalization.finalizedBy?.fullName || null }
+          ? { finalizedAt: formatDateTime(finalization.finalizedAt), finalizedByName: finalization.finalizedBy?.fullName || null }
           : null,
         meetings: meetings.map((meeting) => ({
           id: meeting.id,
-          meetingDatetime: meeting.meetingDatetime,
+          meetingDatetime: formatDateTime(meeting.meetingDatetime),
           requirements: parseRequirements(meeting.requirements),
           isCompleted: Boolean(meeting.isCompleted),
           completedByName: meeting.completedBy?.fullName || null,
-          completedAt: meeting.completedAt,
+          completedAt: formatDateTime(meeting.completedAt),
           createdByName: meeting.createdBy?.fullName || null,
           updatedByName: meeting.updatedBy?.fullName || null,
-          createdAt: meeting.createdAt,
-          updatedAt: meeting.updatedAt,
+          createdAt: formatDateTime(meeting.createdAt),
+          updatedAt: formatDateTime(meeting.updatedAt),
           images: meeting.images.map((image) => ({
             id: image.id,
             originalFileName: image.originalFileName,
             tagName: image.tagName || "",
             url: image.fileUrl,
             isFinalSelected: Boolean(image.isFinalSelected),
-            createdAt: image.createdAt,
+            createdAt: formatDateTime(image.createdAt),
           })),
           items: meeting.items.map((item) => ({
             id: item.id,
@@ -323,7 +323,7 @@ export async function listMeetings(req, res, next) {
               originalFileName: image.originalFileName,
               url: image.fileUrl,
               isFinalSelected: Boolean(image.isFinalSelected),
-              createdAt: image.createdAt,
+              createdAt: formatDateTime(image.createdAt),
             })),
           })),
         })),
