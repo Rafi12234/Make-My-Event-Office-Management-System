@@ -1,6 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import mmeLogo from "../assets/mme_logo.jpg";
+import mmeLogo from "../assets/mme-logo-cropped.png";
 import {
   CalendarClock,
   CalendarDays,
@@ -871,11 +871,7 @@ export default function ManagementPage() {
       <header className="sticky top-0 z-40 border-b border-[#d6d6d6]/50 bg-white/95 backdrop-blur-xl transition-all duration-300">
         <div className="flex min-h-18 items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-4">
-            <img src={mmeLogo} alt="Make My Event" className="h-11 w-11 shrink-0 rounded-2xl object-cover shadow-lg shadow-black/20 transition-transform duration-300 hover:scale-105" />
-            <div className="min-w-0">
-              <p className="truncate text-base font-black text-black sm:text-lg">Make My Event</p>
-              <p className="truncate text-[10px] font-bold uppercase tracking-[0.18em] text-[#333333] sm:text-xs">Management Workspace</p>
-            </div>
+            <img src={mmeLogo} alt="Make My Event - Management Workspace" className="h-27 w-auto shrink-0 object-contain sm:h-28" />
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
@@ -1182,7 +1178,7 @@ export default function ManagementPage() {
                                     onClick={() => navigate(`/management/meetings/${row.id}`)}
                                     onMouseEnter={(event) => handlePreviewHover(event, row, "meetings")}
                                     onMouseLeave={scheduleHoverHide}
-                                    className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-xl bg-black px-3 py-2 text-xs font-black text-white transition-all duration-200 hover:bg-[#222222] hover:shadow-md hover:shadow-black/20 active:scale-[0.96]"
+                                    className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-xl bg-[#f2662b] px-3 py-2 text-xs font-black text-white transition-all duration-200 hover:bg-[#d9541f] hover:shadow-md hover:shadow-[#f2662b]/30 active:scale-[0.96]"
                                   >
                                     <CalendarClock size={14} /> Meetings
                                   </button>
@@ -1191,7 +1187,7 @@ export default function ManagementPage() {
                                     onClick={() => navigate(`/management/calls/${row.id}`)}
                                     onMouseEnter={(event) => handlePreviewHover(event, row, "calls")}
                                     onMouseLeave={scheduleHoverHide}
-                                    className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-xl bg-black px-3 py-2 text-xs font-black text-white transition-all duration-200 hover:bg-[#222222] hover:shadow-md hover:shadow-black/20 active:scale-[0.96]"
+                                    className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-xl bg-[#c2410c] px-3 py-2 text-xs font-black text-white transition-all duration-200 hover:bg-[#9a340a] hover:shadow-md hover:shadow-[#c2410c]/30 active:scale-[0.96]"
                                   >
                                     <Phone size={14} /> Calls
                                   </button>

@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import { prisma } from "../config/prisma.js";
+import { setAdminCookie } from "../middleware/adminAuth.js";
 
 /**
  * POST /api/auth/admin-login
@@ -34,6 +35,8 @@ export async function adminLogin(req, res, next) {
     if (!valid) {
       return res.status(401).json({ message: "Incorrect password." });
     }
+
+    setAdminCookie(res, { id: employee.id });
 
     res.json({
       data: {

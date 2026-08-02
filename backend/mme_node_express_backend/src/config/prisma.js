@@ -23,9 +23,10 @@ const adapter = new PrismaMariaDb({
   password: process.env.DB_PASSWORD || "",
   database: process.env.DB_NAME,
   connectionLimit: 10,
-  // MySQL 8's default caching_sha2_password auth plugin needs the server's
-  // RSA public key over a non-TLS connection; without this the driver hangs
-  // until the connection pool times out instead of failing fast.
+  // MySQL 8's default `caching_sha2_password` auth plugin needs an RSA key
+  // exchange over unencrypted connections; without this flag every connect
+  // attempt fails silently and the pool just times out (looks like
+  // exhaustion even though active=0/idle=0).
   allowPublicKeyRetrieval: true,
 });
 
