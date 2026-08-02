@@ -1,5 +1,5 @@
 import { prisma } from "../config/prisma.js";
-import { parseDateTimeLocal } from "../utils/dbDates.js";
+import { formatDateTime, parseDateTimeLocal } from "../utils/dbDates.js";
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -69,12 +69,12 @@ export async function listCalls(req, res, next) {
         clientName,
         calls: calls.map((call) => ({
           id: call.id,
-          callDatetime: call.callDatetime,
+          callDatetime: formatDateTime(call.callDatetime),
           callDiscussion: call.callDiscussion,
           createdByName: call.createdBy?.fullName || null,
           updatedByName: call.updatedBy?.fullName || null,
-          createdAt: call.createdAt,
-          updatedAt: call.updatedAt,
+          createdAt: formatDateTime(call.createdAt),
+          updatedAt: formatDateTime(call.updatedAt),
         })),
       },
     });

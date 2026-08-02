@@ -146,34 +146,71 @@ export async function getWorkspace(req, res, next) {
     // always computed live from client_meetings so a "next" meeting whose time
     // has passed automatically reads as the "last" meeting on the very next
     // load, with no manual edit or save required.
+    // We also compute the previous/next call times in parallel so the
+    // management UI can show both meeting + call timing context in those cells.
+    const timeSummaryByRowKey = new Map();
     const meetingTimeColumns = columns.filter(
       (column) => column.dataType === "last_meeting_time" || column.dataType === "next_meeting_time",
     );
     if (meetingTimeColumns.length && rows.length) {
       const rowKeys = rows.map((row) => row.rowKey);
-      const meetings = await prisma.clientMeeting.findMany({
-        where: { linkedRowKey: { in: rowKeys }, meetingDatetime: { not: null } },
-        select: { linkedRowKey: true, meetingDatetime: true },
-      });
+      const [meetings, calls] = await Promise.all([
+        prisma.clientMeeting.findMany({
+          where: { linkedRowKey: { in: rowKeys }, meetingDatetime: { not: null } },
+          select: { linkedRowKey: true, meetingDatetime: true },
+        }),
+        prisma.clientCall.findMany({
+          where: { linkedRowKey: { in: rowKeys }, callDatetime: { not: null } },
+          select: { linkedRowKey: true, callDatetime: true },
+        }),
+      ]);
 
       const now = new Date();
       const timesByRowKey = new Map();
       for (const meeting of meetings) {
-        const entry = timesByRowKey.get(meeting.linkedRowKey) || { last: null, next: null };
+        const entry = timesByRowKey.get(meeting.linkedRowKey) || {
+          lastMeeting: null,
+          nextMeeting: null,
+          lastCall: null,
+          nextCall: null,
+        };
         if (meeting.meetingDatetime <= now) {
-          if (!entry.last || meeting.meetingDatetime > entry.last) entry.last = meeting.meetingDatetime;
-        } else if (!entry.next || meeting.meetingDatetime < entry.next) {
-          entry.next = meeting.meetingDatetime;
+          if (!entry.lastMeeting || meeting.meetingDatetime > entry.lastMeeting) entry.lastMeeting = meeting.meetingDatetime;
+        } else if (!entry.nextMeeting || meeting.meetingDatetime < entry.nextMeeting) {
+          entry.nextMeeting = meeting.meetingDatetime;
         }
         timesByRowKey.set(meeting.linkedRowKey, entry);
+      }
+
+      for (const call of calls) {
+        const entry = timesByRowKey.get(call.linkedRowKey) || {
+          lastMeeting: null,
+          nextMeeting: null,
+          lastCall: null,
+          nextCall: null,
+        };
+        if (call.callDatetime <= now) {
+          if (!entry.lastCall || call.callDatetime > entry.lastCall) entry.lastCall = call.callDatetime;
+        } else if (!entry.nextCall || call.callDatetime < entry.nextCall) {
+          entry.nextCall = call.callDatetime;
+        }
+        timesByRowKey.set(call.linkedRowKey, entry);
       }
 
       for (const column of meetingTimeColumns) {
         for (const row of rows) {
           const times = timesByRowKey.get(row.rowKey);
-          const rawValue = column.dataType === "last_meeting_time" ? times?.last : times?.next;
+          const rawValue = column.dataType === "last_meeting_time" ? times?.lastMeeting : times?.nextMeeting;
           valuesByRow.get(row.id)[column.columnKey] = formatDateTime(rawValue) || "";
         }
+      }
+
+      for (const row of rows) {
+        const times = timesByRowKey.get(row.rowKey);
+        timeSummaryByRowKey.set(row.rowKey, {
+          lastCallDatetime: formatDateTime(times?.lastCall) || "",
+          nextCallDatetime: formatDateTime(times?.nextCall) || "",
+        });
       }
     }
 
@@ -192,6 +229,7 @@ export async function getWorkspace(req, res, next) {
           id: row.rowKey,
           rowNumber: row.rowPosition,
           values: valuesByRow.get(row.id),
+          ...(timeSummaryByRowKey.get(row.rowKey) || { lastCallDatetime: "", nextCallDatetime: "" }),
           createdAt: row.createdAt,
           updatedAt: row.updatedAt,
         })),
