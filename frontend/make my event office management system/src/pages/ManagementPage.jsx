@@ -29,6 +29,7 @@ import {
   SHIFT_OPTIONS,
   VENUE_OPTIONS,
   createEmptyRow,
+  Showed_Column_Name,
 } from "../data/defaultSheet";
 import {
   clearCurrentEmployee,
@@ -1129,8 +1130,7 @@ export default function ManagementPage() {
                           className="relative border-b border-r border-white/15 bg-black px-3 py-3 align-top text-xs font-black text-white"
                         >
                           <div className="flex items-start justify-between gap-2 pr-1">
-                            <span>{column.name}{column.required ? " *" : ""}</span>
-                            <span className="rounded-md bg-white/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#d6d6d6]">{column.type.replace("_", " ")}</span>
+                            <span>{Showed_Column_Name[column.name] ?? column.name}{column.required ? " *" : ""}</span>
                           </div>
                           <div
                             onMouseDown={(e) => startColumnResize(e, column.id)}
