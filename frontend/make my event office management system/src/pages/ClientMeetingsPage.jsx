@@ -28,6 +28,7 @@ import {
   ZoomIn,
 } from "lucide-react";
 import { loadCurrentEmployee } from "../services/authStorage";
+import mmeLogo from "../assets/mme-logo-cropped.png";
 import { CLIENT_REQUIREMENT_OPTIONS } from "../data/defaultSheet";
 import {
   createMeeting,
@@ -1291,14 +1292,9 @@ export default function ClientMeetingsPage() {
 
       <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 shadow-sm shadow-slate-200/40 backdrop-blur-xl">
         <div className="flex min-h-17 items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
-          <div className="flex min-w-0 items-center gap-4">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-900 font-black text-white shadow-lg shadow-slate-900/20">
-              M
-            </div>
-            <div className="min-w-0">
-              <p className="truncate text-base font-black text-slate-900 sm:text-lg">
-                Make My Event
-              </p>
+          <div className="flex min-w-0 items-center gap-3">
+            <img src={mmeLogo} alt="Make My Event" className="h-16 w-auto shrink-0 object-contain sm:h-18" />
+            <div className="min-w-0 border-l border-slate-200 pl-3">
               <p className="truncate text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
                 Client Meeting Manager
               </p>

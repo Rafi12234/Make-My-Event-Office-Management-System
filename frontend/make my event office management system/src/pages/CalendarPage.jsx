@@ -1,6 +1,6 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import mmeLogo from "../assets/mme_logo.jpg";
+import mmeLogo from "../assets/mme-logo-cropped.png";
 import {
   AlertCircle,
   ArrowLeft,
@@ -102,6 +102,16 @@ function formatDisplayDatetime(value) {
   return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
+function extractIsoDate(value) {
+  if (!value) return null;
+  const text = String(value).trim();
+  const exact = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (exact) return exact[1];
+  const date = new Date(text.replace(" ", "T"));
+  if (Number.isNaN(date.getTime())) return null;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 // Position the hover card near the client pill that triggered it. Tries
 // opening below/above the pill first (like a dropdown); if neither vertical
 // direction has decent room but there's more room to a side, it opens
@@ -169,7 +179,7 @@ function formatColValue(type, value) {
 // /calendar/day details (management sheet columns, meeting details,
 // call details) but leaves out meeting pictures.
 
-function ClientHoverCard({ clientName, rowData, columns, extras, rect }) {
+function ClientHoverCard({ clientName, rowData, columns, extras, rect, selectedDate }) {
   const skipNames = new Set(["Client Name"]);
   const detailFields = (columns || []).filter(
     (col) =>
@@ -182,11 +192,17 @@ function ClientHoverCard({ clientName, rowData, columns, extras, rect }) {
   const isLoading = extras?.isLoading ?? true;
   const calls     = extras?.calls || [];
   const meetings  = extras?.meetings || [];
+  const callsOnDate = selectedDate
+    ? calls.filter((c) => extractIsoDate(c.callDatetime) === selectedDate)
+    : calls;
+  const meetingsOnDate = selectedDate
+    ? meetings.filter((m) => extractIsoDate(m.meetingDatetime) === selectedDate)
+    : meetings;
 
   // A lot of content is easier to scan spread across two columns than
   // stretched into one very tall card — and it means the card never needs
   // an inner scrollbar no matter how much history a client has.
-  const wide  = detailFields.length + meetings.length + calls.length > 6;
+  const wide  = detailFields.length + meetingsOnDate.length + callsOnDate.length > 6;
   const style = computeTooltipStyle(rect, { wide });
 
   return (
@@ -216,11 +232,11 @@ function ClientHoverCard({ clientName, rowData, columns, extras, rect }) {
           <p className="mt-3 text-xs font-bold text-black/40">Loading…</p>
         ) : (
           <>
-            {meetings.length > 0 && (
+            {meetingsOnDate.length > 0 && (
               <div className="mt-3 break-inside-avoid-column">
                 <p className="break-after-[avoid-column] text-[10px] font-black uppercase tracking-widest text-black/50">Meeting Details</p>
                 <div className="mt-1.5 space-y-2">
-                  {meetings.map((m) => (
+                  {meetingsOnDate.map((m) => (
                     <div key={m.id} className="break-inside-avoid-column rounded-lg border border-[#d6d6d6]/50 p-2.5">
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-xs font-black text-black">{formatDisplayDatetime(m.meetingDatetime)}</p>
@@ -246,11 +262,11 @@ function ClientHoverCard({ clientName, rowData, columns, extras, rect }) {
               </div>
             )}
 
-            {calls.length > 0 && (
+            {callsOnDate.length > 0 && (
               <div className="mt-3 break-inside-avoid-column">
                 <p className="break-after-[avoid-column] text-[10px] font-black uppercase tracking-widest text-black/50">Call Details</p>
                 <div className="mt-1.5 space-y-2">
-                  {calls.map((c) => (
+                  {callsOnDate.map((c) => (
                     <div key={c.id} className="break-inside-avoid-column rounded-lg border border-[#d6d6d6]/50 p-2.5">
                       <p className="text-xs font-black text-black">{formatDisplayDatetime(c.callDatetime)}</p>
                       {c.callDiscussion && (
@@ -262,8 +278,8 @@ function ClientHoverCard({ clientName, rowData, columns, extras, rect }) {
               </div>
             )}
 
-            {meetings.length === 0 && calls.length === 0 && (
-              <p className="mt-3 text-xs font-bold text-black/40">No meeting or call history yet.</p>
+            {meetingsOnDate.length === 0 && callsOnDate.length === 0 && (
+              <p className="mt-3 text-xs font-bold text-black/40">No meeting or call details for this date.</p>
             )}
           </>
         )}
@@ -330,7 +346,7 @@ export default function CalendarPage() {
 
   // ── Client hover details (Meeting/Call history, fetched on-demand) ──────
   const [clientExtras, setClientExtras] = useState({}); // rowKey -> { isLoading, calls, meetings, error }
-  const [hoverInfo,    setHoverInfo]    = useState(null); // { rowKey, clientName, rowData, rect }
+  const [hoverInfo,    setHoverInfo]    = useState(null); // { rowKey, clientName, rowData, date, rect }
   const requestedRowKeys = useRef(new Set());
 
   const ensureClientExtras = useCallback((rowKey) => {
@@ -354,13 +370,14 @@ export default function CalendarPage() {
       });
   }, []);
 
-  function showClientHoverCard(event, client) {
+  function showClientHoverCard(event, client, date) {
     ensureClientExtras(client.rowKey);
     const rect = event.currentTarget.getBoundingClientRect();
     setHoverInfo({
       rowKey:     client.rowKey,
       clientName: client.clientName,
       rowData:    client.rowData,
+      date,
       rect:       { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right, width: rect.width, height: rect.height },
     });
   }
@@ -453,13 +470,12 @@ export default function CalendarPage() {
       {/* ── Header ──────────────────────────────────────────────── */}
       <header className="sticky top-0 z-40 border-b border-[#d6d6d6]/50 bg-white/95 backdrop-blur-xl">
         <div className="flex min-h-18 items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
-          <div className="flex min-w-0 items-center gap-4">
+          <div className="flex min-w-0 items-center gap-3">
             <Link to="/management" className="hidden rounded-xl p-2 text-black/60 hover:bg-[#f4f4f4]/40 sm:block" title="Back to management">
               <ArrowLeft size={20} />
             </Link>
-            <img src={mmeLogo} alt="Make My Event" className="h-11 w-11 shrink-0 rounded-2xl object-cover shadow-lg shadow-black/20" />
-            <div className="min-w-0">
-              <p className="truncate text-base font-black text-black sm:text-lg">Make My Event</p>
+            <img src={mmeLogo} alt="Make My Event" className="h-16 w-auto shrink-0 object-contain sm:h-18" />
+            <div className="min-w-0 border-l border-[#d6d6d6]/60 pl-3">
               <p className="truncate text-[10px] font-bold uppercase tracking-[0.18em] text-[#333333] sm:text-xs">
                 Office Calendar
               </p>
@@ -613,15 +629,15 @@ export default function CalendarPage() {
                           if (item.kind === "client") {
                             const c = item.data;
                             const label = c.hasMeetingActivity && c.hasCallActivity
-                              ? "Meeting & Call Details"
+                              ? "Meeting & Call"
                               : c.hasMeetingActivity
-                              ? "Manage Meetings details"
-                              : "Manage Call details";
+                              ? "Meeting"
+                              : "Call";
                             return (
                               <div
                                 key={item.id}
                                 className="hidden rounded-md border border-[#d6d6d6] bg-[#f4f4f4] px-1.5 py-1 sm:block"
-                                onMouseEnter={(event) => { event.stopPropagation(); showClientHoverCard(event, c); }}
+                                onMouseEnter={(event) => { event.stopPropagation(); showClientHoverCard(event, c, info.date); }}
                                 onMouseLeave={() => hideClientHoverCard(c.rowKey)}
                               >
                                 <div className="flex items-center gap-1">
@@ -700,6 +716,7 @@ export default function CalendarPage() {
           rowData={hoverInfo.rowData}
           columns={worksheetColumns}
           extras={clientExtras[hoverInfo.rowKey]}
+          selectedDate={hoverInfo.date}
           rect={hoverInfo.rect}
         />
       )}
