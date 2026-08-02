@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
+import BackButton from "../components/BackButton";
 import {
-  ArrowLeft,
   Check,
   ChevronDown,
   Eye,
@@ -424,9 +424,7 @@ export default function AdminPage() {
       <header className="sticky top-0 z-40 border-b border-mme-pink/50 bg-white/90 backdrop-blur-md">
         <div className="mx-auto flex max-w-[1400px] items-center justify-between px-4 py-3 sm:px-6">
           <div className="flex items-center gap-3">
-            <Link to="/" className="hidden rounded-xl p-2 text-mme-purple/60 hover:bg-mme-blush/40 sm:block" title="Back to app">
-              <ArrowLeft size={20} />
-            </Link>
+            <BackButton to="/" title="Back to app" className="hidden sm:flex" />
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-mme-purple font-black text-white shadow-lg shadow-mme-purple/20">
               <Shield size={20} />
             </div>
