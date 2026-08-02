@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router";
 import EmployeeIdentityModal from "../components/EmployeeIdentityModal";
-import { saveCurrentEmployee } from "../services/managementStorage";
+import { saveCurrentEmployee } from "../services/authStorage";
 
 // Dedicated login route. Renders the exact same EmployeeIdentityModal used
 // previously inline on ManagementPage, so the look/behaviour of the login

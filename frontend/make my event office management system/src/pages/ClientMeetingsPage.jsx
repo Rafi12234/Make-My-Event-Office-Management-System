@@ -27,7 +27,7 @@ import {
   Calendar,
   ZoomIn,
 } from "lucide-react";
-import { loadCurrentEmployee } from "../services/managementStorage";
+import { loadCurrentEmployee } from "../services/authStorage";
 import { CLIENT_REQUIREMENT_OPTIONS } from "../data/defaultSheet";
 import {
   createMeeting,
