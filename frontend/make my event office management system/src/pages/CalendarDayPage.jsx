@@ -1,6 +1,6 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import mmeLogo from "../assets/mme_logo.jpg";
+import mmeLogo from "../assets/mme-logo-cropped.png";
 import {
   ArrowLeft,
   CalendarClock,
@@ -79,6 +79,16 @@ function formatDisplayDatetime(value) {
   const date = new Date(String(value).replace(" ", "T"));
   if (Number.isNaN(date.getTime())) return String(value);
   return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
+function extractIsoDate(value) {
+  if (!value) return null;
+  const text = String(value).trim();
+  const exact = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (exact) return exact[1];
+  const date = new Date(text.replace(" ", "T"));
+  if (Number.isNaN(date.getTime())) return null;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
 // ─── Image lightbox ──────────────────────────────────────────────
@@ -197,7 +207,7 @@ function MeetingImageGallery({ images }) {
   );
 }
 
-function ClientDayCard({ group, columns, extras, navigate }) {
+function ClientDayCard({ group, columns, extras, navigate, selectedDate }) {
   const { rowKey, clientName, rowData } = group;
 
   const skipNames = new Set(["Client Name"]);
@@ -213,6 +223,12 @@ function ClientDayCard({ group, columns, extras, navigate }) {
   const calls     = extras?.calls || [];
   const meetings  = extras?.meetings || [];
   const error     = extras?.error || "";
+  const callsOnDate = selectedDate
+    ? calls.filter((c) => extractIsoDate(c.callDatetime) === selectedDate)
+    : calls;
+  const meetingsOnDate = selectedDate
+    ? meetings.filter((m) => extractIsoDate(m.meetingDatetime) === selectedDate)
+    : meetings;
 
   return (
     <div className="overflow-hidden rounded-3xl border border-[#d6d6d6]/60 bg-white shadow-sm">
@@ -262,11 +278,11 @@ function ClientDayCard({ group, columns, extras, navigate }) {
           </div>
           {isLoading ? (
             <p className="text-sm font-bold text-black/40">Loading…</p>
-          ) : meetings.length === 0 ? (
-            <p className="text-sm font-bold text-black/40">No meetings logged yet.</p>
+          ) : meetingsOnDate.length === 0 ? (
+            <p className="text-sm font-bold text-black/40">No meetings on this date.</p>
           ) : (
             <div className="space-y-3">
-              {meetings.map((m) => (
+              {meetingsOnDate.map((m) => (
                 <div key={m.id} className="rounded-xl border border-[#d6d6d6]/50 p-4">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-base font-black text-black">{formatDisplayDatetime(m.meetingDatetime)}</p>
@@ -308,11 +324,11 @@ function ClientDayCard({ group, columns, extras, navigate }) {
           </div>
           {isLoading ? (
             <p className="text-sm font-bold text-black/40">Loading…</p>
-          ) : calls.length === 0 ? (
-            <p className="text-sm font-bold text-black/40">No calls logged yet.</p>
+          ) : callsOnDate.length === 0 ? (
+            <p className="text-sm font-bold text-black/40">No calls on this date.</p>
           ) : (
             <div className="space-y-3">
-              {calls.map((c) => (
+              {callsOnDate.map((c) => (
                 <div key={c.id} className="rounded-xl border border-[#d6d6d6]/50 p-4">
                   <p className="text-base font-black text-black">{formatDisplayDatetime(c.callDatetime)}</p>
                   {c.callDiscussion && (
@@ -478,9 +494,8 @@ export default function CalendarDayPage() {
             >
               <ArrowLeft size={20} />
             </button>
-            <img src={mmeLogo} alt="Make My Event" className="h-11 w-11 shrink-0 rounded-2xl object-cover shadow-lg shadow-black/20" />
-            <div className="min-w-0">
-              <p className="truncate text-base font-black text-black sm:text-lg">Make My Event</p>
+            <img src={mmeLogo} alt="Make My Event" className="h-16 w-auto shrink-0 object-contain sm:h-18" />
+            <div className="min-w-0 border-l border-[#d6d6d6]/60 pl-3">
               <p className="truncate text-[10px] font-bold uppercase tracking-[0.18em] text-[#333333] sm:text-xs">
                 Day View
               </p>
@@ -596,6 +611,7 @@ export default function CalendarDayPage() {
                       columns={worksheetColumns}
                       extras={clientExtras[group.rowKey]}
                       navigate={navigate}
+                      selectedDate={date}
                     />
                   ))}
                 </div>
