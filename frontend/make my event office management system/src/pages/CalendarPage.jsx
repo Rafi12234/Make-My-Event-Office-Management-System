@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import ConfirmDialog from "../components/ConfirmDialog";
+import BackButton from "../components/BackButton";
 import {
   clearCurrentEmployee,
   loadCurrentEmployee,
@@ -471,9 +472,7 @@ export default function CalendarPage() {
       <header className="sticky top-0 z-40 border-b border-[#d6d6d6]/50 bg-white/95 backdrop-blur-xl">
         <div className="flex min-h-18 items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
-            <Link to="/management" className="hidden rounded-xl p-2 text-black/60 hover:bg-[#f4f4f4]/40 sm:block" title="Back to management">
-              <ArrowLeft size={20} />
-            </Link>
+            <BackButton to="/management" title="Back to management" className="hidden sm:flex" />
             <img src={mmeLogo} alt="Make My Event" className="h-16 w-auto shrink-0 object-contain sm:h-18" />
             <div className="min-w-0 border-l border-[#d6d6d6]/60 pl-3">
               <p className="truncate text-[10px] font-bold uppercase tracking-[0.18em] text-[#333333] sm:text-xs">
