@@ -8,7 +8,7 @@ import {
   Trash2,
   UserRound,
 } from "lucide-react";
-import { loadCurrentEmployee } from "../services/managementStorage";
+import { loadCurrentEmployee } from "../services/authStorage";
 import {
   createCall,
   deleteCall,

@@ -1,5 +1,5 @@
 import { Navigate } from "react-router";
-import { loadCurrentEmployee } from "../services/managementStorage";
+import { loadCurrentEmployee } from "../services/authStorage";
 
 // Reverse of RequireAuth: keeps an already-logged-in employee away from the
 // public landing/login pages so the only way back to them is to log out
