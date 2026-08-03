@@ -4,11 +4,13 @@ import mmeLogo from "../assets/mme-logo-cropped.png";
 import {
   AlertCircle,
   ArrowLeft,
+  CalendarClock,
   CalendarDays,
   Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Phone,
   UserRound,
   X,
 } from "lucide-react";
@@ -180,7 +182,7 @@ function formatColValue(type, value) {
 // /calendar/day details (management sheet columns, meeting details,
 // call details) but leaves out meeting pictures.
 
-function ClientHoverCard({ clientName, rowData, columns, extras, rect, selectedDate }) {
+function ClientHoverCard({ clientName, rowData, columns, extras, rect, selectedDate, rowKey, navigate, onMouseEnter, onMouseLeave }) {
   const skipNames = new Set(["Client Name"]);
   const detailFields = (columns || []).filter(
     (col) =>
@@ -209,9 +211,29 @@ function ClientHoverCard({ clientName, rowData, columns, extras, rect, selectedD
   return (
     <div
       style={style}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       className="fixed z-100 rounded-2xl border border-[#d6d6d6]/60 bg-white p-4 shadow-2xl"
     >
-      <p className="text-sm font-black text-black">{clientName || "Unnamed client"}</p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-black text-black">{clientName || "Unnamed client"}</p>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => navigate(`/management/meetings/${rowKey}`, { state: { from: "/calendar" } })}
+            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-xl bg-[#f2662b] px-3 py-2 text-xs font-black text-white transition-all duration-200 hover:bg-[#d9541f] hover:shadow-md hover:shadow-[#f2662b]/30 active:scale-[0.96]"
+          >
+            <CalendarClock size={14} /> Meeting
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate(`/management/calls/${rowKey}`, { state: { from: "/calendar" } })}
+            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-xl bg-[#c2410c] px-3 py-2 text-xs font-black text-white transition-all duration-200 hover:bg-[#9a340a] hover:shadow-md hover:shadow-[#c2410c]/30 active:scale-[0.96]"
+          >
+            <Phone size={14} /> Call
+          </button>
+        </div>
+      </div>
 
       <div className={wide ? "columns-2 gap-x-6" : ""}>
         {detailFields.length > 0 && (
@@ -371,7 +393,17 @@ export default function CalendarPage() {
       });
   }, []);
 
+  const hoverHideTimeout = useRef(null);
+
+  function cancelHoverHide() {
+    if (hoverHideTimeout.current) {
+      window.clearTimeout(hoverHideTimeout.current);
+      hoverHideTimeout.current = null;
+    }
+  }
+
   function showClientHoverCard(event, client, date) {
+    cancelHoverHide();
     ensureClientExtras(client.rowKey);
     const rect = event.currentTarget.getBoundingClientRect();
     setHoverInfo({
@@ -383,8 +415,12 @@ export default function CalendarPage() {
     });
   }
 
-  function hideClientHoverCard(rowKey) {
-    setHoverInfo((h) => (h && h.rowKey === rowKey ? null : h));
+  // Delayed hide (instead of hiding immediately) — gives the pointer time to
+  // travel from the pill onto the hover card itself so the Meeting/Call
+  // buttons inside it are actually clickable, not just visible.
+  function scheduleHideClientHoverCard() {
+    cancelHoverHide();
+    hoverHideTimeout.current = window.setTimeout(() => setHoverInfo(null), 150);
   }
 
   function showNotice(type, message) { setNotice({ type, message }); }
@@ -637,7 +673,7 @@ export default function CalendarPage() {
                                 key={item.id}
                                 className="hidden rounded-md border border-[#d6d6d6] bg-[#f4f4f4] px-1.5 py-1 sm:block"
                                 onMouseEnter={(event) => { event.stopPropagation(); showClientHoverCard(event, c, info.date); }}
-                                onMouseLeave={() => hideClientHoverCard(c.rowKey)}
+                                onMouseLeave={scheduleHideClientHoverCard}
                               >
                                 <div className="flex items-center gap-1">
                                   <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-black" />
@@ -717,6 +753,10 @@ export default function CalendarPage() {
           extras={clientExtras[hoverInfo.rowKey]}
           selectedDate={hoverInfo.date}
           rect={hoverInfo.rect}
+          rowKey={hoverInfo.rowKey}
+          navigate={navigate}
+          onMouseEnter={cancelHoverHide}
+          onMouseLeave={scheduleHideClientHoverCard}
         />
       )}
 
