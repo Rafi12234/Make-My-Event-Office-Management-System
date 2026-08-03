@@ -52,6 +52,24 @@ function toDatetimeLocalValue(value) {
   return normalized.slice(0, 16);
 }
 
+// "YYYY-MM-DDTHH:MM" for right now — used as the <input min> (blocks past
+// dates and past times on today) and to prefill a new meeting's picker so
+// the employee only has to click OK, not hunt for today's date/time.
+function nowMinValue() {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mi = String(now.getMinutes()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+}
+
+function isPastDatetimeValue(value) {
+  if (!value) return false;
+  return value.slice(0, 16) < nowMinValue();
+}
+
 function formatDisplayDatetime(value) {
   if (!value) return "Not scheduled yet";
   const date = new Date(String(value).replace(" ", "T"));
@@ -156,8 +174,10 @@ function ImageLightbox({ images, initialIndex, onClose }) {
 }
 
 function MeetingCard({ meeting, rowKey, employeeId, onChanged, onDeleted }) {
+  // A brand-new meeting has no time yet — default the picker to right now
+  // instead of leaving it blank, so the employee can just click OK.
   const [meetingDatetime, setMeetingDatetime] = useState(
-    toDatetimeLocalValue(meeting.meetingDatetime)
+    toDatetimeLocalValue(meeting.meetingDatetime) || nowMinValue()
   );
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -208,8 +228,13 @@ function MeetingCard({ meeting, rowKey, employeeId, onChanged, onDeleted }) {
   );
 
   async function handleSave() {
-    setIsSaving(true);
     setError("");
+    if (meetingDatetime && isPastDatetimeValue(meetingDatetime)) {
+      setError("Meeting time cannot be in the past. Please choose the current time or later.");
+      return;
+    }
+
+    setIsSaving(true);
     try {
       await updateMeeting(rowKey, meeting.id, {
         meetingDatetime: meetingDatetime || null,
@@ -393,6 +418,7 @@ function MeetingCard({ meeting, rowKey, employeeId, onChanged, onDeleted }) {
             <input
               type="datetime-local"
               value={meetingDatetime}
+              min={nowMinValue()}
               onChange={(e) => setMeetingDatetime(e.target.value)}
               className="w-full min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all duration-200 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
             />

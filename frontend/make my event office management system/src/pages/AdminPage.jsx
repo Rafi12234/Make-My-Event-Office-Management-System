@@ -247,9 +247,16 @@ function CreateEmployeeForm({ adminId, onCreated }) {
 }
 
 // ─── Employee Table ──────────────────────────────────────────────────────────
+function initials(fullName) {
+  const parts = String(fullName || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  return (parts[0][0] + (parts[1]?.[0] || "")).toUpperCase();
+}
+
 function EmployeeTable({ employees, adminId, onToggle }) {
   const [togglingId, setTogglingId] = useState(null);
   const [error, setError] = useState(null);
+  const [query, setQuery] = useState("");
 
   async function handleToggle(emp) {
     setError(null);
@@ -274,6 +281,13 @@ function EmployeeTable({ employees, adminId, onToggle }) {
     );
   }
 
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? employees.filter(
+        (e) => e.fullName?.toLowerCase().includes(q) || e.email?.toLowerCase().includes(q),
+      )
+    : employees;
+
   return (
     <div>
       {error && (
@@ -281,80 +295,105 @@ function EmployeeTable({ employees, adminId, onToggle }) {
           <X size={15} /> {error}
         </div>
       )}
-      <div className="overflow-x-auto">
-        <table className="w-full border-separate border-spacing-0 text-left text-sm">
-          <thead>
-            <tr>
-              {["#", "Name", "Email", "Role", "Status", "Created By", "Joined", "Action"].map((h) => (
-                <th key={h} className="border-b border-mme-pink/60 bg-mme-purple px-4 py-3 text-xs font-black text-white first:rounded-tl-xl last:rounded-tr-xl">
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {employees.map((emp, index) => (
-              <tr key={emp.id} className="group">
-                <td className="border-b border-mme-pink/40 bg-white px-4 py-3 text-xs font-black text-mme-purple/40 group-hover:bg-[#fffbfd]">
-                  {index + 1}
-                </td>
-                <td className="border-b border-mme-pink/40 bg-white px-4 py-3 font-bold text-mme-purple group-hover:bg-[#fffbfd]">
-                  {emp.fullName}
-                </td>
-                <td className="border-b border-mme-pink/40 bg-white px-4 py-3 text-mme-purple/70 group-hover:bg-[#fffbfd]">
-                  {emp.email}
-                </td>
-                <td className="border-b border-mme-pink/40 bg-white px-4 py-3 group-hover:bg-[#fffbfd]">
-                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-black ${
-                    emp.role === "Admin"
-                      ? "bg-mme-purple/10 text-mme-purple"
-                      : "bg-mme-blush text-mme-plum"
-                  }`}>
-                    {emp.role === "Admin" ? <Shield size={11} /> : <UsersRound size={11} />}
-                    {emp.role}
-                  </span>
-                </td>
-                <td className="border-b border-mme-pink/40 bg-white px-4 py-3 group-hover:bg-[#fffbfd]">
-                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-black ${
-                    emp.isActive
-                      ? "bg-green-50 text-green-700"
-                      : "bg-red-50 text-red-500"
-                  }`}>
-                    {emp.isActive ? <UserCheck size={11} /> : <UserMinus size={11} />}
-                    {emp.isActive ? "Active" : "Inactive"}
-                  </span>
-                </td>
-                <td className="border-b border-mme-pink/40 bg-white px-4 py-3 text-mme-purple/55 group-hover:bg-[#fffbfd]">
-                  {emp.createdByName || <span className="text-mme-purple/30 italic">—</span>}
-                </td>
-                <td className="border-b border-mme-pink/40 bg-white px-4 py-3 text-xs text-mme-purple/50 group-hover:bg-[#fffbfd]">
-                  {emp.createdAt ? new Date(emp.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
-                </td>
-                <td className="border-b border-mme-pink/40 bg-white px-4 py-3 group-hover:bg-[#fffbfd]">
-                  {emp.id === adminId ? (
-                    <span className="text-xs font-bold text-mme-purple/30 italic">You</span>
-                  ) : (
-                    <button
-                      onClick={() => handleToggle(emp)}
-                      disabled={togglingId === emp.id}
-                      title={emp.isActive ? "Deactivate" : "Activate"}
-                      className={`rounded-xl px-3 py-1.5 text-xs font-black transition disabled:opacity-50 ${
-                        emp.isActive
-                          ? "border border-red-200 bg-red-50 text-red-500 hover:bg-red-100"
-                          : "border border-green-200 bg-green-50 text-green-600 hover:bg-green-100"
-                      }`}
-                    >
-                      {togglingId === emp.id
-                        ? "…"
-                        : emp.isActive ? "Deactivate" : "Activate"}
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+
+      <div className="relative mb-4">
+        <UsersRound size={15} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-mme-purple/35" />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search by name or email…"
+          className="w-full rounded-xl border border-mme-pink/70 bg-[#fff9fc] py-2.5 pl-10 pr-9 text-sm text-mme-purple outline-none transition placeholder:text-mme-purple/30 focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/20"
+        />
+        {query && (
+          <button
+            onClick={() => setQuery("")}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-mme-purple/35 hover:text-mme-purple"
+          >
+            <X size={14} />
+          </button>
+        )}
       </div>
+
+      {filtered.length === 0 ? (
+        <p className="py-10 text-center text-sm font-bold text-mme-purple/40">No employees match "{query}".</p>
+      ) : (
+        <div className="space-y-2.5">
+          {filtered.map((emp) => (
+            <div
+              key={emp.id}
+              className="flex flex-wrap items-center gap-4 rounded-2xl border border-mme-pink/50 bg-white px-4 py-3.5 transition hover:border-mme-pink hover:shadow-sm"
+            >
+              {/* Avatar + identity */}
+              <div className="flex min-w-0 flex-1 items-center gap-3 basis-56">
+                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-xs font-black ${
+                  emp.role === "Admin" ? "bg-mme-purple text-white" : "bg-mme-blush text-mme-purple"
+                }`}>
+                  {initials(emp.fullName)}
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate font-black text-mme-purple">{emp.fullName}</p>
+                  <p className="truncate text-xs text-mme-purple/55">{emp.email}</p>
+                </div>
+              </div>
+
+              {/* Role + Status badges */}
+              <div className="flex shrink-0 items-center gap-2">
+                <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-black ${
+                  emp.role === "Admin"
+                    ? "bg-mme-purple/10 text-mme-purple"
+                    : "bg-mme-blush text-mme-plum"
+                }`}>
+                  {emp.role === "Admin" ? <Shield size={11} /> : <UsersRound size={11} />}
+                  {emp.role}
+                </span>
+                <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-black ${
+                  emp.isActive
+                    ? "bg-green-50 text-green-700"
+                    : "bg-red-50 text-red-500"
+                }`}>
+                  {emp.isActive ? <UserCheck size={11} /> : <UserMinus size={11} />}
+                  {emp.isActive ? "Active" : "Inactive"}
+                </span>
+              </div>
+
+              {/* Meta */}
+              <div className="hidden shrink-0 flex-col text-right text-xs text-mme-purple/50 sm:flex">
+                <span>
+                  Added by{" "}
+                  <span className="font-bold text-mme-purple/70">{emp.createdByName || "—"}</span>
+                </span>
+                <span>
+                  {emp.createdAt
+                    ? new Date(emp.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+                    : "—"}
+                </span>
+              </div>
+
+              {/* Action */}
+              <div className="ml-auto shrink-0 sm:ml-0">
+                {emp.id === adminId ? (
+                  <span className="text-xs font-bold text-mme-purple/30 italic">You</span>
+                ) : (
+                  <button
+                    onClick={() => handleToggle(emp)}
+                    disabled={togglingId === emp.id}
+                    title={emp.isActive ? "Deactivate" : "Activate"}
+                    className={`rounded-xl px-3 py-1.5 text-xs font-black transition disabled:opacity-50 ${
+                      emp.isActive
+                        ? "border border-red-200 bg-red-50 text-red-500 hover:bg-red-100"
+                        : "border border-green-200 bg-green-50 text-green-600 hover:bg-green-100"
+                    }`}
+                  >
+                    {togglingId === emp.id
+                      ? "…"
+                      : emp.isActive ? "Deactivate" : "Activate"}
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
