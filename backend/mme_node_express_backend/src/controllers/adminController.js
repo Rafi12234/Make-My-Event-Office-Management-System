@@ -63,6 +63,7 @@ export async function createEmployee(req, res, next) {
         passwordHash,
         createdById: req.adminId,
         isActive: true,
+        mustChangePassword: true, // admin-set password must be changed on first login
       },
       include: { role: true },
     });

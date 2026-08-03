@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router";
 import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
+import ChangePasswordPage from "./pages/ChangePasswordPage";
 import ManagementPage from "./pages/ManagementPage";
 import ClientMeetingsPage from "./pages/ClientMeetingsPage";
 import ClientCallsPage from "./pages/ClientCallsPage";
@@ -8,6 +9,7 @@ import CalendarPage from "./pages/CalendarPage";
 import CalendarDayPage from "./pages/CalendarDayPage";
 import AdminPage from "./pages/AdminPage";
 import RedirectIfAuthed from "./components/RedirectIfAuthed";
+import RequirePasswordChange from "./components/RequirePasswordChange";
 
 // Access control for /management* and /calendar* is enforced server-side
 // now (see server.js's page-fallback guard + the requireEmployee API
@@ -18,12 +20,13 @@ function App() {
     <Routes>
       <Route path="/" element={<RedirectIfAuthed><LandingPage /></RedirectIfAuthed>} />
       <Route path="/login" element={<RedirectIfAuthed><LoginPage /></RedirectIfAuthed>} />
+      <Route path="/change-password" element={<ChangePasswordPage />} />
 
-      <Route path="/management" element={<ManagementPage />} />
-      <Route path="/management/meetings/:rowKey" element={<ClientMeetingsPage />} />
-      <Route path="/management/calls/:rowKey" element={<ClientCallsPage />} />
-      <Route path="/calendar" element={<CalendarPage />} />
-      <Route path="/calendar/day/:date" element={<CalendarDayPage />} />
+      <Route path="/management" element={<RequirePasswordChange><ManagementPage /></RequirePasswordChange>} />
+      <Route path="/management/meetings/:rowKey" element={<RequirePasswordChange><ClientMeetingsPage /></RequirePasswordChange>} />
+      <Route path="/management/calls/:rowKey" element={<RequirePasswordChange><ClientCallsPage /></RequirePasswordChange>} />
+      <Route path="/calendar" element={<RequirePasswordChange><CalendarPage /></RequirePasswordChange>} />
+      <Route path="/calendar/day/:date" element={<RequirePasswordChange><CalendarDayPage /></RequirePasswordChange>} />
       <Route path="/admin" element={<AdminPage />} />
 
       <Route path="*" element={<Navigate to="/" replace />} />
@@ -32,3 +35,4 @@ function App() {
 }
 
 export default App;
+

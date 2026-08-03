@@ -12,6 +12,7 @@ model Employee {
   email        String    @unique @db.VarChar(190)
   roleId       Int?      @map("role_id") @db.UnsignedTinyInt
   passwordHash String?   @map("password_hash") @db.VarChar(255)
+  mustChangePassword Boolean @default(true) @map("must_change_password")
   createdById  BigInt?   @map("created_by") @db.UnsignedBigInt
   isActive     Boolean?  @default(true) @map("is_active")
   lastUsedAt   DateTime? @map("last_used_at") @db.DateTime(0)

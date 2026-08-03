@@ -9,8 +9,8 @@ export default function LoginPage() {
   const navigate = useNavigate();
 
   async function handleLogin(credentials) {
-    await saveCurrentEmployee(credentials);
-    navigate("/management", { replace: true });
+    const employee = await saveCurrentEmployee(credentials);
+    navigate(employee.mustChangePassword ? "/change-password" : "/management", { replace: true });
   }
 
   return (

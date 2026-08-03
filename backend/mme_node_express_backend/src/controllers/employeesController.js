@@ -2,6 +2,8 @@ import bcrypt from "bcryptjs";
 import { prisma } from "../config/prisma.js";
 import { setEmployeeCookie, SESSION_COOKIE } from "../middleware/employeeAuth.js";
 
+const PASSWORD_MIN_LENGTH = 6;
+
 export async function listEmployeeDirectory(req, res, next) {
   try {
     const employees = await prisma.employee.findMany({
@@ -53,10 +55,11 @@ export async function identifyEmployee(req, res, next) {
 
     res.json({
       data: {
-        id:       employee.id,
-        fullName: employee.fullName,
-        email:    employee.email,
-        role:     employee.role?.name || "Employee",
+        id:                 employee.id,
+        fullName:           employee.fullName,
+        email:              employee.email,
+        role:               employee.role?.name || "Employee",
+        mustChangePassword: employee.mustChangePassword,
       },
     });
   } catch (error) {
@@ -73,7 +76,7 @@ export async function getCurrentEmployee(req, res, next) {
   try {
     const employee = await prisma.employee.findFirst({
       where: { id: BigInt(req.employee.id), isActive: true },
-      select: { id: true, fullName: true, email: true },
+      select: { id: true, fullName: true, email: true, mustChangePassword: true },
     });
 
     if (!employee) {
@@ -81,6 +84,64 @@ export async function getCurrentEmployee(req, res, next) {
     }
 
     res.json({ data: { ...employee, role: req.employee.role } });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * POST /api/employees/change-password
+ * Lets a logged-in employee replace their (often admin-set) password.
+ * Clears must_change_password so the mandatory pop-up stops appearing.
+ */
+export async function changePassword(req, res, next) {
+  const currentPassword = String(req.body.currentPassword || "");
+  const newPassword     = String(req.body.newPassword     || "");
+
+  if (!currentPassword || !newPassword) {
+    return res.status(422).json({ message: "Current and new password are required." });
+  }
+  if (newPassword.length < PASSWORD_MIN_LENGTH) {
+    return res.status(422).json({ message: `New password must be at least ${PASSWORD_MIN_LENGTH} characters.` });
+  }
+  if (newPassword === currentPassword) {
+    return res.status(422).json({ message: "New password must be different from the current password." });
+  }
+
+  try {
+    const employee = await prisma.employee.findFirst({
+      where: { id: BigInt(req.employee.id), isActive: true },
+      include: { role: true },
+    });
+
+    if (!employee) {
+      return res.status(401).json({ message: "Not authenticated." });
+    }
+    if (!employee.passwordHash) {
+      return res.status(401).json({ message: "Password not set for this account. Contact your admin." });
+    }
+
+    const valid = await bcrypt.compare(currentPassword, employee.passwordHash);
+    if (!valid) {
+      return res.status(401).json({ message: "Current password is incorrect." });
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+
+    await prisma.employee.update({
+      where: { id: employee.id },
+      data: { passwordHash, mustChangePassword: false },
+    });
+
+    res.json({
+      data: {
+        id:                 employee.id,
+        fullName:           employee.fullName,
+        email:              employee.email,
+        role:               employee.role?.name || "Employee",
+        mustChangePassword: false,
+      },
+    });
   } catch (error) {
     next(error);
   }
