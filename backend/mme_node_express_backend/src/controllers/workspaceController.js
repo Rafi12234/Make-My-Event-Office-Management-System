@@ -154,7 +154,7 @@ export async function getWorkspace(req, res, next) {
     );
     if (meetingTimeColumns.length && rows.length) {
       const rowKeys = rows.map((row) => row.rowKey);
-      const [meetings, calls] = await Promise.all([
+      const [meetings, calls, nextCalls] = await Promise.all([
         prisma.clientMeeting.findMany({
           where: { linkedRowKey: { in: rowKeys }, meetingDatetime: { not: null } },
           select: { linkedRowKey: true, meetingDatetime: true },
@@ -163,38 +163,55 @@ export async function getWorkspace(req, res, next) {
           where: { linkedRowKey: { in: rowKeys }, callDatetime: { not: null } },
           select: { linkedRowKey: true, callDatetime: true },
         }),
+        prisma.clientNextCall.findMany({
+          where: { linkedRowKey: { in: rowKeys } },
+          select: { linkedRowKey: true, nextCallDatetime: true },
+        }),
       ]);
 
-      const now = new Date();
+      // Stored datetimes are naive wall-clock values whose UTC digits mirror the
+      // original local input (see dbDates.js) — build "now" the same way so the
+      // <= comparisons below aren't skewed by the server's real UTC offset.
+      const localNow = new Date();
+      const now = new Date(Date.UTC(
+        localNow.getFullYear(),
+        localNow.getMonth(),
+        localNow.getDate(),
+        localNow.getHours(),
+        localNow.getMinutes(),
+        localNow.getSeconds(),
+      ));
       const timesByRowKey = new Map();
+      const ensureEntry = (rowKey) => {
+        let entry = timesByRowKey.get(rowKey);
+        if (!entry) {
+          entry = { lastMeeting: null, nextMeeting: null, lastCall: null, nextCall: null };
+          timesByRowKey.set(rowKey, entry);
+        }
+        return entry;
+      };
+
       for (const meeting of meetings) {
-        const entry = timesByRowKey.get(meeting.linkedRowKey) || {
-          lastMeeting: null,
-          nextMeeting: null,
-          lastCall: null,
-          nextCall: null,
-        };
+        const entry = ensureEntry(meeting.linkedRowKey);
         if (meeting.meetingDatetime <= now) {
           if (!entry.lastMeeting || meeting.meetingDatetime > entry.lastMeeting) entry.lastMeeting = meeting.meetingDatetime;
         } else if (!entry.nextMeeting || meeting.meetingDatetime < entry.nextMeeting) {
           entry.nextMeeting = meeting.meetingDatetime;
         }
-        timesByRowKey.set(meeting.linkedRowKey, entry);
       }
 
       for (const call of calls) {
-        const entry = timesByRowKey.get(call.linkedRowKey) || {
-          lastMeeting: null,
-          nextMeeting: null,
-          lastCall: null,
-          nextCall: null,
-        };
-        if (call.callDatetime <= now) {
-          if (!entry.lastCall || call.callDatetime > entry.lastCall) entry.lastCall = call.callDatetime;
-        } else if (!entry.nextCall || call.callDatetime < entry.nextCall) {
-          entry.nextCall = call.callDatetime;
+        const entry = ensureEntry(call.linkedRowKey);
+        if (call.callDatetime <= now && (!entry.lastCall || call.callDatetime > entry.lastCall)) {
+          entry.lastCall = call.callDatetime;
         }
-        timesByRowKey.set(call.linkedRowKey, entry);
+      }
+
+      // "Next call" reflects the explicit follow-up date/time an employee
+      // scheduled on a call card, not another call's own (future) call time.
+      for (const nextCall of nextCalls) {
+        const entry = ensureEntry(nextCall.linkedRowKey);
+        if (!entry.nextCall || nextCall.nextCallDatetime < entry.nextCall) entry.nextCall = nextCall.nextCallDatetime;
       }
 
       for (const column of meetingTimeColumns) {

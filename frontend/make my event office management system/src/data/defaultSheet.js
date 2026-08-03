@@ -46,12 +46,6 @@ export const DEFAULT_COLUMNS = [
     width: 205,
   },
   {
-    id: "assigned_employee",
-    name: "Assigned Employee",
-    type: "employee",
-    width: 210,
-  },
-  {
     id: "floor",
     name: "Floor",
     type: "text",
@@ -90,7 +84,6 @@ export const Showed_Column_Name = {
   "Last Meeting Time": "LMT",
   "Meeting Call Short Note": "Details",
   "Next Meeting Time": "NMT",
-  "Assigned Employee": "Assigned Employee",
   "Floor": "Floor",
   "Guest Count": "Guest",
   "Event Date": "Date",

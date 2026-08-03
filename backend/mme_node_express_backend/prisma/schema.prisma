@@ -29,6 +29,8 @@ model Employee {
   updatedCalendarEvents    CalendarEvent[]      @relation("CalendarEventUpdatedBy")
   createdClientCalls       ClientCall[]         @relation("ClientCallCreatedBy")
   updatedClientCalls       ClientCall[]         @relation("ClientCallUpdatedBy")
+  createdClientNextCalls   ClientNextCall[]     @relation("ClientNextCallCreatedBy")
+  updatedClientNextCalls   ClientNextCall[]     @relation("ClientNextCallUpdatedBy")
   finalizations            ClientFinalization[]
   uploadedMeetingImages    ClientMeetingImage[]
   createdClientMeetings    ClientMeeting[]      @relation("ClientMeetingCreatedBy")
@@ -322,11 +324,35 @@ model ClientCall {
 
   createdBy Employee? @relation("ClientCallCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "client_calls_ibfk_1")
   updatedBy Employee? @relation("ClientCallUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "client_calls_ibfk_2")
+  nextCall  ClientNextCall?
 
   @@index([createdById], map: "client_calls_ibfk_1")
   @@index([updatedById], map: "client_calls_ibfk_2")
   @@index([linkedRowKey], map: "idx_client_calls_row")
   @@map("client_calls")
+}
+
+// Stores the "Next Meeting Call Date & Time" scheduled from a call card, so
+// missed follow-ups can be tracked (a schedule whose date has passed with
+// no corresponding new call logged for that client).
+model ClientNextCall {
+  id               BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  linkedRowKey     String   @map("linked_row_key") @db.Char(36)
+  callId           BigInt   @unique @map("call_id") @db.UnsignedBigInt
+  nextCallDatetime DateTime @map("next_call_datetime") @db.DateTime(0)
+  createdById      BigInt?  @map("created_by") @db.UnsignedBigInt
+  updatedById      BigInt?  @map("updated_by") @db.UnsignedBigInt
+  createdAt        DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt        DateTime @default(now()) @map("updated_at") @db.DateTime(0)
+
+  call      ClientCall @relation(fields: [callId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "client_next_calls_ibfk_1")
+  createdBy Employee?  @relation("ClientNextCallCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "client_next_calls_ibfk_2")
+  updatedBy Employee?  @relation("ClientNextCallUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "client_next_calls_ibfk_3")
+
+  @@index([createdById], map: "client_next_calls_ibfk_2")
+  @@index([updatedById], map: "client_next_calls_ibfk_3")
+  @@index([linkedRowKey], map: "idx_client_next_calls_row")
+  @@map("client_next_calls")
 }
 
 model ClientFinalization {
