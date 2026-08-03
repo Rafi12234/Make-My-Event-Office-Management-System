@@ -948,19 +948,19 @@ export default function ManagementPage() {
           <div className="mb-5 flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
             <div>
               <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.2em] text-[#333333]">
-                <LayoutGrid size={15} /> Shared office data
+                
               </div>
               <h1 className="mt-2 text-2xl font-black text-black sm:text-3xl">{workspace.name}</h1>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-black/60">
-                Edit cells directly, create rows and columns, or import a complete Excel file. Every employee works with the same sheet after backend connection.
+                
               </p>
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <Link to="/calendar" className="inline-flex items-center gap-2 rounded-xl border border-[#d6d6d6]/70 bg-white px-4 py-2.5 text-sm font-black text-black transition-all duration-200 hover:bg-[#f4f4f4]/30 hover:shadow-md hover:border-[#333333]/20 active:scale-[0.97]">
+              <Link to="/calendar" className="inline-flex items-center gap-2 rounded-xl bg-[#6495ED] px-4 py-2.5 text-sm font-black text-white shadow-md shadow-[#6495ED]/30 transition-all duration-200 hover:brightness-90 hover:shadow-lg hover:shadow-[#6495ED]/40 active:scale-[0.97]">
                 <CalendarDays size={17} /> Calendar
               </Link>
-              <button onClick={resetWorkspace} className="inline-flex items-center gap-2 rounded-xl border border-[#d6d6d6]/70 bg-white px-4 py-2.5 text-sm font-black text-black transition-all duration-200 hover:bg-[#f4f4f4]/30 hover:shadow-md hover:border-[#333333]/20 active:scale-[0.97]">
+              <button onClick={resetWorkspace} className="inline-flex items-center gap-2 rounded-xl bg-[#0047AB] px-4 py-2.5 text-sm font-black text-white shadow-md shadow-[#0047AB]/30 transition-all duration-200 hover:brightness-110 hover:shadow-lg hover:shadow-[#0047AB]/40 active:scale-[0.97]">
                 <RotateCcw size={17} /> Reset demo
               </button>
             </div>
@@ -974,11 +974,11 @@ export default function ManagementPage() {
                 <button onClick={addRow} className="inline-flex items-center gap-2 rounded-xl bg-black px-4 py-2.5 text-sm font-black text-white shadow-md shadow-black/15 transition-all duration-200 hover:bg-[#222222] hover:shadow-lg hover:shadow-black/25 active:scale-[0.97]">
                   <Plus size={17} /> Add row
                 </button>
-                <button onClick={() => setShowAddColumn(true)} className="inline-flex items-center gap-2 rounded-xl border border-black/20 bg-white px-4 py-2.5 text-sm font-black text-black transition-all duration-200 hover:bg-[#f4f4f4]/30 hover:shadow-md active:scale-[0.97]">
+                <button onClick={() => setShowAddColumn(true)} className="inline-flex items-center gap-2 rounded-xl bg-[#36454F] px-4 py-2.5 text-sm font-black text-white shadow-md shadow-[#36454F]/30 transition-all duration-200 hover:brightness-110 hover:shadow-lg hover:shadow-[#36454F]/40 active:scale-[0.97]">
                   <Columns3 size={17} /> Add column
                 </button>
-                <button disabled={isImporting} onClick={() => fileInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-xl border border-black/20 bg-white px-4 py-2.5 text-sm font-black text-black transition-all duration-200 hover:bg-[#f4f4f4]/30 hover:shadow-md active:scale-[0.97] disabled:opacity-60 disabled:hover:shadow-none">
-                  {isImporting ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#d6d6d6] border-t-black" /> : <FileSpreadsheet size={17} />}
+                <button disabled={isImporting} onClick={() => fileInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-xl bg-[#023020] px-4 py-2.5 text-sm font-black text-white shadow-md shadow-[#023020]/30 transition-all duration-200 hover:brightness-110 hover:shadow-lg hover:shadow-[#023020]/40 active:scale-[0.97] disabled:opacity-60 disabled:hover:shadow-none">
+                  {isImporting ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" /> : <FileSpreadsheet size={17} />}
                   {isImporting ? "Reading file..." : "Upload Excel"}
                 </button>
 
@@ -986,18 +986,12 @@ export default function ManagementPage() {
                 <div className="relative" ref={filterDropdownRef}>
                   <button
                     onClick={() => { setShowFilters((v) => !v); setHoveredSection(null); }}
-                    className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-black transition-all duration-200 active:scale-[0.97] ${
-                      showFilters || activeFilterCount > 0
-                        ? "border-black bg-black text-white shadow-md shadow-black/15"
-                        : "border-black/20 bg-white text-black hover:bg-[#f4f4f4]/30 hover:shadow-md"
-                    }`}
+                    className="inline-flex items-center gap-2 rounded-xl bg-[#191970] px-4 py-2.5 text-sm font-black text-white shadow-md shadow-[#191970]/30 transition-all duration-200 hover:brightness-110 hover:shadow-lg hover:shadow-[#191970]/40 active:scale-[0.97]"
                   >
                     <SlidersHorizontal size={17} />
                     Filters
                     {activeFilterCount > 0 && (
-                      <span className={`rounded-full px-1.5 py-0.5 text-xs font-black transition-colors duration-200 ${
-                        showFilters || activeFilterCount > 0 ? "bg-white/20 text-white" : "bg-black/10 text-black"
-                      }`}>{activeFilterCount}</span>
+                      <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-xs font-black text-white transition-colors duration-200">{activeFilterCount}</span>
                     )}
                     <ChevronDown size={15} className={`transition-transform duration-300 ${showFilters ? "rotate-180" : ""}`} />
                   </button>
