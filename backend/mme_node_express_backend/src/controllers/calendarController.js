@@ -148,6 +148,20 @@ export async function getCalendarMonth(req, res, next) {
         });
       }
 
+      // ── Scheduled next-call events (the "Next Meeting Call Date & Time"
+      // set from a call card) — shown on the day it's scheduled for, not the
+      // day the call was logged, so employees see upcoming follow-ups too.
+      let nextCallRows = [];
+      if (activeRowKeys.length) {
+        nextCallRows = await prisma.clientNextCall.findMany({
+          where: {
+            linkedRowKey: { in: activeRowKeys },
+            nextCallDatetime: { gte: rangeStart, lte: rangeEnd },
+            createdById: employeeId,
+          },
+        });
+      }
+
       // ── Resolve full row data (every column) for every rowKey touched above ──
       // Worksheet, meeting, and call events all share this map so each event
       // can carry the complete client record — the same values ManagementPage
@@ -157,6 +171,7 @@ export async function getCalendarMonth(req, res, next) {
         ...dateCells.map((c) => c.row.rowKey),
         ...meetingRows.map((m) => m.linkedRowKey),
         ...callRows.map((c) => c.linkedRowKey),
+        ...nextCallRows.map((n) => n.linkedRowKey),
       ]);
 
       if (relevantRowKeys.size) {
@@ -243,6 +258,24 @@ export async function getCalendarMonth(req, res, next) {
           clientName,
           rowData,
           eventType:   "call",
+        });
+      }
+
+      // ── Build scheduled next-call events ──────────────────────
+      for (const nextCall of nextCallRows) {
+        const rowData    = rowDataByKey.get(nextCall.linkedRowKey) || {};
+        const clientName = clientNameCol ? (rowData[clientNameCol.columnKey] || "") : "";
+
+        events.push({
+          id:          `ncc_${nextCall.id}`,
+          source:      "client_next_call",
+          date:        extractDate(nextCall.nextCallDatetime),
+          time:        extractTime(nextCall.nextCallDatetime),
+          title:       clientName ? `Next call with ${clientName}` : "Upcoming client call",
+          rowKey:      nextCall.linkedRowKey,
+          clientName,
+          rowData,
+          eventType:   "upcoming",
         });
       }
     }

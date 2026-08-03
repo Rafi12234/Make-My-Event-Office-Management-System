@@ -35,6 +35,12 @@ const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 // ─── Style helpers ───────────────────────────────────────────────
 
+function isOverdueDatetime(value) {
+  if (!value) return false;
+  const date = new Date(String(value).replace(" ", "T"));
+  return !Number.isNaN(date.getTime()) && date.getTime() < Date.now();
+}
+
 function eventStyle(type) {
   const dots = {
     meeting:  "bg-black",
@@ -201,11 +207,14 @@ function ClientHoverCard({ clientName, rowData, columns, extras, rect, selectedD
   const meetingsOnDate = selectedDate
     ? meetings.filter((m) => extractIsoDate(m.meetingDatetime) === selectedDate)
     : meetings;
+  const nextCallsOnDate = selectedDate
+    ? calls.filter((c) => c.nextCallDatetime && extractIsoDate(c.nextCallDatetime) === selectedDate)
+    : calls.filter((c) => c.nextCallDatetime);
 
   // A lot of content is easier to scan spread across two columns than
   // stretched into one very tall card — and it means the card never needs
   // an inner scrollbar no matter how much history a client has.
-  const wide  = detailFields.length + meetingsOnDate.length + callsOnDate.length > 6;
+  const wide  = detailFields.length + meetingsOnDate.length + callsOnDate.length + nextCallsOnDate.length > 6;
   const style = computeTooltipStyle(rect, { wide });
 
   return (
@@ -301,7 +310,25 @@ function ClientHoverCard({ clientName, rowData, columns, extras, rect, selectedD
               </div>
             )}
 
-            {meetingsOnDate.length === 0 && callsOnDate.length === 0 && (
+            {nextCallsOnDate.length > 0 && (
+              <div className="mt-3 break-inside-avoid-column">
+                <p className="break-after-[avoid-column] text-[10px] font-black uppercase tracking-widest text-black/50">Next Call Scheduled</p>
+                <div className="mt-1.5 space-y-2">
+                  {nextCallsOnDate.map((c) => {
+                    const missed = isOverdueDatetime(c.nextCallDatetime);
+                    return (
+                      <div key={`next-${c.id}`} className={`break-inside-avoid-column rounded-lg border p-2.5 ${missed ? "border-red-200 bg-red-50" : "border-[#d6d6d6]/50"}`}>
+                        <p className={`text-xs font-black ${missed ? "text-red-600" : "text-black"}`}>
+                          {formatDisplayDatetime(c.nextCallDatetime)}{missed ? " · Missed" : ""}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {meetingsOnDate.length === 0 && callsOnDate.length === 0 && nextCallsOnDate.length === 0 && (
               <p className="mt-3 text-xs font-bold text-black/40">No meeting or call details for this date.</p>
             )}
           </>
@@ -339,9 +366,10 @@ export default function CalendarPage() {
     return map;
   }, [events]);
 
-  // Client-linked events (worksheet, client_meeting, client_call) grouped by
-  // date, then by rowKey — so each client shows as a single grid pill saying
-  // which of Meeting / Call details are available for that day.
+  // Client-linked events (worksheet, client_meeting, client_call,
+  // client_next_call) grouped by date, then by rowKey — so each client shows
+  // as a single grid pill saying which of Meeting / Call details are
+  // available for that day.
   const clientsByDate = useMemo(() => {
     const map = new Map();
     for (const ev of events) {
@@ -355,12 +383,18 @@ export default function CalendarPage() {
           rowData: ev.rowData || {},
           hasMeetingActivity: false,
           hasCallActivity: false,
+          hasNextCallActivity: false,
+          nextCallOverdue: false,
         });
       }
       const client = dayMap.get(ev.rowKey);
       if (!client.clientName && ev.clientName) client.clientName = ev.clientName;
       if (ev.source === "worksheet" || ev.source === "client_meeting") client.hasMeetingActivity = true;
       if (ev.source === "client_call") client.hasCallActivity = true;
+      if (ev.source === "client_next_call") {
+        client.hasNextCallActivity = true;
+        if (isOverdueDatetime(`${ev.date}T${ev.time || "00:00"}`)) client.nextCallOverdue = true;
+      }
     }
     const result = new Map();
     for (const [date, dayMap] of map) result.set(date, [...dayMap.values()]);
@@ -664,23 +698,31 @@ export default function CalendarPage() {
                         {visible.map((item) => {
                           if (item.kind === "client") {
                             const c = item.data;
-                            const label = c.hasMeetingActivity && c.hasCallActivity
+                            // A next-call schedule left unfulfilled (no new call/meeting logged
+                            // that day) surfaces as a distinct "Missed Call" pill, not a silent
+                            // "Upcoming Call" that never changes once the time has passed.
+                            const isMissedOnly = c.nextCallOverdue && !c.hasMeetingActivity && !c.hasCallActivity;
+                            const label = c.hasMeetingActivity && (c.hasCallActivity || c.hasNextCallActivity)
                               ? "Meeting & Call"
                               : c.hasMeetingActivity
                               ? "Meeting"
-                              : "Call";
+                              : c.hasCallActivity
+                              ? "Call"
+                              : isMissedOnly
+                              ? "Missed Call"
+                              : "Upcoming Call";
                             return (
                               <div
                                 key={item.id}
-                                className="hidden rounded-md border border-[#d6d6d6] bg-[#f4f4f4] px-1.5 py-1 sm:block"
+                                className={`hidden rounded-md border px-1.5 py-1 sm:block ${isMissedOnly ? "border-red-200 bg-red-50" : "border-[#d6d6d6] bg-[#f4f4f4]"}`}
                                 onMouseEnter={(event) => { event.stopPropagation(); showClientHoverCard(event, c, info.date); }}
                                 onMouseLeave={scheduleHideClientHoverCard}
                               >
                                 <div className="flex items-center gap-1">
-                                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-black" />
+                                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${isMissedOnly ? "bg-red-500" : "bg-black"}`} />
                                   <span className="truncate text-[11px] font-bold leading-none">{c.clientName || "Client"}</span>
                                 </div>
-                                <p className="mt-0.5 truncate text-[10px] font-bold uppercase tracking-wide text-black/60">
+                                <p className={`mt-0.5 truncate text-[10px] font-bold uppercase tracking-wide ${isMissedOnly ? "text-red-600" : "text-black/60"}`}>
                                   {label}
                                 </p>
                               </div>

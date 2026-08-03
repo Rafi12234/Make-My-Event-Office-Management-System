@@ -33,10 +33,10 @@ export async function createCall(rowKey, { callDatetime, callDiscussion, employe
   });
 }
 
-export async function updateCall(rowKey, callId, { callDatetime, callDiscussion, employeeId }) {
+export async function updateCall(rowKey, callId, { callDatetime, callDiscussion, nextCallDatetime, employeeId }) {
   return apiRequest(`/calls/${rowKey}/${callId}`, {
     method: "PUT",
-    body: JSON.stringify({ callDatetime, callDiscussion, employeeId }),
+    body: JSON.stringify({ callDatetime, callDiscussion, nextCallDatetime, employeeId }),
   });
 }
 

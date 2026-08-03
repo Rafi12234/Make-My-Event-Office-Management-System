@@ -120,6 +120,19 @@ function isValidId(value) {
   return Number.isInteger(id) && id > 0 ? id : null;
 }
 
+// Compares the full "YYYY-MM-DDTHH:MM" value against the current minute so a
+// past time on today's date is rejected too (not just past calendar days) —
+// mirrors controllers/callsController.js.
+function isPastDatetime(datetimeLocalValue) {
+  const value = String(datetimeLocalValue || "").trim().slice(0, 16);
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return false;
+
+  const now = new Date();
+  const nowValue = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}T${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+
+  return value < nowValue;
+}
+
 function removeUploadedFiles(files) {
   for (const file of files || []) {
     unlink(file.path, () => {});
@@ -342,6 +355,10 @@ export async function createMeeting(req, res, next) {
     return res.status(400).json({ message: "Invalid client reference." });
   }
 
+  if (req.body.meetingDatetime && isPastDatetime(req.body.meetingDatetime)) {
+    return res.status(422).json({ message: "Meeting time cannot be in the past. Please choose the current time or later." });
+  }
+
   const meetingDatetime = parseDateTimeLocal(req.body.meetingDatetime);
   const employeeId = isValidId(req.body.employeeId);
 
@@ -372,6 +389,10 @@ export async function updateMeeting(req, res, next) {
 
   if (!isValidRowKey(rowKey) || !id) {
     return res.status(400).json({ message: "Invalid reference." });
+  }
+
+  if (req.body.meetingDatetime && isPastDatetime(req.body.meetingDatetime)) {
+    return res.status(422).json({ message: "Meeting time cannot be in the past. Please choose the current time or later." });
   }
 
   const meetingDatetime = parseDateTimeLocal(req.body.meetingDatetime);

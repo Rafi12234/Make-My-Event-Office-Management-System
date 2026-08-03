@@ -69,6 +69,12 @@ function formatMeetingTimeDisplay(value, emptyLabel) {
   return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
+function isOverdueDatetime(value) {
+  if (!value) return false;
+  const date = new Date(String(value).replace(" ", "T"));
+  return !Number.isNaN(date.getTime()) && date.getTime() < Date.now();
+}
+
 function getColumnWidthsStorageKey(employeeId) {
   return `mme_column_widths_v1_${employeeId || "anonymous"}`;
 }
@@ -105,31 +111,48 @@ function HoverPreviewPanel({ preview, onMouseEnter, onMouseLeave }) {
   const isMeetings = preview.type === "meetings";
   const now = preview.fetchedAt;
 
-  function getTime(item) {
-    return isMeetings ? item.meetingDatetime : item.callDatetime;
-  }
-
   function isUpcoming(item) {
-    const time = getTime(item);
+    const time = isMeetings ? item.meetingDatetime : item.callDatetime;
     if (!time) return false;
     const parsed = new Date(String(time).replace(" ", "T")).getTime();
     return !Number.isNaN(parsed) && parsed >= now;
   }
 
-  const upcoming = preview.status === "ready" ? preview.items.filter(isUpcoming) : [];
-  const previous = preview.status === "ready" ? preview.items.filter((item) => !isUpcoming(item)) : [];
+  // Meetings keep the old future/past split on their own datetime. For calls,
+  // the follow-up is the explicit next-call date/time set on the most recent
+  // call — same value already driving the NMT column — so that's what
+  // "Upcoming" shows, alongside any call itself still scheduled for later.
+  const upcoming = preview.status !== "ready"
+    ? []
+    : isMeetings
+      ? preview.items.filter(isUpcoming)
+      : [
+          ...(preview.nextCallDatetime ? [{ id: "next-call", time: preview.nextCallDatetime, isNextCallSchedule: true }] : []),
+          ...preview.items.filter(isUpcoming),
+        ];
+  const previous = preview.status !== "ready"
+    ? []
+    : isMeetings
+      ? preview.items.filter((item) => !isUpcoming(item))
+      : preview.items.filter((item) => !isUpcoming(item));
 
   function renderItem(item) {
-    const time = getTime(item);
+    const time = isMeetings ? item.meetingDatetime : (item.isNextCallSchedule ? item.time : item.callDatetime);
+    const isMissed = !isMeetings && item.isNextCallSchedule && isOverdueDatetime(item.time);
     return (
       <li key={item.id} className="animate-[fadeInUp_0.2s_ease-out] rounded-xl border border-[#d6d6d6]/50 px-3 py-2 transition-all duration-200 hover:border-[#333333]/20 hover:shadow-sm">
-        <p className="text-xs font-bold text-black">
+        <p className={`text-xs font-bold ${isMissed ? "text-red-600" : "text-black"}`}>
           {time ? formatMeetingTimeDisplay(time, "Not scheduled") : "Not scheduled"}
         </p>
         {isMeetings && item.isCompleted && (
           <p className="mt-0.5 text-[10px] font-black uppercase tracking-wide text-emerald-600">Completed</p>
         )}
-        {!isMeetings && item.callDiscussion && (
+        {!isMeetings && item.isNextCallSchedule && (
+          <p className={`mt-0.5 text-[10px] font-black uppercase tracking-wide ${isMissed ? "text-red-600" : "text-[#c2410c]"}`}>
+            {isMissed ? "Next meeting call · Missed" : "Next meeting call"}
+          </p>
+        )}
+        {!isMeetings && !item.isNextCallSchedule && item.callDiscussion && (
           <p className="mt-1 line-clamp-2 text-xs text-black/60">{item.callDiscussion}</p>
         )}
       </li>
@@ -354,7 +377,6 @@ export default function ManagementPage() {
     dateFrom: "",
     dateTo: "",
     shifts: new Set(),
-    assigneeText: "",
     venues: new Set(),
   });
 
@@ -396,6 +418,7 @@ export default function ManagementPage() {
       items: [],
       error: "",
       fetchedAt: Date.now(),
+      nextCallDatetime: row.nextCallDatetime || "",
     });
 
     try {
@@ -449,11 +472,6 @@ export default function ManagementPage() {
       const c = col("venue");
       rows = rows.filter((row) => filters.venues.has(c ? row.values[c.id] ?? "" : ""));
     }
-    if (filters.assigneeText.trim()) {
-      const c = col("employee");
-      const q = filters.assigneeText.trim().toLowerCase();
-      rows = rows.filter((row) => String(c ? row.values[c.id] ?? "" : "").toLowerCase().includes(q));
-    }
 
     return rows;
   }, [searchText, workspace.rows, workspace.columns, filters]);
@@ -463,7 +481,6 @@ export default function ManagementPage() {
       (filters.dateFrom ? 1 : 0) +
       (filters.dateTo ? 1 : 0) +
       filters.shifts.size +
-      (filters.assigneeText.trim() ? 1 : 0) +
       filters.venues.size,
     [filters],
   );
@@ -482,7 +499,6 @@ export default function ManagementPage() {
       dateFrom: "",
       dateTo: "",
       shifts: new Set(),
-      assigneeText: "",
       venues: new Set(),
     });
   }
@@ -1004,7 +1020,6 @@ export default function ManagementPage() {
                           { key: "date",     label: "Date Range",       hasValue: filters.dateFrom || filters.dateTo },
                           { key: "shift",    label: "Shift",            hasValue: filters.shifts.size > 0 },
                           { key: "venue",    label: "Venue",            hasValue: filters.venues.size > 0 },
-                          { key: "employee", label: "Assigned Employee",hasValue: !!filters.assigneeText.trim() },
                         ].map(({ key, label, hasValue }) => (
                           <button
                             key={key}
@@ -1100,32 +1115,6 @@ export default function ManagementPage() {
                                 </label>
                               ))}
                             </div>
-                          </div>
-                        )}
-
-                        {hoveredSection === "employee" && (
-                          <div className="animate-[fadeIn_0.15s_ease-out]">
-                            <p className="mb-3 text-[10px] font-black uppercase tracking-[0.18em] text-[#333333]">Assigned Employee</p>
-                            <div className="relative">
-                              <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#333333]" />
-                              <input
-                                type="text"
-                                value={filters.assigneeText}
-                                onChange={(e) => setFilters((f) => ({ ...f, assigneeText: e.target.value }))}
-                                placeholder="Type employee name…"
-                                autoFocus
-                                className="w-full rounded-xl border border-[#d6d6d6] py-2.5 pl-9 pr-8 text-sm font-medium text-black outline-none transition-all duration-200 placeholder:text-black/35 focus:border-[#333333] focus:ring-4 focus:ring-[#d6d6d6]/20"
-                              />
-                              {filters.assigneeText && (
-                                <button
-                                  onClick={() => setFilters((f) => ({ ...f, assigneeText: "" }))}
-                                  className="absolute right-3 top-1/2 -translate-y-1/2 text-black/40 transition-colors duration-150 hover:text-black"
-                                >
-                                  <X size={14} />
-                                </button>
-                              )}
-                            </div>
-                            <p className="mt-2 text-xs text-black/45">Filters rows containing this name.</p>
                           </div>
                         )}
                       </div>
@@ -1242,12 +1231,21 @@ export default function ManagementPage() {
                                       column.type === "last_meeting_time" ? "No Previous Meeting" : "No Upcoming Meeting",
                                     )}
                                   </p>
-                                  <p>
-                                    <span className="font-black text-black/50">Call: </span>
+                                  <p
+                                    className={
+                                      column.type === "next_meeting_time" && isOverdueDatetime(row.nextCallDatetime)
+                                        ? "font-black text-red-600"
+                                        : undefined
+                                    }
+                                  >
+                                    <span className={column.type === "next_meeting_time" && isOverdueDatetime(row.nextCallDatetime) ? "font-black text-red-500" : "font-black text-black/50"}>
+                                      Call: 
+                                    </span>
                                     {formatMeetingTimeDisplay(
                                       column.type === "last_meeting_time" ? row.lastCallDatetime : row.nextCallDatetime,
                                       column.type === "last_meeting_time" ? "No Previous Call" : "No Upcoming Call",
                                     )}
+                                    {column.type === "next_meeting_time" && isOverdueDatetime(row.nextCallDatetime) ? " (Missed)" : ""}
                                   </p>
                                 </div>
                               ) : (

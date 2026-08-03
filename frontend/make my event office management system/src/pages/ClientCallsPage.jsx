@@ -3,6 +3,8 @@ import { Link, useLocation, useNavigate, useParams } from "react-router";
 import mmeLogo from "../assets/mme-logo-cropped.png";
 import BackButton from "../components/BackButton";
 import {
+  AlertTriangle,
+  CalendarClock,
   CheckCircle2,
   Loader2,
   Phone,
@@ -26,6 +28,25 @@ function toDatetimeLocalValue(value) {
   return normalized.slice(0, 16);
 }
 
+// "YYYY-MM-DDTHH:MM" for right now — used both as the <input min> so the
+// picker can't go earlier, and to re-check on save (typed values bypass min).
+// Uses the full minute, not just the date, so a past time on today's date
+// (e.g. picking 5:00 PM after it's already 9:00 PM) is blocked too.
+function nowMinValue() {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mi = String(now.getMinutes()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+}
+
+function isPastDatetimeValue(value) {
+  if (!value) return false;
+  return value.slice(0, 16) < nowMinValue();
+}
+
 function formatDisplayDatetime(value) {
   if (!value) return "Not scheduled yet";
   const date = new Date(String(value).replace(" ", "T"));
@@ -43,20 +64,39 @@ function CallCard({ call, rowKey, employeeId, onChanged, onDeleted }) {
   const [callDiscussion, setCallDiscussion] = useState(
     call.callDiscussion || ""
   );
+  const [nextCallDatetime, setNextCallDatetime] = useState(
+    toDatetimeLocalValue(call.nextCallDatetime)
+  );
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState("");
 
   const isDatetimeDirty = callDatetime !== toDatetimeLocalValue(call.callDatetime);
-  const isDirty = isDatetimeDirty || callDiscussion !== (call.callDiscussion || "");
+  const isNextCallDirty = nextCallDatetime !== toDatetimeLocalValue(call.nextCallDatetime);
+  const isDirty = isDatetimeDirty || callDiscussion !== (call.callDiscussion || "") || isNextCallDirty;
+
+  // Based on the persisted schedule (not the unsaved edit) — flags a next
+  // call whose scheduled moment has already come and gone.
+  const isNextCallOverdue = Boolean(call.nextCallDatetime) &&
+    isPastDatetimeValue(toDatetimeLocalValue(call.nextCallDatetime));
 
   async function handleSave() {
-    setIsSaving(true);
     setError("");
+    if (callDatetime && isPastDatetimeValue(callDatetime)) {
+      setError("Call time cannot be in the past. Please choose the current time or later.");
+      return;
+    }
+    if (nextCallDatetime && isPastDatetimeValue(nextCallDatetime)) {
+      setError("Next meeting call time cannot be in the past. Please choose the current time or later.");
+      return;
+    }
+
+    setIsSaving(true);
     try {
       await updateCall(rowKey, call.id, {
         callDatetime: callDatetime || null,
         callDiscussion: callDiscussion || null,
+        nextCallDatetime: nextCallDatetime || null,
         employeeId,
       });
       onChanged();
@@ -99,6 +139,12 @@ function CallCard({ call, rowKey, employeeId, onChanged, onDeleted }) {
               {formatDisplayDatetime(call.callDatetime)}
             </p>
           </div>
+          {isNextCallOverdue && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-red-600">
+              <AlertTriangle size={12} />
+              Missed Follow-up
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -143,6 +189,7 @@ function CallCard({ call, rowKey, employeeId, onChanged, onDeleted }) {
             <input
               type="datetime-local"
               value={callDatetime}
+              min={nowMinValue()}
               onChange={(e) => setCallDatetime(e.target.value)}
               className="w-full min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all duration-200 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
             />
@@ -209,6 +256,45 @@ function CallCard({ call, rowKey, employeeId, onChanged, onDeleted }) {
               {callDiscussion.length} characters
             </p>
           )}
+
+          <div className="mt-5 border-t border-slate-100 pt-5">
+            <label className="mb-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+              <CalendarClock size={12} />
+              Next Meeting Call Date &amp; Time
+            </label>
+            <div className="flex max-w-xs items-stretch gap-2">
+              <input
+                type="datetime-local"
+                value={nextCallDatetime}
+                min={nowMinValue()}
+                onChange={(e) => setNextCallDatetime(e.target.value)}
+                className="w-full min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all duration-200 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
+              />
+
+              {isNextCallDirty && (
+                <button
+                  onClick={handleSave}
+                  disabled={isSaving}
+                  className="shrink-0 inline-flex items-center justify-center gap-1.5 rounded-2xl bg-slate-900 px-4 text-xs font-black text-white transition-all duration-200 hover:bg-slate-700 disabled:opacity-60"
+                  style={{ animation: "slideUp 0.2s ease" }}
+                  title="Confirm this next call time"
+                >
+                  {isSaving ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : (
+                    <CheckCircle2 size={13} />
+                  )}
+                  OK
+                </button>
+              )}
+            </div>
+            {isNextCallOverdue && (
+              <p className="mt-2 flex items-center gap-1.5 text-[11px] font-bold text-red-500">
+                <AlertTriangle size={12} />
+                This scheduled call date has passed — the follow-up may have been missed.
+              </p>
+            )}
+          </div>
         </div>
       </div>
 

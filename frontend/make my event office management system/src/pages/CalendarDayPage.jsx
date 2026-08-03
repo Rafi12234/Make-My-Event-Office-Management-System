@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import mmeLogo from "../assets/mme-logo-cropped.png";
 import {
   ArrowLeft,
+  AlertTriangle,
   CalendarClock,
   CalendarDays,
   Check,
@@ -90,6 +91,12 @@ function extractIsoDate(value) {
   const date = new Date(text.replace(" ", "T"));
   if (Number.isNaN(date.getTime())) return null;
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function isOverdueDatetime(value) {
+  if (!value) return false;
+  const date = new Date(String(value).replace(" ", "T"));
+  return !Number.isNaN(date.getTime()) && date.getTime() < Date.now();
 }
 
 // ─── Image lightbox ──────────────────────────────────────────────
@@ -230,6 +237,9 @@ function ClientDayCard({ group, columns, extras, navigate, selectedDate }) {
   const meetingsOnDate = selectedDate
     ? meetings.filter((m) => extractIsoDate(m.meetingDatetime) === selectedDate)
     : meetings;
+  const nextCallsOnDate = selectedDate
+    ? calls.filter((c) => c.nextCallDatetime && extractIsoDate(c.nextCallDatetime) === selectedDate)
+    : calls.filter((c) => c.nextCallDatetime);
 
   return (
     <div className="overflow-hidden rounded-3xl border border-[#d6d6d6]/60 bg-white shadow-sm">
@@ -337,6 +347,27 @@ function ClientDayCard({ group, columns, extras, navigate, selectedDate }) {
                   )}
                 </div>
               ))}
+            </div>
+          )}
+
+          {nextCallsOnDate.length > 0 && (
+            <div className="mt-5 border-t border-[#d6d6d6]/30 pt-5">
+              <h4 className="mb-3 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-black/60">
+                <CalendarClock size={14} /> Next Call Scheduled
+              </h4>
+              <div className="space-y-3">
+                {nextCallsOnDate.map((c) => {
+                  const missed = isOverdueDatetime(c.nextCallDatetime);
+                  return (
+                    <div key={`next-${c.id}`} className={`rounded-xl border p-4 ${missed ? "border-red-200 bg-red-50" : "border-[#d6d6d6]/50"}`}>
+                      <p className={`flex items-center gap-1.5 text-base font-black ${missed ? "text-red-600" : "text-black"}`}>
+                        {missed && <AlertTriangle size={14} />}
+                        {formatDisplayDatetime(c.nextCallDatetime)}{missed ? " · Missed" : ""}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
