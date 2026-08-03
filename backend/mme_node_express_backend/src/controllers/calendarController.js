@@ -50,6 +50,12 @@ export async function getCalendarMonth(req, res, next) {
   const year  = parseInt(req.query.year,  10) || new Date().getFullYear();
   const month = parseInt(req.query.month, 10) || (new Date().getMonth() + 1);
 
+  // Calendar is personalised — every employee only ever sees the meetings,
+  // calls, and events THEY created, never anyone else's. `req.employee` is
+  // set server-side by `requireEmployee` from the signed session cookie, so
+  // this can't be spoofed via a query param.
+  const employeeId = BigInt(req.employee.id);
+
   const startDate   = `${year}-${String(month).padStart(2, "0")}-01`;
   const daysInMonth = new Date(year, month, 0).getDate();
   const endDate     = `${year}-${String(month).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`;
@@ -98,7 +104,7 @@ export async function getCalendarMonth(req, res, next) {
         dateCells = await prisma.sheetCell.findMany({
           where: {
             columnId: { in: dateColumnIds },
-            row: { isArchived: false },
+            row: { isArchived: false, createdById: employeeId },
             OR: [
               { valueDatetime: { gte: rangeStart, lte: rangeEnd } },
               { valueDate: { gte: rangeStart, lte: rangeEnd } },
@@ -125,6 +131,7 @@ export async function getCalendarMonth(req, res, next) {
           where: {
             linkedRowKey: { in: activeRowKeys },
             meetingDatetime: { gte: rangeStart, lte: rangeEnd },
+            createdById: employeeId,
           },
         });
       }
@@ -136,6 +143,7 @@ export async function getCalendarMonth(req, res, next) {
           where: {
             linkedRowKey: { in: activeRowKeys },
             callDatetime: { gte: rangeStart, lte: rangeEnd },
+            createdById: employeeId,
           },
         });
       }
@@ -241,7 +249,7 @@ export async function getCalendarMonth(req, res, next) {
 
     // ── Manual calendar events ────────────────────────────────
     const manualEvents = await prisma.calendarEvent.findMany({
-      where: { eventDate: { gte: rangeStart, lte: rangeEnd } },
+      where: { eventDate: { gte: rangeStart, lte: rangeEnd }, createdById: employeeId },
       include: { assignedEmployee: { select: { fullName: true } } },
       orderBy: [{ eventDate: "asc" }, { eventTime: "asc" }],
     });
