@@ -39,6 +39,17 @@ export async function saveCurrentEmployee({ email, password }) {
   return savedEmployee;
 }
 
+export async function changeEmployeePassword({ currentPassword, newPassword }) {
+  const updatedEmployee = await apiRequest("/employees/change-password", {
+    method: "POST",
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+
+  const merged = { ...loadCurrentEmployee(), ...updatedEmployee };
+  sessionStorage.setItem(EMPLOYEE_STORAGE_KEY, JSON.stringify(merged));
+  return merged;
+}
+
 export function clearCurrentEmployee() {
   sessionStorage.removeItem(EMPLOYEE_STORAGE_KEY);
   // Clear the server-side session cookie too. Fire-and-forget: local
