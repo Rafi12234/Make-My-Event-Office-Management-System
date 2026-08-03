@@ -512,7 +512,7 @@ export default function CalendarPage() {
             <img src={mmeLogo} alt="Make My Event" className="h-16 w-auto shrink-0 object-contain sm:h-18" />
             <div className="min-w-0 border-l border-[#d6d6d6]/60 pl-3">
               <p className="truncate text-[10px] font-bold uppercase tracking-[0.18em] text-[#333333] sm:text-xs">
-                Office Calendar
+                My Calendar
               </p>
             </div>
           </div>
@@ -545,15 +545,16 @@ export default function CalendarPage() {
           <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.2em] text-[#333333]">
-                <CalendarDays size={15} /> Shared calendar
+                <CalendarDays size={15} /> My calendar
               </div>
               <h1 className="mt-1.5 text-2xl font-black sm:text-3xl">
                 {MONTH_NAMES[month - 1]} {year}
               </h1>
               <p className="mt-1.5 text-sm text-black/60">
                 {totalEvents === 0
-                  ? "No events this month"
+                  ? "No events scheduled by you this month"
                   : `${totalEvents} event${totalEvents !== 1 ? "s" : ""} — ${meetingCount} meeting · ${callCount} call · ${manualCount} scheduled`}
+                {employee?.fullName ? ` by ${employee.fullName}` : ""}
               </p>
             </div>
             <Link
