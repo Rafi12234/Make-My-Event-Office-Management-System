@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 import mmeLogo from "../assets/mme-logo-cropped.png";
 import BackButton from "../components/BackButton";
 import {
@@ -224,6 +224,8 @@ function CallCard({ call, rowKey, employeeId, onChanged, onDeleted }) {
 export default function ClientCallsPage() {
   const { rowKey } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const backTo = location.state?.from || "/management";
   const [employee] = useState(() => loadCurrentEmployee());
   const [clientName, setClientName] = useState("");
   const [calls, setCalls] = useState([]);
@@ -286,7 +288,7 @@ export default function ClientCallsPage() {
       <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 shadow-sm shadow-slate-200/40 backdrop-blur-xl">
         <div className="flex min-h-17 items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
-            <BackButton to="/management" title="Back to sheet" />
+            <BackButton to={backTo} title="Back to sheet" />
             <img
               src={mmeLogo}
               alt="Make My Event"
