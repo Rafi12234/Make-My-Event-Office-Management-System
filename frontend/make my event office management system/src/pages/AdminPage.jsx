@@ -424,7 +424,6 @@ export default function AdminPage() {
       <header className="sticky top-0 z-40 border-b border-mme-pink/50 bg-white/90 backdrop-blur-md">
         <div className="mx-auto flex max-w-[1400px] items-center justify-between px-4 py-3 sm:px-6">
           <div className="flex items-center gap-3">
-            <BackButton to="/" title="Back to app" className="hidden sm:flex" />
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-mme-purple font-black text-white shadow-lg shadow-mme-purple/20">
               <Shield size={20} />
             </div>
@@ -452,6 +451,10 @@ export default function AdminPage() {
       </header>
 
       <main className="mx-auto max-w-[1400px] px-4 py-8 sm:px-6">
+        <div className="mb-5">
+          <BackButton to="/" title="Back to app" />
+        </div>
+
         {/* Page Title */}
         <div className="mb-7">
           <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.2em] text-mme-plum">

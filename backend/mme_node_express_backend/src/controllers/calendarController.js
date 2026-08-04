@@ -1,5 +1,6 @@
 import { prisma } from "../config/prisma.js";
 import { formatDateOnly, formatTimeOnly, formatDateTime, parseDateOnly, parseTimeOnly } from "../utils/dbDates.js";
+import { computeMeetingCallTimes } from "../utils/meetingCallTimes.js";
 
 // ─── Helpers ───────────────────────────────────────────────────
 
@@ -148,6 +149,21 @@ export async function getCalendarMonth(req, res, next) {
         });
       }
 
+      // ── Scheduled "next call" follow-ups ──────────────────────
+      // A separate record from the call itself (see client_next_calls) — its
+      // own date needs its own calendar marker, since it's often a different
+      // day than the call it was scheduled from.
+      let nextCallRows = [];
+      if (activeRowKeys.length) {
+        nextCallRows = await prisma.clientNextCall.findMany({
+          where: {
+            linkedRowKey: { in: activeRowKeys },
+            nextCallDatetime: { gte: rangeStart, lte: rangeEnd },
+            createdById: employeeId,
+          },
+        });
+      }
+
       // ── Resolve full row data (every column) for every rowKey touched above ──
       // Worksheet, meeting, and call events all share this map so each event
       // can carry the complete client record — the same values ManagementPage
@@ -157,6 +173,7 @@ export async function getCalendarMonth(req, res, next) {
         ...dateCells.map((c) => c.row.rowKey),
         ...meetingRows.map((m) => m.linkedRowKey),
         ...callRows.map((c) => c.linkedRowKey),
+        ...nextCallRows.map((c) => c.linkedRowKey),
       ]);
 
       if (relevantRowKeys.size) {
@@ -180,6 +197,30 @@ export async function getCalendarMonth(req, res, next) {
             rowData[col.columnKey] = cellValueFromRow(cell, col.dataType);
           }
           rowDataByKey.set(row.rowKey, rowData);
+        }
+      }
+
+      // "Last Meeting Time" / "Next Meeting Time" cells are never persisted
+      // (see workspaceController.js) — compute them live here too, so the
+      // calendar hover card shows the same values as the management sheet.
+      const meetingTimeColumns = allColumns.filter(
+        (c) => c.dataType === "last_meeting_time" || c.dataType === "next_meeting_time",
+      );
+      if (meetingTimeColumns.length && relevantRowKeys.size) {
+        const timesByRowKey = await computeMeetingCallTimes([...relevantRowKeys], { employeeId });
+        for (const rowKey of relevantRowKeys) {
+          const rowData = rowDataByKey.get(rowKey);
+          if (!rowData) continue;
+          const times = timesByRowKey.get(rowKey);
+          for (const col of meetingTimeColumns) {
+            // Same meeting-first, call-as-fallback rule ManagementPage uses
+            // (row.values[col] || row.lastCallDatetime/nextCallDatetime) —
+            // otherwise a client with only a call (no meeting) shows blank here.
+            const rawValue = col.dataType === "last_meeting_time"
+              ? (times?.lastMeeting || times?.lastCall)
+              : (times?.nextMeeting || times?.nextCall);
+            rowData[col.columnKey] = formatDateTime(rawValue) || "";
+          }
         }
       }
 
@@ -240,6 +281,28 @@ export async function getCalendarMonth(req, res, next) {
           title:       clientName ? `Call with ${clientName}` : "Client call",
           description: call.callDiscussion || null,
           rowKey:      call.linkedRowKey,
+          clientName,
+          rowData,
+          eventType:   "call",
+        });
+      }
+
+      // ── Build scheduled next-call events ──────────────────────
+      // Marked with source "client_call" too so the day grid groups it under
+      // the same client pill as a "Call" (see clientsByDate in CalendarPage.jsx).
+      for (const nextCall of nextCallRows) {
+        const rowData    = rowDataByKey.get(nextCall.linkedRowKey) || {};
+        const clientName = clientNameCol ? (rowData[clientNameCol.columnKey] || "") : "";
+
+        events.push({
+          id:          `nc_${nextCall.id}`,
+          source:      "client_call",
+          date:        extractDate(nextCall.nextCallDatetime),
+          time:        extractTime(nextCall.nextCallDatetime),
+          title:       clientName ? `Next call with ${clientName}` : "Next call",
+          description: null,
+          isNextCall:  true,
+          rowKey:      nextCall.linkedRowKey,
           clientName,
           rowData,
           eventType:   "call",

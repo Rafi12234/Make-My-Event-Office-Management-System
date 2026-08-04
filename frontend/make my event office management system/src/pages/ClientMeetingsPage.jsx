@@ -394,7 +394,7 @@ function MeetingCard({ meeting, rowKey, employeeId, onChanged, onDeleted }) {
               type="datetime-local"
               value={meetingDatetime}
               onChange={(e) => setMeetingDatetime(e.target.value)}
-              className="w-full min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all duration-200 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
+              className="w-full min-w-0 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
             />
 
             {isDirty && (
@@ -519,7 +519,7 @@ function MeetingCard({ meeting, rowKey, employeeId, onChanged, onDeleted }) {
                             value={draftItemKey}
                             onChange={(e) => handleDraftItemKeyChange(e.target.value)}
                             disabled={isCreatingItem}
-                            className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-bold text-slate-800 outline-none transition-all duration-200 focus:border-slate-400 focus:ring-4 focus:ring-slate-100 disabled:opacity-60"
+                            className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-bold text-slate-800 outline-none transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 focus:border-slate-400 focus:ring-4 focus:ring-slate-100 disabled:opacity-60"
                           >
                             <option value="">Choose an item...</option>
                             {availableItemOptions.map((option) => (
@@ -541,7 +541,7 @@ function MeetingCard({ meeting, rowKey, employeeId, onChanged, onDeleted }) {
                                 }}
                                 placeholder="Enter item name"
                                 disabled={isCreatingItem}
-                                className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-800 outline-none transition-all duration-200 placeholder:text-slate-300 focus:border-slate-400 focus:ring-4 focus:ring-slate-100 disabled:opacity-60"
+                                className="w-full rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-semibold text-slate-800 outline-none transition-all duration-200 placeholder:text-slate-300 hover:border-slate-300 hover:bg-slate-50 focus:border-slate-400 focus:ring-4 focus:ring-slate-100 disabled:opacity-60"
                               />
                               <button
                                 onClick={handleConfirmOtherItem}
@@ -774,7 +774,7 @@ const MeetingItemRow = forwardRef(function MeetingItemRow(
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder="Describe this item..."
-          className="w-full resize-none rounded-xl border border-transparent bg-transparent px-2 py-1.5 text-xs leading-5 text-slate-700 outline-none transition-all duration-200 placeholder:text-slate-300 focus:border-slate-300 focus:bg-white focus:ring-2 focus:ring-slate-100"
+          className="w-full resize-none rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-xs leading-5 text-slate-700 outline-none transition-all duration-200 placeholder:text-slate-300 hover:border-slate-300 hover:bg-slate-50 focus:border-slate-400 focus:bg-white focus:ring-2 focus:ring-slate-100"
         />
       </td>
 
@@ -784,7 +784,7 @@ const MeetingItemRow = forwardRef(function MeetingItemRow(
           min="0"
           value={quantity}
           onChange={(e) => setQuantity(e.target.value)}
-          className="w-full rounded-xl border border-transparent bg-transparent px-2 py-1.5 text-xs font-semibold text-slate-700 outline-none transition-all duration-200 focus:border-slate-300 focus:bg-white focus:ring-2 focus:ring-slate-100"
+          className="w-full rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700 outline-none transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 focus:border-slate-400 focus:bg-white focus:ring-2 focus:ring-slate-100"
         />
         {isSaving && (
           <Loader2 size={11} className="mt-1 animate-spin text-slate-300" />
@@ -931,7 +931,7 @@ function FinalizeItemRow({
         onChange={(e) => setDescription(e.target.value)}
         onBlur={handleSave}
         placeholder="Describe this item..."
-        className="mt-2 w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 outline-none transition-all duration-200 focus:border-slate-400 focus:bg-white"
+        className="mt-2 w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 focus:border-slate-400 focus:bg-white"
       />
 
       <div className="mt-2 flex items-center gap-2">
@@ -944,7 +944,7 @@ function FinalizeItemRow({
           value={quantity}
           onChange={(e) => setQuantity(e.target.value)}
           onBlur={handleSave}
-          className="w-20 rounded-xl border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700 outline-none transition-all duration-200 focus:border-slate-400 focus:bg-white"
+          className="w-20 rounded-xl border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 outline-none transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 focus:border-slate-400 focus:bg-white"
         />
       </div>
 
@@ -1295,7 +1295,6 @@ export default function ClientMeetingsPage() {
       <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 shadow-sm shadow-slate-200/40 backdrop-blur-xl">
         <div className="flex min-h-17 items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
-            <BackButton to={backTo} title="Back to sheet" />
             <img src={mmeLogo} alt="Make My Event" className="h-16 w-auto shrink-0 object-contain sm:h-18" />
             <div className="min-w-0 border-l border-slate-200 pl-3">
               <p className="truncate text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
@@ -1308,6 +1307,10 @@ export default function ClientMeetingsPage() {
 
       <main className="px-4 py-8 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-none">
+          <div className="mb-4">
+            <BackButton to={backTo} title="Back to sheet" />
+          </div>
+
           <div
             className="mb-8 overflow-hidden rounded-3xl bg-white p-7 shadow-sm shadow-slate-200/60 border border-slate-200/80"
             style={{ animation: "scaleIn 0.3s ease" }}
