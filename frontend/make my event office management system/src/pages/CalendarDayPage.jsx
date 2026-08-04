@@ -56,7 +56,7 @@ function formatColValue(type, value) {
   if (value === null || value === undefined || value === "") return null;
   const s = String(value);
   if (!s.trim()) return null;
-  if (type === "datetime") {
+  if (type === "datetime" || type === "last_meeting_time" || type === "next_meeting_time") {
     const [datePart, timePart] = s.replace("T", " ").split(" ");
     if (timePart) {
       const [h, m] = timePart.split(":").map(Number);
@@ -231,8 +231,12 @@ function ClientDayCard({ group, columns, extras, navigate, selectedDate }) {
   const calls     = extras?.calls || [];
   const meetings  = extras?.meetings || [];
   const error     = extras?.error || "";
+  // Matches on either the call's own date OR its scheduled follow-up date,
+  // so viewing the day the next call is due also surfaces that same call.
   const callsOnDate = selectedDate
-    ? calls.filter((c) => extractIsoDate(c.callDatetime) === selectedDate)
+    ? calls.filter(
+        (c) => extractIsoDate(c.callDatetime) === selectedDate || extractIsoDate(c.nextCallDatetime) === selectedDate,
+      )
     : calls;
   const meetingsOnDate = selectedDate
     ? meetings.filter((m) => extractIsoDate(m.meetingDatetime) === selectedDate)
@@ -344,6 +348,11 @@ function ClientDayCard({ group, columns, extras, navigate, selectedDate }) {
                   <p className="text-base font-black text-black">{formatDisplayDatetime(c.callDatetime)}</p>
                   {c.callDiscussion && (
                     <p className="mt-2 text-sm leading-6 text-black/65">{c.callDiscussion}</p>
+                  )}
+                  {c.nextCallDatetime && (
+                    <p className="mt-2 text-sm font-bold text-black/75">
+                      Next call: {formatDisplayDatetime(c.nextCallDatetime)}
+                    </p>
                   )}
                 </div>
               ))}
@@ -519,7 +528,6 @@ export default function CalendarDayPage() {
       <header className="sticky top-0 z-40 border-b border-[#d6d6d6]/50 bg-white/95 backdrop-blur-xl">
         <div className="flex min-h-18 items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
-            <BackButton onClick={() => navigate("/calendar")} title="Back to calendar" />
             <img src={mmeLogo} alt="Make My Event" className="h-16 w-auto shrink-0 object-contain sm:h-18" />
             <div className="min-w-0 border-l border-[#d6d6d6]/60 pl-3">
               <p className="truncate text-[10px] font-bold uppercase tracking-[0.18em] text-[#333333] sm:text-xs">
@@ -549,6 +557,10 @@ export default function CalendarDayPage() {
 
       {/* ── Main ───────────────────────────────────────────────── */}
       <main className="mx-auto max-w-7xl px-4 py-7 sm:px-6 lg:px-8">
+
+        <div className="mb-4">
+          <BackButton onClick={() => navigate("/calendar")} title="Back to calendar" />
+        </div>
 
         {/* Date hero + prev / next navigation */}
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
