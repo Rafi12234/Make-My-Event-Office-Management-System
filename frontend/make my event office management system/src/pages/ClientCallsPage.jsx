@@ -262,13 +262,32 @@ function CallCard({ call, rowKey, employeeId, onChanged, onDeleted }) {
               <CalendarClock size={12} />
               Next Meeting Call Date &amp; Time
             </label>
-            <input
-              type="datetime-local"
-              value={nextCallDatetime}
-              min={nowMinValue()}
-              onChange={(e) => setNextCallDatetime(e.target.value)}
-              className="w-full max-w-xs rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
-            />
+            <div className="flex max-w-xs items-stretch gap-2">
+              <input
+                type="datetime-local"
+                value={nextCallDatetime}
+                min={nowMinValue()}
+                onChange={(e) => setNextCallDatetime(e.target.value)}
+                className="w-full min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all duration-200 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
+              />
+
+              {isNextCallDirty && (
+                <button
+                  onClick={handleSave}
+                  disabled={isSaving}
+                  className="shrink-0 inline-flex items-center justify-center gap-1.5 rounded-2xl bg-slate-900 px-4 text-xs font-black text-white transition-all duration-200 hover:bg-slate-700 disabled:opacity-60"
+                  style={{ animation: "slideUp 0.2s ease" }}
+                  title="Confirm this next call time"
+                >
+                  {isSaving ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : (
+                    <CheckCircle2 size={13} />
+                  )}
+                  OK
+                </button>
+              )}
+            </div>
             {isNextCallOverdue && (
               <p className="mt-2 flex items-center gap-1.5 text-[11px] font-bold text-red-500">
                 <AlertTriangle size={12} />

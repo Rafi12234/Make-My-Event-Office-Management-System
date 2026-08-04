@@ -149,10 +149,9 @@ export async function getCalendarMonth(req, res, next) {
         });
       }
 
-      // ── Scheduled "next call" follow-ups ──────────────────────
-      // A separate record from the call itself (see client_next_calls) — its
-      // own date needs its own calendar marker, since it's often a different
-      // day than the call it was scheduled from.
+      // ── Scheduled next-call events (the "Next Meeting Call Date & Time"
+      // set from a call card) — shown on the day it's scheduled for, not the
+      // day the call was logged, so employees see upcoming follow-ups too.
       let nextCallRows = [];
       if (activeRowKeys.length) {
         nextCallRows = await prisma.clientNextCall.findMany({
@@ -173,7 +172,7 @@ export async function getCalendarMonth(req, res, next) {
         ...dateCells.map((c) => c.row.rowKey),
         ...meetingRows.map((m) => m.linkedRowKey),
         ...callRows.map((c) => c.linkedRowKey),
-        ...nextCallRows.map((c) => c.linkedRowKey),
+        ...nextCallRows.map((n) => n.linkedRowKey),
       ]);
 
       if (relevantRowKeys.size) {
@@ -288,24 +287,20 @@ export async function getCalendarMonth(req, res, next) {
       }
 
       // ── Build scheduled next-call events ──────────────────────
-      // Marked with source "client_call" too so the day grid groups it under
-      // the same client pill as a "Call" (see clientsByDate in CalendarPage.jsx).
       for (const nextCall of nextCallRows) {
         const rowData    = rowDataByKey.get(nextCall.linkedRowKey) || {};
         const clientName = clientNameCol ? (rowData[clientNameCol.columnKey] || "") : "";
 
         events.push({
-          id:          `nc_${nextCall.id}`,
-          source:      "client_call",
+          id:          `ncc_${nextCall.id}`,
+          source:      "client_next_call",
           date:        extractDate(nextCall.nextCallDatetime),
           time:        extractTime(nextCall.nextCallDatetime),
-          title:       clientName ? `Next call with ${clientName}` : "Next call",
-          description: null,
-          isNextCall:  true,
+          title:       clientName ? `Next call with ${clientName}` : "Upcoming client call",
           rowKey:      nextCall.linkedRowKey,
           clientName,
           rowData,
-          eventType:   "call",
+          eventType:   "upcoming",
         });
       }
     }
