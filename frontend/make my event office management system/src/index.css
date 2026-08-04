@@ -20,6 +20,11 @@
   text-rendering: optimizeLegibility;
 }
 
+/* Drop the heavy weight applied by Tailwind's font-black utility so text renders thinner */
+.font-black {
+  font-weight: unset;
+}
+
 html {
   scroll-behavior: smooth;
 }

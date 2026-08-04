@@ -182,23 +182,23 @@ function CallCard({ call, rowKey, employeeId, onChanged, onDeleted }) {
       <div className="grid gap-0 lg:grid-cols-[280px_1fr]">
         {/* Left — Time & Meta */}
         <div className="border-b border-slate-100 p-6 lg:border-b-0 lg:border-r">
-          <label className="mb-3 block text-[10px] font-black uppercase tracking-widest text-slate-400">
+          <label className="mb-3 block text-[10px] font-black uppercase tracking-widest text-slate-600">
             Call Time
           </label>
-          <div className="flex items-stretch gap-2">
+          <div className="flex flex-col gap-2">
             <input
               type="datetime-local"
               value={callDatetime}
               min={nowMinValue()}
               onChange={(e) => setCallDatetime(e.target.value)}
-              className="w-full min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all duration-200 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
+              className="w-full min-w-0 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
             />
 
             {isDatetimeDirty && (
               <button
                 onClick={handleSave}
                 disabled={isSaving}
-                className="shrink-0 inline-flex items-center justify-center gap-1.5 rounded-2xl bg-slate-900 px-4 text-xs font-black text-white transition-all duration-200 hover:bg-slate-700 disabled:opacity-60"
+                className="inline-flex w-full items-center justify-center gap-1.5 rounded-2xl bg-slate-900 px-4 py-2.5 text-xs font-black text-white transition-all duration-200 hover:bg-slate-700 disabled:opacity-60"
                 style={{ animation: "slideUp 0.2s ease" }}
                 title="Confirm this call time"
               >
@@ -239,7 +239,7 @@ function CallCard({ call, rowKey, employeeId, onChanged, onDeleted }) {
 
         {/* Right — Discussion */}
         <div className="p-6">
-          <label className="mb-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+          <label className="mb-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
             <MessageSquare size={12} />
             Call Discussion
           </label>
@@ -248,7 +248,7 @@ function CallCard({ call, rowKey, employeeId, onChanged, onDeleted }) {
             value={callDiscussion}
             onChange={(e) => setCallDiscussion(e.target.value)}
             placeholder="What was discussed in this call?"
-            className="w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 text-sm leading-relaxed text-slate-700 outline-none transition-all duration-200 placeholder:text-slate-300 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
+            className="w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-sm leading-relaxed text-slate-700 outline-none transition-all duration-200 placeholder:text-slate-300 hover:border-slate-300 hover:bg-slate-50 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
           />
 
           {callDiscussion && (
@@ -258,7 +258,7 @@ function CallCard({ call, rowKey, employeeId, onChanged, onDeleted }) {
           )}
 
           <div className="mt-5 border-t border-slate-100 pt-5">
-            <label className="mb-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+            <label className="mb-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
               <CalendarClock size={12} />
               Next Meeting Call Date &amp; Time
             </label>
@@ -374,7 +374,6 @@ export default function ClientCallsPage() {
       <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 shadow-sm shadow-slate-200/40 backdrop-blur-xl">
         <div className="flex min-h-17 items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
-            <BackButton to={backTo} title="Back to sheet" />
             <img
               src={mmeLogo}
               alt="Make My Event"
@@ -391,6 +390,10 @@ export default function ClientCallsPage() {
 
       <main className="px-4 py-8 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-5xl">
+          <div className="mb-4">
+            <BackButton to={backTo} title="Back to sheet" />
+          </div>
+
           {/* Page Hero */}
           <div
             className="mb-8 overflow-hidden rounded-3xl border border-slate-200/80 bg-white p-7 shadow-sm shadow-slate-200/60"
@@ -407,10 +410,6 @@ export default function ClientCallsPage() {
                 <h1 className="text-3xl font-black text-slate-900 sm:text-4xl">
                   {clientName || "This client"}
                 </h1>
-                <p className="mt-2.5 max-w-xl text-sm leading-relaxed text-slate-500">
-                  Log every call with this client, note what was discussed, and
-                  track which employee recorded each call.
-                </p>
               </div>
 
               {/* Stats */}

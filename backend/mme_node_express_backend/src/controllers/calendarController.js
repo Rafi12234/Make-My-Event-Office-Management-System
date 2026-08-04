@@ -1,5 +1,6 @@
 import { prisma } from "../config/prisma.js";
 import { formatDateOnly, formatTimeOnly, formatDateTime, parseDateOnly, parseTimeOnly } from "../utils/dbDates.js";
+import { computeMeetingCallTimes } from "../utils/meetingCallTimes.js";
 
 // ─── Helpers ───────────────────────────────────────────────────
 
@@ -195,6 +196,30 @@ export async function getCalendarMonth(req, res, next) {
             rowData[col.columnKey] = cellValueFromRow(cell, col.dataType);
           }
           rowDataByKey.set(row.rowKey, rowData);
+        }
+      }
+
+      // "Last Meeting Time" / "Next Meeting Time" cells are never persisted
+      // (see workspaceController.js) — compute them live here too, so the
+      // calendar hover card shows the same values as the management sheet.
+      const meetingTimeColumns = allColumns.filter(
+        (c) => c.dataType === "last_meeting_time" || c.dataType === "next_meeting_time",
+      );
+      if (meetingTimeColumns.length && relevantRowKeys.size) {
+        const timesByRowKey = await computeMeetingCallTimes([...relevantRowKeys], { employeeId });
+        for (const rowKey of relevantRowKeys) {
+          const rowData = rowDataByKey.get(rowKey);
+          if (!rowData) continue;
+          const times = timesByRowKey.get(rowKey);
+          for (const col of meetingTimeColumns) {
+            // Same meeting-first, call-as-fallback rule ManagementPage uses
+            // (row.values[col] || row.lastCallDatetime/nextCallDatetime) —
+            // otherwise a client with only a call (no meeting) shows blank here.
+            const rawValue = col.dataType === "last_meeting_time"
+              ? (times?.lastMeeting || times?.lastCall)
+              : (times?.nextMeeting || times?.nextCall);
+            rowData[col.columnKey] = formatDateTime(rawValue) || "";
+          }
         }
       }
 
