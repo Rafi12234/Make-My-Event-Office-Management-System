@@ -56,6 +56,24 @@ function isPastDatetime(datetimeLocalValue) {
   return value < nowValue;
 }
 
+// "YYYY-MM-DDT00:00" for today, in local wall-clock terms — the next call's
+// date can't be earlier than today, but the time of day is unrestricted
+// (unlike isPastDatetime above).
+function todayMinValue() {
+  const today = new Date();
+  const yyyy = today.getFullYear();
+  const mm = String(today.getMonth() + 1).padStart(2, "0");
+  const dd = String(today.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}T00:00`;
+}
+
+// Only compares the date part — the next call's time of day is unrestricted.
+function isNextCallDateTooEarly(datetimeLocalValue) {
+  const value = String(datetimeLocalValue || "").trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  return value < todayMinValue().slice(0, 10);
+}
+
 // ─── GET /api/calls/:rowKey — list calls for a client ──────────────
 
 export async function listCalls(req, res, next) {
@@ -73,7 +91,14 @@ export async function listCalls(req, res, next) {
       include: {
         createdBy: { select: { fullName: true } },
         updatedBy: { select: { fullName: true } },
-        nextCall: { select: { nextCallDatetime: true } },
+        assignedBy: { select: { fullName: true } },
+        nextCall: {
+          select: {
+            nextCallDatetime: true,
+            assignedEmployeeId: true,
+            assignedEmployee: { select: { fullName: true } },
+          },
+        },
       },
       orderBy: [{ callDatetime: { sort: "asc", nulls: "last" } }, { id: "asc" }],
     });
@@ -87,6 +112,9 @@ export async function listCalls(req, res, next) {
           callDatetime: formatDateTime(call.callDatetime),
           callDiscussion: call.callDiscussion,
           nextCallDatetime: formatDateTime(call.nextCall?.nextCallDatetime),
+          nextCallAssignedEmployeeId: call.nextCall?.assignedEmployeeId ?? null,
+          nextCallAssignedEmployeeName: call.nextCall?.assignedEmployee?.fullName || null,
+          assignedByEmployeeName: call.assignedBy?.fullName || null,
           createdByName: call.createdBy?.fullName || null,
           updatedByName: call.updatedBy?.fullName || null,
           createdAt: formatDateTime(call.createdAt),
@@ -118,6 +146,15 @@ export async function createCall(req, res, next) {
   const employeeId = isValidId(req.body.employeeId);
 
   try {
+    // If this client has a pending next-call assignment (set on a previous
+    // call), this new call is fulfilling it — record who made that
+    // assignment so the new call card can show "Assigned by <name>".
+    const pendingNextCall = await prisma.clientNextCall.findFirst({
+      where: { linkedRowKey: rowKey },
+      select: { updatedById: true, createdById: true },
+    });
+    const assignedByEmployeeId = pendingNextCall?.updatedById ?? pendingNextCall?.createdById ?? null;
+
     const created = await prisma.clientCall.create({
       data: {
         linkedRowKey: rowKey,
@@ -125,6 +162,7 @@ export async function createCall(req, res, next) {
         callDiscussion,
         createdById: employeeId,
         updatedById: employeeId,
+        assignedByEmployeeId,
       },
       select: { id: true },
     });
@@ -152,21 +190,36 @@ export async function updateCall(req, res, next) {
     return res.status(400).json({ message: "Invalid reference." });
   }
 
-  if (req.body.callDatetime && isPastDatetime(req.body.callDatetime)) {
-    return res.status(422).json({ message: "Call time cannot be in the past. Please choose the current time or later." });
-  }
-  if (req.body.nextCallDatetime && isPastDatetime(req.body.nextCallDatetime)) {
-    return res.status(422).json({ message: "Next meeting call time cannot be in the past. Please choose the current time or later." });
-  }
-
   const callDatetime = parseDateTimeLocal(req.body.callDatetime);
   const callDiscussion = req.body.callDiscussion
     ? String(req.body.callDiscussion)
     : null;
   const nextCallDatetime = parseDateTimeLocal(req.body.nextCallDatetime);
   const employeeId = isValidId(req.body.employeeId);
+  const nextCallAssignedEmployeeId = isValidId(req.body.nextCallAssignedEmployeeId);
 
   try {
+    // Only re-validate fields the caller is actually changing — otherwise an
+    // untouched call time that has since ticked into the past (or an
+    // existing next-call date) would block saving unrelated edits.
+    const existing = await prisma.clientCall.findFirst({
+      where: { id, linkedRowKey: rowKey },
+      include: { nextCall: { select: { nextCallDatetime: true } } },
+    });
+    if (!existing) {
+      return res.status(404).json({ message: "Call not found." });
+    }
+
+    const callDatetimeChanged = formatDateTime(existing.callDatetime) !== formatDateTime(callDatetime);
+    if (callDatetimeChanged && req.body.callDatetime && isPastDatetime(req.body.callDatetime)) {
+      return res.status(422).json({ message: "Call time cannot be in the past. Please choose the current time or later." });
+    }
+
+    const nextCallDatetimeChanged = formatDateTime(existing.nextCall?.nextCallDatetime) !== formatDateTime(nextCallDatetime);
+    if (nextCallDatetimeChanged && req.body.nextCallDatetime && isNextCallDateTooEarly(req.body.nextCallDatetime)) {
+      return res.status(422).json({ message: "Next meeting call date cannot be before today. Any time of day is fine." });
+    }
+
     const result = await prisma.clientCall.updateMany({
       where: { id, linkedRowKey: rowKey },
       data: { callDatetime, callDiscussion, updatedById: employeeId },
@@ -179,8 +232,15 @@ export async function updateCall(req, res, next) {
     if (nextCallDatetime) {
       await prisma.clientNextCall.upsert({
         where: { callId: id },
-        create: { callId: id, linkedRowKey: rowKey, nextCallDatetime, createdById: employeeId, updatedById: employeeId },
-        update: { nextCallDatetime, updatedById: employeeId },
+        create: {
+          callId: id,
+          linkedRowKey: rowKey,
+          nextCallDatetime,
+          assignedEmployeeId: nextCallAssignedEmployeeId,
+          createdById: employeeId,
+          updatedById: employeeId,
+        },
+        update: { nextCallDatetime, assignedEmployeeId: nextCallAssignedEmployeeId, updatedById: employeeId },
       });
     } else {
       await prisma.clientNextCall.deleteMany({ where: { callId: id } });

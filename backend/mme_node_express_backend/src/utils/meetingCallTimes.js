@@ -12,7 +12,7 @@ export async function computeMeetingCallTimes(rowKeys, { employeeId } = {}) {
 
   const scopeFilter = employeeId ? { createdById: employeeId } : {};
 
-  const [meetings, calls, nextCalls] = await Promise.all([
+  const [meetings, calls, nextCalls, nextMeetings] = await Promise.all([
     prisma.clientMeeting.findMany({
       where: { linkedRowKey: { in: rowKeys }, meetingDatetime: { not: null }, ...scopeFilter },
       select: { linkedRowKey: true, meetingDatetime: true },
@@ -24,6 +24,10 @@ export async function computeMeetingCallTimes(rowKeys, { employeeId } = {}) {
     prisma.clientNextCall.findMany({
       where: { linkedRowKey: { in: rowKeys }, ...scopeFilter },
       select: { linkedRowKey: true, nextCallDatetime: true },
+    }),
+    prisma.clientNextMeeting.findMany({
+      where: { linkedRowKey: { in: rowKeys }, ...scopeFilter },
+      select: { linkedRowKey: true, nextMeetingDatetime: true },
     }),
   ]);
 
@@ -77,6 +81,13 @@ export async function computeMeetingCallTimes(rowKeys, { employeeId } = {}) {
   for (const nextCall of nextCalls) {
     const entry = ensureEntry(nextCall.linkedRowKey);
     if (!entry.nextCall || nextCall.nextCallDatetime < entry.nextCall) entry.nextCall = nextCall.nextCallDatetime;
+  }
+
+  // Same idea for "next meeting" — a meeting card's own explicit follow-up
+  // schedule can win over (or be the only source of) an upcoming meeting time.
+  for (const nextMeeting of nextMeetings) {
+    const entry = ensureEntry(nextMeeting.linkedRowKey);
+    if (!entry.nextMeeting || nextMeeting.nextMeetingDatetime < entry.nextMeeting) entry.nextMeeting = nextMeeting.nextMeetingDatetime;
   }
 
   return timesByRowKey;

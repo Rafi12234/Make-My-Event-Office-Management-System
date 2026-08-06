@@ -29,13 +29,19 @@ model Employee {
   updatedCalendarEvents    CalendarEvent[]      @relation("CalendarEventUpdatedBy")
   createdClientCalls       ClientCall[]         @relation("ClientCallCreatedBy")
   updatedClientCalls       ClientCall[]         @relation("ClientCallUpdatedBy")
+  assignedByClientCalls    ClientCall[]         @relation("ClientCallAssignedBy")
   createdClientNextCalls   ClientNextCall[]     @relation("ClientNextCallCreatedBy")
   updatedClientNextCalls   ClientNextCall[]     @relation("ClientNextCallUpdatedBy")
+  assignedClientNextCalls  ClientNextCall[]     @relation("ClientNextCallAssignedEmployee")
   finalizations            ClientFinalization[]
   uploadedMeetingImages    ClientMeetingImage[]
   createdClientMeetings    ClientMeeting[]      @relation("ClientMeetingCreatedBy")
   updatedClientMeetings    ClientMeeting[]      @relation("ClientMeetingUpdatedBy")
   completedClientMeetings ClientMeeting[]      @relation("ClientMeetingCompletedBy")
+  assignedByClientMeetings ClientMeeting[]      @relation("ClientMeetingAssignedBy")
+  createdClientNextMeetings  ClientNextMeeting[] @relation("ClientNextMeetingCreatedBy")
+  updatedClientNextMeetings  ClientNextMeeting[] @relation("ClientNextMeetingUpdatedBy")
+  assignedClientNextMeetings ClientNextMeeting[] @relation("ClientNextMeetingAssignedEmployee")
   createdMeetingItems      MeetingItem[]        @relation("MeetingItemCreatedBy")
   updatedMeetingItems      MeetingItem[]        @relation("MeetingItemUpdatedBy")
   excelImports             ExcelImport[]
@@ -244,6 +250,8 @@ model ClientMeeting {
   requirements    Json?
   createdById     BigInt?   @map("created_by") @db.UnsignedBigInt
   updatedById     BigInt?   @map("updated_by") @db.UnsignedBigInt
+  // Who scheduled this meeting via a previous meeting's next-meeting assignment (null if not created to fulfill one).
+  assignedByEmployeeId BigInt? @map("assigned_by_employee_id") @db.UnsignedBigInt
   createdAt       DateTime  @default(now()) @map("created_at") @db.DateTime(0)
   updatedAt       DateTime  @default(now()) @map("updated_at") @db.DateTime(0)
   isCompleted     Boolean   @default(false) @map("is_completed")
@@ -253,16 +261,44 @@ model ClientMeeting {
   createdBy   Employee? @relation("ClientMeetingCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "client_meetings_ibfk_1")
   updatedBy   Employee? @relation("ClientMeetingUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "client_meetings_ibfk_2")
   completedBy Employee? @relation("ClientMeetingCompletedBy", fields: [completedById], references: [id], onUpdate: NoAction, map: "fk_client_meetings_completed_by")
+  assignedBy  Employee? @relation("ClientMeetingAssignedBy", fields: [assignedByEmployeeId], references: [id], onUpdate: NoAction, map: "fk_client_meetings_assigned_by")
 
-  images ClientMeetingImage[]
-  items  MeetingItem[]
+  images     ClientMeetingImage[]
+  items      MeetingItem[]
+  nextMeeting ClientNextMeeting?
 
   @@index([createdById], map: "client_meetings_ibfk_1")
   @@index([updatedById], map: "client_meetings_ibfk_2")
   @@index([completedById], map: "fk_client_meetings_completed_by")
+  @@index([assignedByEmployeeId], map: "fk_client_meetings_assigned_by")
   @@index([meetingDatetime], map: "idx_client_meetings_datetime")
   @@index([linkedRowKey], map: "idx_client_meetings_row")
   @@map("client_meetings")
+}
+
+// Stores the "Next Meeting Date & Time" scheduled from a meeting card, plus
+// who is assigned to hold that next meeting — mirrors ClientNextCall.
+model ClientNextMeeting {
+  id                  BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  linkedRowKey        String   @map("linked_row_key") @db.Char(36)
+  meetingId           BigInt   @unique @map("meeting_id") @db.UnsignedBigInt
+  nextMeetingDatetime DateTime @map("next_meeting_datetime") @db.DateTime(0)
+  assignedEmployeeId  BigInt?  @map("assigned_employee_id") @db.UnsignedBigInt
+  createdById         BigInt?  @map("created_by") @db.UnsignedBigInt
+  updatedById         BigInt?  @map("updated_by") @db.UnsignedBigInt
+  createdAt           DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt           DateTime @default(now()) @map("updated_at") @db.DateTime(0)
+
+  meeting          ClientMeeting @relation(fields: [meetingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "client_next_meetings_ibfk_1")
+  createdBy        Employee?     @relation("ClientNextMeetingCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "client_next_meetings_ibfk_2")
+  updatedBy        Employee?     @relation("ClientNextMeetingUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "client_next_meetings_ibfk_3")
+  assignedEmployee Employee?     @relation("ClientNextMeetingAssignedEmployee", fields: [assignedEmployeeId], references: [id], onUpdate: NoAction, map: "client_next_meetings_ibfk_4")
+
+  @@index([createdById], map: "client_next_meetings_ibfk_2")
+  @@index([updatedById], map: "client_next_meetings_ibfk_3")
+  @@index([assignedEmployeeId], map: "client_next_meetings_ibfk_4")
+  @@index([linkedRowKey], map: "idx_client_next_meetings_row")
+  @@map("client_next_meetings")
 }
 
 model ClientMeetingImage {
@@ -313,21 +349,25 @@ model MeetingItem {
 }
 
 model ClientCall {
-  id             BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
-  linkedRowKey   String    @map("linked_row_key") @db.Char(36)
-  callDatetime   DateTime? @map("call_datetime") @db.DateTime(0)
-  callDiscussion String?   @map("call_discussion") @db.Text
-  createdById    BigInt?   @map("created_by") @db.UnsignedBigInt
-  updatedById    BigInt?   @map("updated_by") @db.UnsignedBigInt
-  createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt      DateTime  @default(now()) @map("updated_at") @db.DateTime(0)
+  id                 BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  linkedRowKey       String    @map("linked_row_key") @db.Char(36)
+  callDatetime       DateTime? @map("call_datetime") @db.DateTime(0)
+  callDiscussion      String?   @map("call_discussion") @db.Text
+  createdById        BigInt?   @map("created_by") @db.UnsignedBigInt
+  updatedById        BigInt?   @map("updated_by") @db.UnsignedBigInt
+  // Who scheduled this call via a previous call's next-call assignment (null if this call wasn't created to fulfill one).
+  assignedByEmployeeId BigInt? @map("assigned_by_employee_id") @db.UnsignedBigInt
+  createdAt          DateTime  @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt          DateTime  @default(now()) @map("updated_at") @db.DateTime(0)
 
-  createdBy Employee? @relation("ClientCallCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "client_calls_ibfk_1")
-  updatedBy Employee? @relation("ClientCallUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "client_calls_ibfk_2")
-  nextCall  ClientNextCall?
+  createdBy   Employee? @relation("ClientCallCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "client_calls_ibfk_1")
+  updatedBy   Employee? @relation("ClientCallUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "client_calls_ibfk_2")
+  assignedBy  Employee? @relation("ClientCallAssignedBy", fields: [assignedByEmployeeId], references: [id], onUpdate: NoAction, map: "client_calls_ibfk_3")
+  nextCall    ClientNextCall?
 
   @@index([createdById], map: "client_calls_ibfk_1")
   @@index([updatedById], map: "client_calls_ibfk_2")
+  @@index([assignedByEmployeeId], map: "client_calls_ibfk_3")
   @@index([linkedRowKey], map: "idx_client_calls_row")
   @@map("client_calls")
 }
@@ -336,21 +376,25 @@ model ClientCall {
 // missed follow-ups can be tracked (a schedule whose date has passed with
 // no corresponding new call logged for that client).
 model ClientNextCall {
-  id               BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
-  linkedRowKey     String   @map("linked_row_key") @db.Char(36)
-  callId           BigInt   @unique @map("call_id") @db.UnsignedBigInt
-  nextCallDatetime DateTime @map("next_call_datetime") @db.DateTime(0)
-  createdById      BigInt?  @map("created_by") @db.UnsignedBigInt
-  updatedById      BigInt?  @map("updated_by") @db.UnsignedBigInt
-  createdAt        DateTime @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt        DateTime @default(now()) @map("updated_at") @db.DateTime(0)
+  id                 BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  linkedRowKey       String   @map("linked_row_key") @db.Char(36)
+  callId             BigInt   @unique @map("call_id") @db.UnsignedBigInt
+  nextCallDatetime   DateTime @map("next_call_datetime") @db.DateTime(0)
+  // Who should make the next call (defaults to the logged-in employee on the frontend, but reassignable).
+  assignedEmployeeId BigInt?  @map("assigned_employee_id") @db.UnsignedBigInt
+  createdById        BigInt?  @map("created_by") @db.UnsignedBigInt
+  updatedById        BigInt?  @map("updated_by") @db.UnsignedBigInt
+  createdAt          DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt          DateTime @default(now()) @map("updated_at") @db.DateTime(0)
 
-  call      ClientCall @relation(fields: [callId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "client_next_calls_ibfk_1")
-  createdBy Employee?  @relation("ClientNextCallCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "client_next_calls_ibfk_2")
-  updatedBy Employee?  @relation("ClientNextCallUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "client_next_calls_ibfk_3")
+  call             ClientCall @relation(fields: [callId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "client_next_calls_ibfk_1")
+  createdBy        Employee?  @relation("ClientNextCallCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "client_next_calls_ibfk_2")
+  updatedBy        Employee?  @relation("ClientNextCallUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "client_next_calls_ibfk_3")
+  assignedEmployee Employee?  @relation("ClientNextCallAssignedEmployee", fields: [assignedEmployeeId], references: [id], onUpdate: NoAction, map: "client_next_calls_ibfk_4")
 
   @@index([createdById], map: "client_next_calls_ibfk_2")
   @@index([updatedById], map: "client_next_calls_ibfk_3")
+  @@index([assignedEmployeeId], map: "client_next_calls_ibfk_4")
   @@index([linkedRowKey], map: "idx_client_next_calls_row")
   @@map("client_next_calls")
 }

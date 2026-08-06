@@ -22,12 +22,15 @@ import {
   Sparkles,
   Trash2,
   UserRound,
+  UserCog,
   X,
   Plus,
   Calendar,
   ZoomIn,
+  AlertTriangle,
 } from "lucide-react";
 import { loadCurrentEmployee } from "../services/authStorage";
+import { loadEmployeeDirectory } from "../services/managementStorage";
 import mmeLogo from "../assets/mme-logo-cropped.png";
 import { CLIENT_REQUIREMENT_OPTIONS } from "../data/defaultSheet";
 import {
@@ -68,6 +71,33 @@ function nowMinValue() {
 function isPastDatetimeValue(value) {
   if (!value) return false;
   return value.slice(0, 16) < nowMinValue();
+}
+
+// "YYYY-MM-DDT00:00" for today — the next meeting's date can't be earlier
+// than today, but any time of day on/after that date is allowed. Mirrors
+// ClientCallsPage.jsx.
+function todayMinValue() {
+  const today = new Date();
+  const yyyy = today.getFullYear();
+  const mm = String(today.getMonth() + 1).padStart(2, "0");
+  const dd = String(today.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}T00:00`;
+}
+
+// Only compares the date part — the next meeting's time of day is unrestricted.
+function isNextMeetingDateTooEarly(value) {
+  if (!value) return false;
+  return value.slice(0, 10) < todayMinValue().slice(0, 10);
+}
+
+// The next meeting's assignee dropdown defaults to whoever is already
+// assigned, falling back to the logged-in employee — mirrors the same
+// default both on initial render and when checking dirty state, so opening
+// a card with no prior assignment doesn't itself count as an unsaved change.
+function defaultNextMeetingAssigneeId(meeting, employeeId) {
+  return meeting.nextMeetingAssignedEmployeeId
+    ? String(meeting.nextMeetingAssignedEmployeeId)
+    : String(employeeId || "");
 }
 
 function formatDisplayDatetime(value) {
@@ -173,11 +203,17 @@ function ImageLightbox({ images, initialIndex, onClose }) {
   );
 }
 
-function MeetingCard({ meeting, rowKey, employeeId, onChanged, onDeleted }) {
+function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged, onDeleted }) {
   // A brand-new meeting has no time yet — default the picker to right now
   // instead of leaving it blank, so the employee can just click OK.
   const [meetingDatetime, setMeetingDatetime] = useState(
     toDatetimeLocalValue(meeting.meetingDatetime) || nowMinValue()
+  );
+  const [nextMeetingDatetime, setNextMeetingDatetime] = useState(
+    toDatetimeLocalValue(meeting.nextMeetingDatetime)
+  );
+  const [nextMeetingAssignedEmployeeId, setNextMeetingAssignedEmployeeId] = useState(
+    defaultNextMeetingAssigneeId(meeting, employeeId)
   );
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -219,8 +255,15 @@ function MeetingCard({ meeting, rowKey, employeeId, onChanged, onDeleted }) {
     }
   }
 
-  const isDirty =
-    meetingDatetime !== toDatetimeLocalValue(meeting.meetingDatetime);
+  const isDatetimeDirty = meetingDatetime !== toDatetimeLocalValue(meeting.meetingDatetime);
+  const isNextMeetingDirty = nextMeetingDatetime !== toDatetimeLocalValue(meeting.nextMeetingDatetime);
+  const isNextMeetingAssigneeDirty = nextMeetingAssignedEmployeeId !== defaultNextMeetingAssigneeId(meeting, employeeId);
+  const isDirty = isDatetimeDirty || isNextMeetingDirty || isNextMeetingAssigneeDirty;
+
+  // Based on the persisted schedule (not the unsaved edit) — flags a next
+  // meeting whose scheduled moment has already come and gone.
+  const isNextMeetingOverdue = Boolean(meeting.nextMeetingDatetime) &&
+    isPastDatetimeValue(toDatetimeLocalValue(meeting.nextMeetingDatetime));
 
   const availableItemOptions = CLIENT_REQUIREMENT_OPTIONS.filter(
     (option) =>
@@ -229,8 +272,12 @@ function MeetingCard({ meeting, rowKey, employeeId, onChanged, onDeleted }) {
 
   async function handleSave() {
     setError("");
-    if (meetingDatetime && isPastDatetimeValue(meetingDatetime)) {
+    if (isDatetimeDirty && meetingDatetime && isPastDatetimeValue(meetingDatetime)) {
       setError("Meeting time cannot be in the past. Please choose the current time or later.");
+      return;
+    }
+    if (isNextMeetingDirty && nextMeetingDatetime && isNextMeetingDateTooEarly(nextMeetingDatetime)) {
+      setError("Next meeting date cannot be before today. Any time of day is fine.");
       return;
     }
 
@@ -238,6 +285,8 @@ function MeetingCard({ meeting, rowKey, employeeId, onChanged, onDeleted }) {
     try {
       await updateMeeting(rowKey, meeting.id, {
         meetingDatetime: meetingDatetime || null,
+        nextMeetingDatetime: nextMeetingDatetime || null,
+        nextMeetingAssignedEmployeeId: nextMeetingDatetime ? (nextMeetingAssignedEmployeeId || null) : null,
         employeeId,
       });
       onChanged();
@@ -358,6 +407,12 @@ function MeetingCard({ meeting, rowKey, employeeId, onChanged, onDeleted }) {
               {formatDisplayDatetime(meeting.meetingDatetime)}
             </p>
           </div>
+          {isNextMeetingOverdue && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-red-600">
+              <AlertTriangle size={12} />
+              Missed Follow-up
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -441,8 +496,74 @@ function MeetingCard({ meeting, rowKey, employeeId, onChanged, onDeleted }) {
             )}
           </div>
 
-          {(meeting.createdByName || meeting.updatedByName) && (
+          <div className="mt-5 border-t border-slate-100 pt-5">
+            <label className="mb-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+              <CalendarClock size={12} />
+              Next Meeting Date &amp; Time
+            </label>
+            <div className="flex items-stretch gap-2">
+              <input
+                type="datetime-local"
+                value={nextMeetingDatetime}
+                min={todayMinValue()}
+                onChange={(e) => setNextMeetingDatetime(e.target.value)}
+                className="w-full min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all duration-200 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
+              />
+
+              {(isNextMeetingDirty || isNextMeetingAssigneeDirty) && (
+                <button
+                  onClick={handleSave}
+                  disabled={isSaving}
+                  className="shrink-0 inline-flex items-center justify-center gap-1.5 rounded-2xl bg-slate-900 px-4 text-xs font-black text-white transition-all duration-200 hover:bg-slate-700 disabled:opacity-60"
+                  style={{ animation: "slideUp 0.2s ease" }}
+                  title="Confirm this next meeting time"
+                >
+                  {isSaving ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : (
+                    <CheckCircle2 size={13} />
+                  )}
+                  OK
+                </button>
+              )}
+            </div>
+
+            <label className="mb-2 mt-4 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+              <UserCog size={12} />
+              Assign Employee for Next Meeting
+            </label>
+            <select
+              value={nextMeetingAssignedEmployeeId}
+              onChange={(e) => setNextMeetingAssignedEmployeeId(e.target.value)}
+              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all duration-200 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
+            >
+              <option value="">Unassigned</option>
+              {employeeDirectory.map((emp) => (
+                <option key={emp.id} value={String(emp.id)}>
+                  {emp.fullName}
+                </option>
+              ))}
+            </select>
+
+            {isNextMeetingOverdue && (
+              <p className="mt-2 flex items-center gap-1.5 text-[11px] font-bold text-red-500">
+                <AlertTriangle size={12} />
+                This scheduled meeting date has passed — the follow-up may have been missed.
+              </p>
+            )}
+          </div>
+
+          {(meeting.createdByName || meeting.updatedByName || meeting.assignedByEmployeeName) && (
             <div className="mt-5 space-y-2 rounded-2xl bg-slate-50 p-3.5">
+              {meeting.assignedByEmployeeName && (
+                <p className="flex items-center gap-2 text-[11px] font-semibold text-slate-500">
+                  <UserCog size={12} className="text-slate-400" />
+                  Assigned by{" "}
+                  <span className="font-black text-slate-700">
+                    {meeting.assignedByEmployeeName}
+                  </span>
+                </p>
+              )}
               {meeting.createdByName && (
                 <p className="flex items-center gap-2 text-[11px] font-semibold text-slate-500">
                   <UserRound size={12} className="text-slate-400" />
@@ -1270,6 +1391,7 @@ export default function ClientMeetingsPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [showFinalize, setShowFinalize] = useState(false);
   const [error, setError] = useState("");
+  const [employeeDirectory, setEmployeeDirectory] = useState([]);
 
   const refresh = useCallback(async () => {
     setError("");
@@ -1292,6 +1414,9 @@ export default function ClientMeetingsPage() {
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial data fetch on mount
     refresh();
+    loadEmployeeDirectory()
+      .then((list) => setEmployeeDirectory(list || []))
+      .catch(() => setEmployeeDirectory([]));
   }, [employee, navigate, refresh]);
 
   async function handleCreateMeeting() {
@@ -1358,9 +1483,11 @@ export default function ClientMeetingsPage() {
                 </p>
 
                 {finalization && (
-                  <div
-                    className="mt-4 inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5"
+                  <button
+                    onClick={() => setShowFinalize(true)}
+                    className="mt-4 inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 transition-all duration-200 hover:bg-emerald-100 hover:border-emerald-300"
                     style={{ animation: "slideUp 0.2s ease" }}
+                    title="Click to see what was finalized"
                   >
                     <BadgeCheck size={15} className="shrink-0 text-emerald-500" />
                     <p className="text-xs font-bold text-emerald-700">
@@ -1372,7 +1499,7 @@ export default function ClientMeetingsPage() {
                         ? ` · ${formatDisplayDatetime(finalization.finalizedAt)}`
                         : ""}
                     </p>
-                  </div>
+                  </button>
                 )}
               </div>
 
@@ -1480,6 +1607,7 @@ export default function ClientMeetingsPage() {
                     meeting={meeting}
                     rowKey={rowKey}
                     employeeId={employee?.id}
+                    employeeDirectory={employeeDirectory}
                     onChanged={refresh}
                     onDeleted={refresh}
                   />

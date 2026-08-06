@@ -11,10 +11,12 @@ import {
   Save,
   Trash2,
   UserRound,
+  UserCog,
   Plus,
   MessageSquare,
 } from "lucide-react";
 import { loadCurrentEmployee } from "../services/authStorage";
+import { loadEmployeeDirectory } from "../services/managementStorage";
 import {
   createCall,
   deleteCall,
@@ -47,6 +49,22 @@ function isPastDatetimeValue(value) {
   return value.slice(0, 16) < nowMinValue();
 }
 
+// "YYYY-MM-DDT00:00" for today — the next call's date can't be earlier than
+// today, but any time of day on/after that date is allowed.
+function todayMinValue() {
+  const today = new Date();
+  const yyyy = today.getFullYear();
+  const mm = String(today.getMonth() + 1).padStart(2, "0");
+  const dd = String(today.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}T00:00`;
+}
+
+// Only compares the date part — the next call's time of day is unrestricted.
+function isNextCallDateTooEarly(value) {
+  if (!value) return false;
+  return value.slice(0, 10) < todayMinValue().slice(0, 10);
+}
+
 function formatDisplayDatetime(value) {
   if (!value) return "Not scheduled yet";
   const date = new Date(String(value).replace(" ", "T"));
@@ -57,7 +75,17 @@ function formatDisplayDatetime(value) {
   });
 }
 
-function CallCard({ call, rowKey, employeeId, onChanged, onDeleted }) {
+// The next call's assignee dropdown defaults to whoever is already assigned,
+// falling back to the logged-in employee — mirrors the same default both on
+// initial render and when checking dirty state, so opening a card with no
+// prior assignment doesn't itself count as an unsaved change.
+function defaultNextCallAssigneeId(call, employeeId) {
+  return call.nextCallAssignedEmployeeId
+    ? String(call.nextCallAssignedEmployeeId)
+    : String(employeeId || "");
+}
+
+function CallCard({ call, rowKey, employeeId, employeeDirectory, onChanged, onDeleted }) {
   const [callDatetime, setCallDatetime] = useState(
     toDatetimeLocalValue(call.callDatetime)
   );
@@ -67,13 +95,17 @@ function CallCard({ call, rowKey, employeeId, onChanged, onDeleted }) {
   const [nextCallDatetime, setNextCallDatetime] = useState(
     toDatetimeLocalValue(call.nextCallDatetime)
   );
+  const [nextCallAssignedEmployeeId, setNextCallAssignedEmployeeId] = useState(
+    defaultNextCallAssigneeId(call, employeeId)
+  );
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState("");
 
   const isDatetimeDirty = callDatetime !== toDatetimeLocalValue(call.callDatetime);
   const isNextCallDirty = nextCallDatetime !== toDatetimeLocalValue(call.nextCallDatetime);
-  const isDirty = isDatetimeDirty || callDiscussion !== (call.callDiscussion || "") || isNextCallDirty;
+  const isNextCallAssigneeDirty = nextCallAssignedEmployeeId !== defaultNextCallAssigneeId(call, employeeId);
+  const isDirty = isDatetimeDirty || callDiscussion !== (call.callDiscussion || "") || isNextCallDirty || isNextCallAssigneeDirty;
 
   // Based on the persisted schedule (not the unsaved edit) — flags a next
   // call whose scheduled moment has already come and gone.
@@ -82,12 +114,12 @@ function CallCard({ call, rowKey, employeeId, onChanged, onDeleted }) {
 
   async function handleSave() {
     setError("");
-    if (callDatetime && isPastDatetimeValue(callDatetime)) {
+    if (isDatetimeDirty && callDatetime && isPastDatetimeValue(callDatetime)) {
       setError("Call time cannot be in the past. Please choose the current time or later.");
       return;
     }
-    if (nextCallDatetime && isPastDatetimeValue(nextCallDatetime)) {
-      setError("Next meeting call time cannot be in the past. Please choose the current time or later.");
+    if (isNextCallDirty && nextCallDatetime && isNextCallDateTooEarly(nextCallDatetime)) {
+      setError("Next meeting call date cannot be before today. Any time of day is fine.");
       return;
     }
 
@@ -97,6 +129,7 @@ function CallCard({ call, rowKey, employeeId, onChanged, onDeleted }) {
         callDatetime: callDatetime || null,
         callDiscussion: callDiscussion || null,
         nextCallDatetime: nextCallDatetime || null,
+        nextCallAssignedEmployeeId: nextCallDatetime ? (nextCallAssignedEmployeeId || null) : null,
         employeeId,
       });
       onChanged();
@@ -212,8 +245,17 @@ function CallCard({ call, rowKey, employeeId, onChanged, onDeleted }) {
             )}
           </div>
 
-          {(call.createdByName || call.updatedByName) && (
+          {(call.createdByName || call.updatedByName || call.assignedByEmployeeName) && (
             <div className="mt-5 space-y-2 rounded-2xl bg-slate-50 p-3.5">
+              {call.assignedByEmployeeName && (
+                <p className="flex items-center gap-2 text-[11px] font-semibold text-slate-500">
+                  <UserCog size={12} className="text-slate-400" />
+                  Assigned by{" "}
+                  <span className="font-black text-slate-700">
+                    {call.assignedByEmployeeName}
+                  </span>
+                </p>
+              )}
               {call.createdByName && (
                 <p className="flex items-center gap-2 text-[11px] font-semibold text-slate-500">
                   <UserRound size={12} className="text-slate-400" />
@@ -266,12 +308,12 @@ function CallCard({ call, rowKey, employeeId, onChanged, onDeleted }) {
               <input
                 type="datetime-local"
                 value={nextCallDatetime}
-                min={nowMinValue()}
+                min={todayMinValue()}
                 onChange={(e) => setNextCallDatetime(e.target.value)}
                 className="w-full min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all duration-200 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
               />
 
-              {isNextCallDirty && (
+              {(isNextCallDirty || isNextCallAssigneeDirty) && (
                 <button
                   onClick={handleSave}
                   disabled={isSaving}
@@ -288,6 +330,24 @@ function CallCard({ call, rowKey, employeeId, onChanged, onDeleted }) {
                 </button>
               )}
             </div>
+
+            <label className="mb-2 mt-4 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
+              <UserCog size={12} />
+              Assign Employee for Next Call
+            </label>
+            <select
+              value={nextCallAssignedEmployeeId}
+              onChange={(e) => setNextCallAssignedEmployeeId(e.target.value)}
+              className="w-full max-w-xs rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all duration-200 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
+            >
+              <option value="">Unassigned</option>
+              {employeeDirectory.map((emp) => (
+                <option key={emp.id} value={String(emp.id)}>
+                  {emp.fullName}
+                </option>
+              ))}
+            </select>
+
             {isNextCallOverdue && (
               <p className="mt-2 flex items-center gap-1.5 text-[11px] font-bold text-red-500">
                 <AlertTriangle size={12} />
@@ -315,6 +375,7 @@ export default function ClientCallsPage() {
   const [employee] = useState(() => loadCurrentEmployee());
   const [clientName, setClientName] = useState("");
   const [calls, setCalls] = useState([]);
+  const [employeeDirectory, setEmployeeDirectory] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState("");
@@ -341,6 +402,10 @@ export default function ClientCallsPage() {
     const timer = window.setTimeout(() => {
       void refresh();
     }, 0);
+
+    loadEmployeeDirectory()
+      .then((list) => setEmployeeDirectory(list || []))
+      .catch(() => setEmployeeDirectory([]));
 
     return () => window.clearTimeout(timer);
   }, [employee, navigate, refresh]);
@@ -502,6 +567,7 @@ export default function ClientCallsPage() {
                     call={call}
                     rowKey={rowKey}
                     employeeId={employee?.id}
+                    employeeDirectory={employeeDirectory}
                     onChanged={refresh}
                     onDeleted={refresh}
                   />
