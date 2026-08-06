@@ -244,6 +244,9 @@ function ClientDayCard({ group, columns, extras, navigate, selectedDate }) {
   const nextCallsOnDate = selectedDate
     ? calls.filter((c) => c.nextCallDatetime && extractIsoDate(c.nextCallDatetime) === selectedDate)
     : calls.filter((c) => c.nextCallDatetime);
+  const nextMeetingsOnDate = selectedDate
+    ? meetings.filter((m) => m.nextMeetingDatetime && extractIsoDate(m.nextMeetingDatetime) === selectedDate)
+    : meetings.filter((m) => m.nextMeetingDatetime);
 
   return (
     <div className="overflow-hidden rounded-3xl border border-[#d6d6d6]/60 bg-white shadow-sm">
@@ -322,6 +325,32 @@ function ClientDayCard({ group, columns, extras, navigate, selectedDate }) {
               ))}
             </div>
           )}
+
+          {nextMeetingsOnDate.length > 0 && (
+            <div className="mt-5 border-t border-[#d6d6d6]/30 pt-5">
+              <h4 className="mb-3 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-black/60">
+                <CalendarClock size={14} /> Next Meeting Scheduled
+              </h4>
+              <div className="space-y-3">
+                {nextMeetingsOnDate.map((m) => {
+                  const missed = isOverdueDatetime(m.nextMeetingDatetime);
+                  return (
+                    <div key={`next-meeting-${m.id}`} className={`rounded-xl border p-4 ${missed ? "border-red-200 bg-red-50" : "border-[#d6d6d6]/50"}`}>
+                      <p className={`flex items-center gap-1.5 text-base font-black ${missed ? "text-red-600" : "text-black"}`}>
+                        {missed && <AlertTriangle size={14} />}
+                        {formatDisplayDatetime(m.nextMeetingDatetime)}{missed ? " · Missed" : ""}
+                      </p>
+                      {m.nextMeetingAssignedEmployeeName && (
+                        <p className="mt-1.5 text-sm font-bold text-black/60">
+                          Assigned to {m.nextMeetingAssignedEmployeeName}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Calls */}
@@ -373,6 +402,11 @@ function ClientDayCard({ group, columns, extras, navigate, selectedDate }) {
                         {missed && <AlertTriangle size={14} />}
                         {formatDisplayDatetime(c.nextCallDatetime)}{missed ? " · Missed" : ""}
                       </p>
+                      {c.nextCallAssignedEmployeeName && (
+                        <p className="mt-1.5 text-sm font-bold text-black/60">
+                          Assigned to {c.nextCallAssignedEmployeeName}
+                        </p>
+                      )}
                     </div>
                   );
                 })}

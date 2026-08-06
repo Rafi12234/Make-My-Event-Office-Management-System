@@ -11,23 +11,29 @@ export async function computeMeetingCallTimes(rowKeys, { employeeId } = {}) {
   const timesByRowKey = new Map();
   if (!rowKeys.length) return timesByRowKey;
 
-  const scopeFilter = employeeId ? { createdById: employeeId } : {};
+  // Past meetings/calls only count as "mine" if I logged them myself. An
+  // upcoming follow-up's assignee dropdown always defaults to whoever
+  // scheduled it when nobody else is picked, so assignedEmployeeId alone
+  // tells us whose calendar it belongs on — it stops showing up for the
+  // person who scheduled it the moment they hand it to a colleague.
+  const createdScope = employeeId ? { createdById: employeeId } : {};
+  const upcomingScope = employeeId ? { assignedEmployeeId: employeeId } : {};
 
   const [meetings, calls, nextCalls, nextMeetings] = await Promise.all([
     prisma.clientMeeting.findMany({
-      where: { linkedRowKey: { in: rowKeys }, meetingDatetime: { not: null }, ...scopeFilter },
+      where: { linkedRowKey: { in: rowKeys }, meetingDatetime: { not: null }, ...createdScope },
       select: { linkedRowKey: true, meetingDatetime: true },
     }),
     prisma.clientCall.findMany({
-      where: { linkedRowKey: { in: rowKeys }, callDatetime: { not: null }, ...scopeFilter },
+      where: { linkedRowKey: { in: rowKeys }, callDatetime: { not: null }, ...createdScope },
       select: { linkedRowKey: true, callDatetime: true },
     }),
     prisma.clientNextCall.findMany({
-      where: { linkedRowKey: { in: rowKeys }, ...scopeFilter },
+      where: { linkedRowKey: { in: rowKeys }, ...upcomingScope },
       select: { linkedRowKey: true, nextCallDatetime: true },
     }),
     prisma.clientNextMeeting.findMany({
-      where: { linkedRowKey: { in: rowKeys }, ...scopeFilter },
+      where: { linkedRowKey: { in: rowKeys }, ...upcomingScope },
       select: { linkedRowKey: true, nextMeetingDatetime: true },
     }),
   ]);
