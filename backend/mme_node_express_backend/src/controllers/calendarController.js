@@ -1,5 +1,5 @@
 import { prisma } from "../config/prisma.js";
-import { formatDateOnly, formatTimeOnly, formatDateTime, parseDateOnly, parseTimeOnly } from "../utils/dbDates.js";
+import { formatDateOnly, formatTimeOnly, formatDateTime, parseDateOnly, parseTimeOnly, nowInBusinessTimezone } from "../utils/dbDates.js";
 import { computeMeetingCallTimes } from "../utils/meetingCallTimes.js";
 
 // ─── Helpers ───────────────────────────────────────────────────
@@ -48,8 +48,9 @@ function cellValueFromRow(cell, dataType) {
 // ─── GET /api/calendar?year=YYYY&month=M ───────────────────────
 
 export async function getCalendarMonth(req, res, next) {
-  const year  = parseInt(req.query.year,  10) || new Date().getFullYear();
-  const month = parseInt(req.query.month, 10) || (new Date().getMonth() + 1);
+  const businessNow = nowInBusinessTimezone();
+  const year  = parseInt(req.query.year,  10) || businessNow.getUTCFullYear();
+  const month = parseInt(req.query.month, 10) || (businessNow.getUTCMonth() + 1);
 
   // Calendar is personalised — every employee only ever sees the meetings,
   // calls, and events THEY created, never anyone else's. `req.employee` is

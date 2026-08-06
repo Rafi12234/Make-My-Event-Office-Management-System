@@ -1,5 +1,5 @@
 import { prisma } from "../config/prisma.js";
-import { formatDateTime, parseDateTimeLocal } from "../utils/dbDates.js";
+import { formatDateTime, parseDateTimeLocal, nowMinValue, todayMinValue } from "../utils/dbDates.js";
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -50,21 +50,7 @@ function isPastDatetime(datetimeLocalValue) {
   const value = String(datetimeLocalValue || "").trim().slice(0, 16);
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return false;
 
-  const now = new Date();
-  const nowValue = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}T${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-
-  return value < nowValue;
-}
-
-// "YYYY-MM-DDT00:00" for today, in local wall-clock terms — the next call's
-// date can't be earlier than today, but the time of day is unrestricted
-// (unlike isPastDatetime above).
-function todayMinValue() {
-  const today = new Date();
-  const yyyy = today.getFullYear();
-  const mm = String(today.getMonth() + 1).padStart(2, "0");
-  const dd = String(today.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}T00:00`;
+  return value < nowMinValue();
 }
 
 // Only compares the date part — the next call's time of day is unrestricted.

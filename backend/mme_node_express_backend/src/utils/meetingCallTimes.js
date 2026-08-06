@@ -1,4 +1,5 @@
 import { prisma } from "../config/prisma.js";
+import { nowInBusinessTimezone } from "./dbDates.js";
 
 // Shared by workspaceController (management sheet) and calendarController
 // (client hover details) so "last/next meeting" and "last/next call" are
@@ -34,15 +35,7 @@ export async function computeMeetingCallTimes(rowKeys, { employeeId } = {}) {
   // Stored datetimes are naive wall-clock values whose UTC digits mirror the
   // original local input (see dbDates.js) — build "now" the same way so the
   // <= comparisons below aren't skewed by the server's real UTC offset.
-  const localNow = new Date();
-  const now = new Date(Date.UTC(
-    localNow.getFullYear(),
-    localNow.getMonth(),
-    localNow.getDate(),
-    localNow.getHours(),
-    localNow.getMinutes(),
-    localNow.getSeconds(),
-  ));
+  const now = nowInBusinessTimezone();
 
   const ensureEntry = (rowKey) => {
     let entry = timesByRowKey.get(rowKey);
