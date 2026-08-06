@@ -9,6 +9,7 @@ import {
   KeyRound,
   LogOut,
   Plus,
+  RotateCcw,
   Shield,
   UserCheck,
   UserMinus,
@@ -22,6 +23,7 @@ import {
   createEmployee,
   fetchAdminMe,
   fetchAllEmployees,
+  resetEmployeePassword,
   toggleEmployeeActive,
 } from "../services/adminService";
 
@@ -246,6 +248,94 @@ function CreateEmployeeForm({ adminId, onCreated }) {
   );
 }
 
+// ─── Reset Password Modal ────────────────────────────────────────────────────
+function ResetPasswordModal({ employee, onClose, onReset }) {
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      await resetEmployeePassword(employee.id, password);
+      onReset(employee);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[110] grid place-items-center bg-black/50 px-5 backdrop-blur-sm">
+      <div className="w-full max-w-sm overflow-hidden rounded-3xl border border-mme-pink/60 bg-white shadow-[0_30px_100px_rgba(91,55,101,0.25)]">
+        <div className="p-7">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-mme-blush text-mme-purple">
+            <RotateCcw size={19} />
+          </div>
+          <h2 className="mt-4 text-lg font-black text-mme-purple">Reset Password</h2>
+          <p className="mt-1 text-sm text-mme-purple/55">
+            Set a new password for <span className="font-bold text-mme-purple">{employee.fullName}</span>. They'll be required to change it on next login.
+          </p>
+
+          <form onSubmit={handleSubmit} className="mt-5 space-y-4">
+            {error && (
+              <div className="flex items-start gap-2.5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-600">
+                <X size={15} className="mt-0.5 shrink-0" />
+                {error}
+              </div>
+            )}
+
+            <div>
+              <label className="mb-1.5 block text-xs font-black uppercase tracking-[0.16em] text-mme-plum">
+                New Password *
+              </label>
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  required
+                  autoFocus
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Min. 6 characters"
+                  className="w-full rounded-xl border border-mme-pink/70 bg-[#fff9fc] px-4 py-2.5 pr-10 text-sm text-mme-purple outline-none placeholder:text-mme-purple/30 focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/20"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-mme-purple/40 hover:text-mme-purple"
+                >
+                  {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-1">
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 rounded-2xl border border-mme-pink/70 bg-white px-5 py-2.5 text-sm font-black text-mme-purple transition hover:bg-mme-blush/30"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex-1 rounded-2xl bg-mme-purple px-5 py-2.5 text-sm font-black text-white transition hover:bg-[#4b2c55] disabled:opacity-60"
+              >
+                {loading ? "Saving…" : "Set Password"}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Employee Table ──────────────────────────────────────────────────────────
 function initials(fullName) {
   const parts = String(fullName || "").trim().split(/\s+/).filter(Boolean);
@@ -257,6 +347,8 @@ function EmployeeTable({ employees, adminId, onToggle }) {
   const [togglingId, setTogglingId] = useState(null);
   const [error, setError] = useState(null);
   const [query, setQuery] = useState("");
+  const [resetTarget, setResetTarget] = useState(null);
+  const [resetNotice, setResetNotice] = useState(null);
 
   async function handleToggle(emp) {
     setError(null);
@@ -293,6 +385,12 @@ function EmployeeTable({ employees, adminId, onToggle }) {
       {error && (
         <div className="mb-4 flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-600">
           <X size={15} /> {error}
+        </div>
+      )}
+
+      {resetNotice && (
+        <div className="mb-4 flex items-center gap-2 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-bold text-green-700">
+          <Check size={15} /> {resetNotice}
         </div>
       )}
 
@@ -370,7 +468,14 @@ function EmployeeTable({ employees, adminId, onToggle }) {
               </div>
 
               {/* Action */}
-              <div className="ml-auto shrink-0 sm:ml-0">
+              <div className="ml-auto flex shrink-0 items-center gap-2 sm:ml-0">
+                <button
+                  onClick={() => setResetTarget(emp)}
+                  title="Reset Password"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-mme-pink/70 bg-white px-3 py-1.5 text-xs font-black text-mme-purple transition hover:bg-mme-blush/40"
+                >
+                  <RotateCcw size={12} /> Reset Password
+                </button>
                 {emp.id === adminId ? (
                   <span className="text-xs font-bold text-mme-purple/30 italic">You</span>
                 ) : (
@@ -393,6 +498,17 @@ function EmployeeTable({ employees, adminId, onToggle }) {
             </div>
           ))}
         </div>
+      )}
+
+      {resetTarget && (
+        <ResetPasswordModal
+          employee={resetTarget}
+          onClose={() => setResetTarget(null)}
+          onReset={(emp) => {
+            setResetTarget(null);
+            setResetNotice(`Password reset for "${emp.fullName}".`);
+          }}
+        />
       )}
     </div>
   );

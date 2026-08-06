@@ -106,3 +106,26 @@ export async function updateEmployeeStatus(req, res, next) {
     next(error);
   }
 }
+
+// ─── PATCH /api/admin/employees/:id/password ────────────────────────────────
+// Admin sets a new password for an employee; they must change it on next login.
+export async function resetEmployeePassword(req, res, next) {
+  const targetId = Number(req.params.id);
+  const password = String(req.body.password || "").trim();
+
+  if (!password) return res.status(422).json({ message: "Password is required." });
+  if (password.length < 6) {
+    return res.status(422).json({ message: "Password must be at least 6 characters." });
+  }
+
+  try {
+    const passwordHash = await bcrypt.hash(password, 10);
+    await prisma.employee.update({
+      where: { id: targetId },
+      data: { passwordHash, mustChangePassword: true },
+    });
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+}
