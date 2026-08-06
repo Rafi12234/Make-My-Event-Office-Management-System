@@ -6,6 +6,7 @@ import {
   ChevronDown,
   Eye,
   EyeOff,
+  CalendarDays,
   KeyRound,
   LogOut,
   Phone,
@@ -601,6 +602,12 @@ export default function AdminPage() {
               className="inline-flex items-center gap-2 rounded-xl border border-mme-pink/70 bg-white px-3 py-2 text-xs font-black text-mme-purple transition hover:bg-mme-blush/40"
             >
               <Phone size={14} /> Meeting &amp; Call Oversight
+            </Link>
+            <Link
+              to="/admin/calendar"
+              className="inline-flex items-center gap-2 rounded-xl border border-mme-pink/70 bg-white px-3 py-2 text-xs font-black text-mme-purple transition hover:bg-mme-blush/40"
+            >
+              <CalendarDays size={14} /> Company Calendar
             </Link>
             <button
               onClick={handleLogout}

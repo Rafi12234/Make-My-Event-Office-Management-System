@@ -15,6 +15,7 @@ import calendarRoutes from "./routes/calendar.js";
 import authRoutes from "./routes/auth.js";
 import adminRoutes from "./routes/admin.js";
 import adminActivityRoutes from "./routes/adminActivity.js";
+import adminCalendarRoutes from "./routes/adminCalendar.js";
 import meetingRoutes, { uploadsRootDirectory } from "./routes/meetings.js";
 import callRoutes from "./routes/calls.js";
 
@@ -139,6 +140,7 @@ app.use("/api/calendar", requireEmployee, calendarRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin", adminActivityRoutes);
+app.use("/api/admin", adminCalendarRoutes);
 app.use("/api/meetings", requireEmployee, meetingRoutes);
 app.use("/api/calls", requireEmployee, callRoutes);
 

@@ -9,6 +9,8 @@ import CalendarPage from "./pages/CalendarPage";
 import CalendarDayPage from "./pages/CalendarDayPage";
 import AdminPage from "./pages/AdminPage";
 import AdminActivityPage from "./pages/admin/AdminActivityPage";
+import AdminCalendarPage from "./pages/admin/AdminCalendarPage";
+import AdminCalendarDayPage from "./pages/admin/AdminCalendarDayPage";
 import RedirectIfAuthed from "./components/RedirectIfAuthed";
 import RequirePasswordChange from "./components/RequirePasswordChange";
 
@@ -30,6 +32,8 @@ function App() {
       <Route path="/calendar/day/:date" element={<RequirePasswordChange><CalendarDayPage /></RequirePasswordChange>} />
       <Route path="/admin" element={<AdminPage />} />
       <Route path="/admin/activity" element={<AdminActivityPage />} />
+      <Route path="/admin/calendar" element={<AdminCalendarPage />} />
+      <Route path="/admin/calendar/day/:date" element={<AdminCalendarDayPage />} />
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
