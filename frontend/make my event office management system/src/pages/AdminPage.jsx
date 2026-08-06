@@ -8,6 +8,7 @@ import {
   EyeOff,
   KeyRound,
   LogOut,
+  Phone,
   Plus,
   RotateCcw,
   Shield,
@@ -595,6 +596,12 @@ export default function AdminPage() {
               <Shield size={13} className="text-mme-plum" />
               {admin.fullName}
             </div>
+            <Link
+              to="/admin/activity"
+              className="inline-flex items-center gap-2 rounded-xl border border-mme-pink/70 bg-white px-3 py-2 text-xs font-black text-mme-purple transition hover:bg-mme-blush/40"
+            >
+              <Phone size={14} /> Meeting &amp; Call Oversight
+            </Link>
             <button
               onClick={handleLogout}
               className="inline-flex items-center gap-2 rounded-xl border border-mme-pink/70 bg-white px-3 py-2 text-xs font-black text-mme-purple transition hover:bg-red-50 hover:border-red-200 hover:text-red-500"
