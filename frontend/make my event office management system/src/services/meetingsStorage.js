@@ -41,10 +41,10 @@ export async function createMeeting(rowKey, { meetingDatetime, employeeId }) {
   });
 }
 
-export async function updateMeeting(rowKey, meetingId, { meetingDatetime, requirements, employeeId }) {
+export async function updateMeeting(rowKey, meetingId, { meetingDatetime, nextMeetingDatetime, nextMeetingAssignedEmployeeId, requirements, employeeId }) {
   return apiRequest(`/meetings/${rowKey}/${meetingId}`, {
     method: "PUT",
-    body: JSON.stringify({ meetingDatetime, requirements, employeeId }),
+    body: JSON.stringify({ meetingDatetime, nextMeetingDatetime, nextMeetingAssignedEmployeeId, requirements, employeeId }),
   });
 }
 

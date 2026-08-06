@@ -133,6 +133,24 @@ function isPastDatetime(datetimeLocalValue) {
   return value < nowValue;
 }
 
+// "YYYY-MM-DDT00:00" for today, in local wall-clock terms — the next
+// meeting's date can't be earlier than today, but the time of day is
+// unrestricted. Mirrors controllers/callsController.js.
+function todayMinValue() {
+  const today = new Date();
+  const yyyy = today.getFullYear();
+  const mm = String(today.getMonth() + 1).padStart(2, "0");
+  const dd = String(today.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}T00:00`;
+}
+
+// Only compares the date part — the next meeting's time of day is unrestricted.
+function isNextMeetingDateTooEarly(datetimeLocalValue) {
+  const value = String(datetimeLocalValue || "").trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  return value < todayMinValue().slice(0, 10);
+}
+
 function removeUploadedFiles(files) {
   for (const file of files || []) {
     unlink(file.path, () => {});
@@ -285,6 +303,14 @@ export async function listMeetings(req, res, next) {
         createdBy: { select: { fullName: true } },
         updatedBy: { select: { fullName: true } },
         completedBy: { select: { fullName: true } },
+        assignedBy: { select: { fullName: true } },
+        nextMeeting: {
+          select: {
+            nextMeetingDatetime: true,
+            assignedEmployeeId: true,
+            assignedEmployee: { select: { fullName: true } },
+          },
+        },
         images: { orderBy: { id: "asc" } },
         items: {
           include: { images: { orderBy: { id: "asc" } } },
@@ -309,6 +335,10 @@ export async function listMeetings(req, res, next) {
         meetings: meetings.map((meeting) => ({
           id: meeting.id,
           meetingDatetime: formatDateTime(meeting.meetingDatetime),
+          nextMeetingDatetime: formatDateTime(meeting.nextMeeting?.nextMeetingDatetime),
+          nextMeetingAssignedEmployeeId: meeting.nextMeeting?.assignedEmployeeId ?? null,
+          nextMeetingAssignedEmployeeName: meeting.nextMeeting?.assignedEmployee?.fullName || null,
+          assignedByEmployeeName: meeting.assignedBy?.fullName || null,
           requirements: parseRequirements(meeting.requirements),
           isCompleted: Boolean(meeting.isCompleted),
           completedByName: meeting.completedBy?.fullName || null,
@@ -363,17 +393,35 @@ export async function createMeeting(req, res, next) {
   const employeeId = isValidId(req.body.employeeId);
 
   try {
+    // If this client has a pending next-meeting assignment (set on a
+    // previous meeting), this new meeting is fulfilling it — record who
+    // made that assignment so the new meeting card can show "Assigned by <name>".
+    const pendingNextMeeting = await prisma.clientNextMeeting.findFirst({
+      where: { linkedRowKey: rowKey },
+      select: { updatedById: true, createdById: true },
+    });
+    const assignedByEmployeeId = pendingNextMeeting?.updatedById ?? pendingNextMeeting?.createdById ?? null;
+
     const created = await prisma.clientMeeting.create({
       data: {
         linkedRowKey: rowKey,
         meetingDatetime,
         createdById: employeeId,
         updatedById: employeeId,
+        assignedByEmployeeId,
       },
       select: { id: true },
     });
 
     await copyForwardFromPreviousMeeting(rowKey, created.id, employeeId);
+
+    // Logging a new meeting fulfills whatever follow-up was pending from an
+    // earlier meeting, so clear any stale next-meeting schedules for this
+    // client — otherwise an old, already-passed date keeps winning as the
+    // "soonest".
+    await prisma.clientNextMeeting.deleteMany({
+      where: { linkedRowKey: rowKey, meetingId: { not: created.id } },
+    });
 
     res.status(201).json({ data: { id: created.id } });
   } catch (error) {
@@ -391,12 +439,10 @@ export async function updateMeeting(req, res, next) {
     return res.status(400).json({ message: "Invalid reference." });
   }
 
-  if (req.body.meetingDatetime && isPastDatetime(req.body.meetingDatetime)) {
-    return res.status(422).json({ message: "Meeting time cannot be in the past. Please choose the current time or later." });
-  }
-
   const meetingDatetime = parseDateTimeLocal(req.body.meetingDatetime);
+  const nextMeetingDatetime = parseDateTimeLocal(req.body.nextMeetingDatetime);
   const employeeId = isValidId(req.body.employeeId);
+  const nextMeetingAssignedEmployeeId = isValidId(req.body.nextMeetingAssignedEmployeeId);
 
   // `requirements` is legacy (superseded by the Items feature below) and
   // is only touched here if a caller still explicitly sends it, so a plain
@@ -407,6 +453,28 @@ export async function updateMeeting(req, res, next) {
   }
 
   try {
+    // Only re-validate fields the caller is actually changing — otherwise an
+    // untouched meeting time that has since ticked into the past (or an
+    // existing next-meeting date) would block saving unrelated edits.
+    // Mirrors controllers/callsController.js.
+    const existing = await prisma.clientMeeting.findFirst({
+      where: { id, linkedRowKey: rowKey },
+      include: { nextMeeting: { select: { nextMeetingDatetime: true } } },
+    });
+    if (!existing) {
+      return res.status(404).json({ message: "Meeting not found." });
+    }
+
+    const meetingDatetimeChanged = formatDateTime(existing.meetingDatetime) !== formatDateTime(meetingDatetime);
+    if (meetingDatetimeChanged && req.body.meetingDatetime && isPastDatetime(req.body.meetingDatetime)) {
+      return res.status(422).json({ message: "Meeting time cannot be in the past. Please choose the current time or later." });
+    }
+
+    const nextMeetingDatetimeChanged = formatDateTime(existing.nextMeeting?.nextMeetingDatetime) !== formatDateTime(nextMeetingDatetime);
+    if (nextMeetingDatetimeChanged && req.body.nextMeetingDatetime && isNextMeetingDateTooEarly(req.body.nextMeetingDatetime)) {
+      return res.status(422).json({ message: "Next meeting date cannot be before today. Any time of day is fine." });
+    }
+
     const result = await prisma.clientMeeting.updateMany({
       where: { id, linkedRowKey: rowKey },
       data,
@@ -414,6 +482,23 @@ export async function updateMeeting(req, res, next) {
 
     if (!result.count) {
       return res.status(404).json({ message: "Meeting not found." });
+    }
+
+    if (nextMeetingDatetime) {
+      await prisma.clientNextMeeting.upsert({
+        where: { meetingId: id },
+        create: {
+          meetingId: id,
+          linkedRowKey: rowKey,
+          nextMeetingDatetime,
+          assignedEmployeeId: nextMeetingAssignedEmployeeId,
+          createdById: employeeId,
+          updatedById: employeeId,
+        },
+        update: { nextMeetingDatetime, assignedEmployeeId: nextMeetingAssignedEmployeeId, updatedById: employeeId },
+      });
+    } else {
+      await prisma.clientNextMeeting.deleteMany({ where: { meetingId: id } });
     }
 
     res.json({ data: { id } });
@@ -573,6 +658,10 @@ export async function deleteMeeting(req, res, next) {
     if (!result.count) {
       return res.status(404).json({ message: "Meeting not found." });
     }
+
+    // Any prior finalization was based on the client's full image set at the
+    // time — removing a meeting invalidates it, so the employee must re-finalize.
+    await prisma.clientFinalization.deleteMany({ where: { linkedRowKey: rowKey } });
 
     for (const image of images) {
       await deleteImageFileIfUnreferenced(image.storedFileName);
