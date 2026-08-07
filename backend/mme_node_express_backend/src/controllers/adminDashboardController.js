@@ -69,6 +69,8 @@ export async function getAdminDashboard(req, res, next) {
       activeRows,
     ] = await Promise.all([
       prisma.employee.findMany({
+        // Admins aren't employees — exclude them from the dashboard's staff list/stats.
+        where: { role: { name: { not: "Admin" } } },
         include: { role: true },
         orderBy: { fullName: "asc" },
       }),

@@ -46,6 +46,9 @@ export async function identifyEmployee(req, res, next) {
     if (!employee.isActive) {
       return res.status(403).json({ message: "Your account has been deactivated. Contact your admin." });
     }
+    if (employee.role?.name === "Admin") {
+      return res.status(403).json({ message: "Admin accounts must log in through the Admin Panel, not the Employee Portal." });
+    }
     if (!employee.passwordHash) {
       return res.status(401).json({ message: "Password not set for this account. Contact your admin." });
     }
