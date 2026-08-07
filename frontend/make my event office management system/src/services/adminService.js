@@ -60,3 +60,15 @@ export async function toggleEmployeeActive(employeeId, isActive) {
   if (!res.ok) throw new Error(body.message || "Could not update employee.");
   return body;
 }
+
+export async function resetEmployeePassword(employeeId, password) {
+  const res = await fetch(`${API_BASE_URL}/admin/employees/${employeeId}/password`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.message || "Could not reset password.");
+  return body;
+}
