@@ -186,3 +186,126 @@ export async function getAdminDashboard(req, res, next) {
   }
 }
 
+// Mirrors adminCalendarController.js's cellValueFromRow so this page shows
+// every worksheet column using the same value-extraction rules everywhere.
+function cellValueFromRow(cell, dataType) {
+  if (dataType === "boolean")                          return cell.valueBoolean;
+  if (dataType === "integer")                          return cell.valueInteger;
+  if (["decimal", "currency"].includes(dataType))      return cell.valueDecimal;
+  if (dataType === "date")                             return formatDateOnly(cell.valueDate) || "";
+  if (dataType === "time")                             return formatTimeOnly(cell.valueTime) || "";
+  if (["datetime", "last_meeting_time", "next_meeting_time"].includes(dataType)) return formatDateTime(cell.valueDatetime) || "";
+  if (dataType === "employee")                         return cell.valueEmployee?.fullName || cell.displayValue || "";
+  return cell.valueText ?? cell.displayValue ?? "";
+}
+
+// ─── GET /api/admin/dashboard/clients/:rowKey — one client's full profile ──
+export async function getClientDetail(req, res, next) {
+  try {
+    const rowKey = String(req.params.rowKey || "").trim();
+    if (!rowKey) return res.status(400).json({ message: "A client row key is required." });
+
+    const sheetId = await getDefaultSheetId();
+    if (!sheetId) return res.status(404).json({ message: "No active worksheet found." });
+
+    const [row, allColumns, meetings, calls, finalization, timesByRowKey] = await Promise.all([
+      prisma.sheetRow.findFirst({
+        where: { sheetId, rowKey },
+        select: { rowKey: true, createdAt: true, isArchived: true },
+      }),
+      prisma.sheetColumn.findMany({
+        where: { sheetId, isActive: true },
+        orderBy: [{ displayOrder: "asc" }, { id: "asc" }],
+      }),
+      prisma.clientMeeting.findMany({
+        where: { linkedRowKey: rowKey },
+        include: {
+          createdBy: { select: { fullName: true } },
+          completedBy: { select: { fullName: true } },
+          assignedBy: { select: { fullName: true } },
+          nextMeeting: { include: { assignedEmployee: { select: { fullName: true } } } },
+        },
+        orderBy: { id: "desc" },
+      }),
+      prisma.clientCall.findMany({
+        where: { linkedRowKey: rowKey },
+        include: {
+          createdBy: { select: { fullName: true } },
+          assignedBy: { select: { fullName: true } },
+          nextCall: { include: { assignedEmployee: { select: { fullName: true } } } },
+        },
+        orderBy: { id: "desc" },
+      }),
+      prisma.clientFinalization.findUnique({
+        where: { linkedRowKey: rowKey },
+        include: { finalizedBy: { select: { fullName: true } } },
+      }),
+      computeMeetingCallTimes([rowKey]),
+    ]);
+
+    if (!row) return res.status(404).json({ message: "Client not found." });
+
+    const cells = await prisma.sheetCell.findMany({
+      where: { row: { sheetId, rowKey }, columnId: { in: allColumns.map((c) => c.id) } },
+      include: { valueEmployee: { select: { fullName: true } } },
+    });
+    const cellByColumnId = new Map(cells.map((c) => [c.columnId, c]));
+    const times = timesByRowKey.get(rowKey);
+
+    const columns = allColumns.map((col) => {
+      if (col.dataType === "last_meeting_time") {
+        return { name: col.columnName, value: formatDateTime(times?.lastMeeting || times?.lastCall) || "" };
+      }
+      if (col.dataType === "next_meeting_time") {
+        return { name: col.columnName, value: formatDateTime(times?.nextMeeting || times?.nextCall) || "" };
+      }
+      const cell = cellByColumnId.get(col.id);
+      return { name: col.columnName, value: cell ? cellValueFromRow(cell, col.dataType) : "" };
+    });
+
+    res.json({
+      data: {
+        rowKey: row.rowKey,
+        columns,
+        totals: { meetingsCount: meetings.length, callsCount: calls.length },
+        finalization: finalization
+          ? {
+              finalizedAt: formatDateTime(finalization.finalizedAt),
+              finalizedByName: finalization.finalizedBy?.fullName || null,
+            }
+          : null,
+        meetings: meetings.map((m) => ({
+          id: m.id,
+          meetingDatetime: formatDateTime(m.meetingDatetime),
+          isCompleted: m.isCompleted,
+          discussionNotes: m.discussionNotes,
+          createdByName: m.createdBy?.fullName || null,
+          completedByName: m.completedBy?.fullName || null,
+          assignedByEmployeeName: m.assignedBy?.fullName || null,
+          nextMeeting: m.nextMeeting
+            ? {
+                nextMeetingDatetime: formatDateTime(m.nextMeeting.nextMeetingDatetime),
+                assignedEmployeeName: m.nextMeeting.assignedEmployee?.fullName || null,
+              }
+            : null,
+        })),
+        calls: calls.map((c) => ({
+          id: c.id,
+          callDatetime: formatDateTime(c.callDatetime),
+          callDiscussion: c.callDiscussion,
+          createdByName: c.createdBy?.fullName || null,
+          assignedByEmployeeName: c.assignedBy?.fullName || null,
+          nextCall: c.nextCall
+            ? {
+                nextCallDatetime: formatDateTime(c.nextCall.nextCallDatetime),
+                assignedEmployeeName: c.nextCall.assignedEmployee?.fullName || null,
+              }
+            : null,
+        })),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
