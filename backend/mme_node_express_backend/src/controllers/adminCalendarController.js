@@ -172,23 +172,33 @@ export async function getAdminCalendarMonth(req, res, next) {
         select: {
           id: true, linkedRowKey: true, meetingDatetime: true, isCompleted: true,
           discussionNotes: true, requirements: true, createdById: true,
-          nextMeeting: { select: { nextMeetingDatetime: true } },
+          nextMeeting: {
+            select: {
+              nextMeetingDatetime: true, assignedEmployeeId: true,
+              assignedEmployee: { select: { fullName: true } },
+            },
+          },
         },
       }),
       prisma.clientCall.findMany({
         where: { callDatetime: { gte: rangeStart, lte: rangeEnd } },
         select: {
           id: true, linkedRowKey: true, callDatetime: true, callDiscussion: true, createdById: true,
-          nextCall: { select: { nextCallDatetime: true } },
+          nextCall: {
+            select: {
+              nextCallDatetime: true, assignedEmployeeId: true,
+              assignedEmployee: { select: { fullName: true } },
+            },
+          },
         },
       }),
       prisma.clientNextMeeting.findMany({
         where: { nextMeetingDatetime: { gte: rangeStart, lte: rangeEnd } },
-        select: { id: true, linkedRowKey: true, nextMeetingDatetime: true, assignedEmployeeId: true, createdById: true },
+        select: { id: true, meetingId: true, linkedRowKey: true, nextMeetingDatetime: true, assignedEmployeeId: true, createdById: true },
       }),
       prisma.clientNextCall.findMany({
         where: { nextCallDatetime: { gte: rangeStart, lte: rangeEnd } },
-        select: { id: true, linkedRowKey: true, nextCallDatetime: true, assignedEmployeeId: true, createdById: true },
+        select: { id: true, callId: true, linkedRowKey: true, nextCallDatetime: true, assignedEmployeeId: true, createdById: true },
       }),
     ]);
 
@@ -214,7 +224,10 @@ export async function getAdminCalendarMonth(req, res, next) {
         notes: m.discussionNotes,
         requirements: m.requirements || null,
         isCompleted: m.isCompleted,
+        meetingId: m.id,
         nextMeetingDatetime: formatDateTime(m.nextMeeting?.nextMeetingDatetime),
+        nextMeetingAssignedEmployeeId: m.nextMeeting?.assignedEmployeeId ?? null,
+        nextMeetingAssignedEmployeeName: m.nextMeeting?.assignedEmployee?.fullName || null,
         ...employeeTag(m.createdById),
       });
     }
@@ -228,7 +241,10 @@ export async function getAdminCalendarMonth(req, res, next) {
         clientName: namesByRowKey.get(c.linkedRowKey) || "",
         rowKey: c.linkedRowKey,
         notes: c.callDiscussion,
+        callId: c.id,
         nextCallDatetime: formatDateTime(c.nextCall?.nextCallDatetime),
+        nextCallAssignedEmployeeId: c.nextCall?.assignedEmployeeId ?? null,
+        nextCallAssignedEmployeeName: c.nextCall?.assignedEmployee?.fullName || null,
         ...employeeTag(c.createdById),
       });
     }
@@ -242,6 +258,8 @@ export async function getAdminCalendarMonth(req, res, next) {
         clientName: namesByRowKey.get(n.linkedRowKey) || "",
         rowKey: n.linkedRowKey,
         missed: n.nextMeetingDatetime < now,
+        meetingId: n.meetingId,
+        assignedEmployeeIdRaw: n.assignedEmployeeId,
         ...employeeTag(n.assignedEmployeeId || n.createdById),
       });
     }
@@ -255,6 +273,8 @@ export async function getAdminCalendarMonth(req, res, next) {
         clientName: namesByRowKey.get(n.linkedRowKey) || "",
         rowKey: n.linkedRowKey,
         missed: n.nextCallDatetime < now,
+        callId: n.callId,
+        assignedEmployeeIdRaw: n.assignedEmployeeId,
         ...employeeTag(n.assignedEmployeeId || n.createdById),
       });
     }
