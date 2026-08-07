@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import { prisma } from "../config/prisma.js";
 import { setEmployeeCookie, SESSION_COOKIE } from "../middleware/employeeAuth.js";
+import { isValidAdminSession } from "../middleware/adminAuth.js";
 
 const PASSWORD_MIN_LENGTH = 6;
 
