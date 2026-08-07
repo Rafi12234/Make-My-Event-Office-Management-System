@@ -1,5 +1,5 @@
 import { prisma } from "../config/prisma.js";
-import { formatDateOnly, formatTimeOnly, formatDateTime, parseDateOnly, parseTimeOnly } from "../utils/dbDates.js";
+import { formatDateOnly, formatTimeOnly, formatDateTime, parseDateOnly, parseTimeOnly, nowInBusinessTimezone } from "../utils/dbDates.js";
 import { computeMeetingCallTimes } from "../utils/meetingCallTimes.js";
 
 // ─── Helpers ───────────────────────────────────────────────────
@@ -48,8 +48,9 @@ function cellValueFromRow(cell, dataType) {
 // ─── GET /api/calendar?year=YYYY&month=M ───────────────────────
 
 export async function getCalendarMonth(req, res, next) {
-  const year  = parseInt(req.query.year,  10) || new Date().getFullYear();
-  const month = parseInt(req.query.month, 10) || (new Date().getMonth() + 1);
+  const businessNow = nowInBusinessTimezone();
+  const year  = parseInt(req.query.year,  10) || businessNow.getUTCFullYear();
+  const month = parseInt(req.query.month, 10) || (businessNow.getUTCMonth() + 1);
 
   // Calendar is personalised — every employee only ever sees the meetings,
   // calls, and events THEY created, never anyone else's. `req.employee` is
@@ -152,13 +153,30 @@ export async function getCalendarMonth(req, res, next) {
       // ── Scheduled next-call events (the "Next Meeting Call Date & Time"
       // set from a call card) — shown on the day it's scheduled for, not the
       // day the call was logged, so employees see upcoming follow-ups too.
+      // The assignee dropdown always defaults to the creator when nobody
+      // else is picked, so assignedEmployeeId alone is the source of truth
+      // for "whose calendar this belongs on" — this is what keeps a next
+      // call/meeting off the assigner's calendar once it's handed to someone else.
       let nextCallRows = [];
       if (activeRowKeys.length) {
         nextCallRows = await prisma.clientNextCall.findMany({
           where: {
             linkedRowKey: { in: activeRowKeys },
             nextCallDatetime: { gte: rangeStart, lte: rangeEnd },
-            createdById: employeeId,
+            assignedEmployeeId: employeeId,
+          },
+        });
+      }
+
+      // ── Scheduled next-meeting events (the "Next Meeting Date & Time" set
+      // from a meeting card) — same idea as next-call, above.
+      let nextMeetingRows = [];
+      if (activeRowKeys.length) {
+        nextMeetingRows = await prisma.clientNextMeeting.findMany({
+          where: {
+            linkedRowKey: { in: activeRowKeys },
+            nextMeetingDatetime: { gte: rangeStart, lte: rangeEnd },
+            assignedEmployeeId: employeeId,
           },
         });
       }
@@ -173,6 +191,7 @@ export async function getCalendarMonth(req, res, next) {
         ...meetingRows.map((m) => m.linkedRowKey),
         ...callRows.map((c) => c.linkedRowKey),
         ...nextCallRows.map((n) => n.linkedRowKey),
+        ...nextMeetingRows.map((n) => n.linkedRowKey),
       ]);
 
       if (relevantRowKeys.size) {
@@ -301,13 +320,37 @@ export async function getCalendarMonth(req, res, next) {
           clientName,
           rowData,
           eventType:   "upcoming",
+          isAssignedToMe: nextCall.assignedEmployeeId === employeeId && nextCall.createdById !== employeeId,
+        });
+      }
+
+      // ── Build scheduled next-meeting events ───────────────────
+      for (const nextMeeting of nextMeetingRows) {
+        const rowData    = rowDataByKey.get(nextMeeting.linkedRowKey) || {};
+        const clientName = clientNameCol ? (rowData[clientNameCol.columnKey] || "") : "";
+
+        events.push({
+          id:          `ncm_${nextMeeting.id}`,
+          source:      "client_next_meeting",
+          date:        extractDate(nextMeeting.nextMeetingDatetime),
+          time:        extractTime(nextMeeting.nextMeetingDatetime),
+          title:       clientName ? `Next meeting with ${clientName}` : "Upcoming client meeting",
+          rowKey:      nextMeeting.linkedRowKey,
+          clientName,
+          rowData,
+          eventType:   "upcoming",
+          isAssignedToMe: nextMeeting.assignedEmployeeId === employeeId && nextMeeting.createdById !== employeeId,
         });
       }
     }
 
     // ── Manual calendar events ────────────────────────────────
+    // Visible if I created it myself OR someone assigned it to me.
     const manualEvents = await prisma.calendarEvent.findMany({
-      where: { eventDate: { gte: rangeStart, lte: rangeEnd }, createdById: employeeId },
+      where: {
+        eventDate: { gte: rangeStart, lte: rangeEnd },
+        OR: [{ createdById: employeeId }, { assignedEmployeeId: employeeId }],
+      },
       include: { assignedEmployee: { select: { fullName: true } } },
       orderBy: [{ eventDate: "asc" }, { eventTime: "asc" }],
     });
@@ -328,6 +371,7 @@ export async function getCalendarMonth(req, res, next) {
         status:           ev.status,
         linkedRowKey:     ev.linkedRowKey || null,
         assignedEmployee: ev.assignedEmployee?.fullName || null,
+        isAssignedToMe:   ev.assignedEmployeeId === employeeId && ev.createdById !== employeeId,
       });
     }
 

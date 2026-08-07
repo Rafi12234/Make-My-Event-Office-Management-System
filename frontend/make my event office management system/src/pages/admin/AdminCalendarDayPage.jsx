@@ -1,17 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import {
   CalendarDays,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  LogOut,
   Pencil,
   Phone,
-  Shield,
   X,
 } from "lucide-react";
 import BackButton from "../../components/BackButton";
+import AdminLayout from "../../components/AdminLayout";
 import { adminLogout, fetchAdminMe, fetchAllEmployees } from "../../services/adminService";
 import { fetchAdminCalendarMonth } from "../../services/adminCalendarService";
 import { updateNextCallSchedule, updateNextMeetingSchedule } from "../../services/adminActivityService";
@@ -73,14 +72,14 @@ function shiftDate(iso, delta) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-// "YYYY-MM-DD HH:MM:SS" (backend shape) → "YYYY-MM-DDTHH:MM" (datetime-local input shape).
+// "YYYY-MM-DD HH:MM:SS" (backend shape) ΓåÆ "YYYY-MM-DDTHH:MM" (datetime-local input shape).
 function toDatetimeLocalValue(dbDatetime) {
   if (!dbDatetime) return "";
   return dbDatetime.replace(" ", "T").slice(0, 16);
 }
 
 // Every event card (meeting, call, or their next-schedule marker) maps back
-// to one editable next-meeting/next-call record — this resolves which one,
+// to one editable next-meeting/next-call record ΓÇö this resolves which one,
 // regardless of which card the admin clicked.
 function getEditContext(ev) {
   if (ev.source === "meeting") {
@@ -98,7 +97,7 @@ function getEditContext(ev) {
   return null;
 }
 
-// ─── Edit Next Schedule Modal (moved here from AdminActivityPage) ────────────────────
+// ΓöÇΓöÇΓöÇ Edit Next Schedule Modal (moved here from AdminActivityPage) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 function EditScheduleModal({ label, initialDatetime, initialAssignedEmployeeId, employees, onClose, onSave }) {
   const [datetime, setDatetime] = useState(toDatetimeLocalValue(initialDatetime));
   const [assignedEmployeeId, setAssignedEmployeeId] = useState(
@@ -187,7 +186,7 @@ function EditScheduleModal({ label, initialDatetime, initialAssignedEmployeeId, 
                 disabled={loading}
                 className="flex-1 rounded-2xl bg-mme-purple px-5 py-2.5 text-sm font-black text-white transition hover:bg-[#4b2c55] disabled:opacity-60"
               >
-                {loading ? "Saving…" : "Save"}
+                {loading ? "SavingΓÇª" : "Save"}
               </button>
             </div>
           </form>
@@ -213,7 +212,7 @@ export default function AdminCalendarDayPage() {
   useEffect(() => {
     fetchAdminMe()
       .then((me) => {
-        if (!me) return navigate("/admin", { replace: true });
+        if (!me) return navigate("/admin/login", { replace: true });
         setAdmin(me);
       })
       .finally(() => setCheckingSession(false));
@@ -259,7 +258,7 @@ export default function AdminCalendarDayPage() {
 
   async function handleLogout() {
     await adminLogout();
-    navigate("/admin", { replace: true });
+    navigate("/admin/login", { replace: true });
   }
 
   async function handleSave({ datetime, assignedEmployeeId }) {
@@ -277,28 +276,7 @@ export default function AdminCalendarDayPage() {
   if (checkingSession || !admin) return null;
 
   return (
-    <div className="min-h-screen bg-[#fff9fc]">
-      <header className="sticky top-0 z-40 border-b border-mme-pink/50 bg-white/90 backdrop-blur-md">
-        <div className="mx-auto flex max-w-350 items-center justify-between px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-mme-purple font-black text-white shadow-lg shadow-mme-purple/20">
-              <Shield size={20} />
-            </div>
-            <div>
-              <p className="text-base font-black text-mme-purple sm:text-lg">Admin Portal</p>
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-mme-plum sm:text-xs">Make My Event</p>
-            </div>
-          </div>
-          <button
-            onClick={handleLogout}
-            className="inline-flex items-center gap-2 rounded-xl border border-mme-pink/70 bg-white px-3 py-2 text-xs font-black text-mme-purple transition hover:bg-red-50 hover:border-red-200 hover:text-red-500"
-          >
-            <LogOut size={14} /> Logout
-          </button>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-350 px-4 py-8 sm:px-6">
+    <AdminLayout admin={admin} onLogout={handleLogout}>
         <div className="mb-5">
           <BackButton to="/admin/calendar" title="Back to calendar" />
         </div>
@@ -375,9 +353,9 @@ export default function AdminCalendarDayPage() {
                         <div className="min-w-0 flex-1">
                           <p className="truncate font-black text-mme-purple">{ev.clientName || "Unnamed client"}</p>
                           <p className="text-xs font-bold text-mme-purple/55">
-                            {EVENT_LABELS[ev.source] || ev.source}{ev.time ? ` · ${to12h(ev.time)}` : ""}
-                            {ev.isCompleted ? " · Completed" : ""}
-                            {ev.missed ? " · Missed" : ""}
+                            {EVENT_LABELS[ev.source] || ev.source}{ev.time ? ` ┬╖ ${to12h(ev.time)}` : ""}
+                            {ev.isCompleted ? " ┬╖ Completed" : ""}
+                            {ev.missed ? " ┬╖ Missed" : ""}
                           </p>
 
                           {detailFields.length > 0 && (
@@ -432,7 +410,6 @@ export default function AdminCalendarDayPage() {
             ))}
           </div>
         )}
-      </main>
 
       {editing && (
         <EditScheduleModal
@@ -444,6 +421,6 @@ export default function AdminCalendarDayPage() {
           onSave={handleSave}
         />
       )}
-    </div>
+    </AdminLayout>
   );
 }

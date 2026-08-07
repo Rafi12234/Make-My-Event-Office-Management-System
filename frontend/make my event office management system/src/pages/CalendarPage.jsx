@@ -214,11 +214,14 @@ function ClientHoverCard({ clientName, rowData, columns, extras, rect, selectedD
   const nextCallsOnDate = selectedDate
     ? calls.filter((c) => c.nextCallDatetime && extractIsoDate(c.nextCallDatetime) === selectedDate)
     : calls.filter((c) => c.nextCallDatetime);
+  const nextMeetingsOnDate = selectedDate
+    ? meetings.filter((m) => m.nextMeetingDatetime && extractIsoDate(m.nextMeetingDatetime) === selectedDate)
+    : meetings.filter((m) => m.nextMeetingDatetime);
 
   // A lot of content is easier to scan spread across two columns than
   // stretched into one very tall card — and it means the card never needs
   // an inner scrollbar no matter how much history a client has.
-  const wide  = detailFields.length + meetingsOnDate.length + callsOnDate.length + nextCallsOnDate.length > 6;
+  const wide  = detailFields.length + meetingsOnDate.length + callsOnDate.length + nextCallsOnDate.length + nextMeetingsOnDate.length > 6;
   const style = computeTooltipStyle(rect, { wide });
 
   return (
@@ -330,6 +333,11 @@ function ClientHoverCard({ clientName, rowData, columns, extras, rect, selectedD
                         <p className={`text-xs font-black ${missed ? "text-red-600" : "text-black"}`}>
                           {formatDisplayDatetime(c.nextCallDatetime)}{missed ? " · Missed" : ""}
                         </p>
+                        {c.nextCallAssignedEmployeeName && (
+                          <p className="mt-1 text-[11px] font-bold text-black/60">
+                            Assigned to {c.nextCallAssignedEmployeeName}
+                          </p>
+                        )}
                       </div>
                     );
                   })}
@@ -337,7 +345,30 @@ function ClientHoverCard({ clientName, rowData, columns, extras, rect, selectedD
               </div>
             )}
 
-            {meetingsOnDate.length === 0 && callsOnDate.length === 0 && nextCallsOnDate.length === 0 && (
+            {nextMeetingsOnDate.length > 0 && (
+              <div className="mt-3 break-inside-avoid-column">
+                <p className="break-after-[avoid-column] text-[10px] font-black uppercase tracking-widest text-black/50">Next Meeting Scheduled</p>
+                <div className="mt-1.5 space-y-2">
+                  {nextMeetingsOnDate.map((m) => {
+                    const missed = isOverdueDatetime(m.nextMeetingDatetime);
+                    return (
+                      <div key={`next-meeting-${m.id}`} className={`break-inside-avoid-column rounded-lg border p-2.5 ${missed ? "border-red-200 bg-red-50" : "border-[#d6d6d6]/50"}`}>
+                        <p className={`text-xs font-black ${missed ? "text-red-600" : "text-black"}`}>
+                          {formatDisplayDatetime(m.nextMeetingDatetime)}{missed ? " · Missed" : ""}
+                        </p>
+                        {m.nextMeetingAssignedEmployeeName && (
+                          <p className="mt-1 text-[11px] font-bold text-black/60">
+                            Assigned to {m.nextMeetingAssignedEmployeeName}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {meetingsOnDate.length === 0 && callsOnDate.length === 0 && nextCallsOnDate.length === 0 && nextMeetingsOnDate.length === 0 && (
               <p className="mt-3 text-xs font-bold text-black/40">No meeting or call details for this date.</p>
             )}
           </>
@@ -376,9 +407,9 @@ export default function CalendarPage() {
   }, [events]);
 
   // Client-linked events (worksheet, client_meeting, client_call,
-  // client_next_call) grouped by date, then by rowKey — so each client shows
-  // as a single grid pill saying which of Meeting / Call details are
-  // available for that day.
+  // client_next_call, client_next_meeting) grouped by date, then by rowKey —
+  // so each client shows as a single grid pill saying which of Meeting /
+  // Call details are available for that day.
   const clientsByDate = useMemo(() => {
     const map = new Map();
     for (const ev of events) {
@@ -393,7 +424,9 @@ export default function CalendarPage() {
           hasMeetingActivity: false,
           hasCallActivity: false,
           hasNextCallActivity: false,
+          hasNextMeetingActivity: false,
           nextCallOverdue: false,
+          nextMeetingOverdue: false,
         });
       }
       const client = dayMap.get(ev.rowKey);
@@ -403,6 +436,10 @@ export default function CalendarPage() {
       if (ev.source === "client_next_call") {
         client.hasNextCallActivity = true;
         if (isOverdueDatetime(`${ev.date}T${ev.time || "00:00"}`)) client.nextCallOverdue = true;
+      }
+      if (ev.source === "client_next_meeting") {
+        client.hasNextMeetingActivity = true;
+        if (isOverdueDatetime(`${ev.date}T${ev.time || "00:00"}`)) client.nextMeetingOverdue = true;
       }
     }
     const result = new Map();
@@ -710,18 +747,29 @@ export default function CalendarPage() {
                         {visible.map((item) => {
                           if (item.kind === "client") {
                             const c = item.data;
-                            // A next-call schedule left unfulfilled (no new call/meeting logged
-                            // that day) surfaces as a distinct "Missed Call" pill, not a silent
-                            // "Upcoming Call" that never changes once the time has passed.
-                            const isMissedOnly = c.nextCallOverdue && !c.hasMeetingActivity && !c.hasCallActivity;
-                            const label = c.hasMeetingActivity && (c.hasCallActivity || c.hasNextCallActivity)
+                            // A next-call/next-meeting schedule left unfulfilled (no new
+                            // call/meeting logged that day) surfaces as a distinct "Missed"
+                            // pill, not a silent "Upcoming" one that never changes once the
+                            // time has passed.
+                            const missedCall = c.nextCallOverdue && !c.hasMeetingActivity && !c.hasCallActivity;
+                            const missedMeeting = c.nextMeetingOverdue && !c.hasMeetingActivity && !c.hasCallActivity;
+                            const isMissedOnly = missedCall || missedMeeting;
+                            const label = c.hasMeetingActivity && (c.hasCallActivity || c.hasNextCallActivity || c.hasNextMeetingActivity)
                               ? "Meeting & Call"
                               : c.hasMeetingActivity
                               ? "Meeting"
                               : c.hasCallActivity
                               ? "Call"
-                              : isMissedOnly
+                              : missedCall && missedMeeting
+                              ? "Missed Follow-ups"
+                              : missedCall
                               ? "Missed Call"
+                              : missedMeeting
+                              ? "Missed Meeting"
+                              : c.hasNextCallActivity && c.hasNextMeetingActivity
+                              ? "Upcoming Call & Meeting"
+                              : c.hasNextMeetingActivity
+                              ? "Upcoming Meeting"
                               : "Upcoming Call";
                             return (
                               <div

@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import { prisma } from "../config/prisma.js";
 import { setEmployeeCookie, SESSION_COOKIE } from "../middleware/employeeAuth.js";
+import { isValidAdminSession } from "../middleware/adminAuth.js";
 
 const PASSWORD_MIN_LENGTH = 6;
 
@@ -23,6 +24,14 @@ export async function identifyEmployee(req, res, next) {
 
   if (!email || !password) {
     return res.status(422).json({ message: "Email and password are required." });
+  }
+
+  // An active Admin Panel session must be logged out of first — an account
+  // can never be signed in as both an admin and an employee at once.
+  if (isValidAdminSession(req)) {
+    return res.status(409).json({
+      message: "You're already logged in on the Admin Panel. Log out from there first.",
+    });
   }
 
   try {

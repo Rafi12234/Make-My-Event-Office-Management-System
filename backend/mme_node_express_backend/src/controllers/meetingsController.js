@@ -4,7 +4,7 @@ import { mkdirSync, unlink } from "node:fs";
 import { fileURLToPath } from "node:url";
 import multer from "multer";
 import { prisma } from "../config/prisma.js";
-import { formatDateTime, parseDateTimeLocal } from "../utils/dbDates.js";
+import { formatDateTime, parseDateTimeLocal, nowMinValue, todayMinValue } from "../utils/dbDates.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -127,21 +127,7 @@ function isPastDatetime(datetimeLocalValue) {
   const value = String(datetimeLocalValue || "").trim().slice(0, 16);
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return false;
 
-  const now = new Date();
-  const nowValue = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}T${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-
-  return value < nowValue;
-}
-
-// "YYYY-MM-DDT00:00" for today, in local wall-clock terms — the next
-// meeting's date can't be earlier than today, but the time of day is
-// unrestricted. Mirrors controllers/callsController.js.
-function todayMinValue() {
-  const today = new Date();
-  const yyyy = today.getFullYear();
-  const mm = String(today.getMonth() + 1).padStart(2, "0");
-  const dd = String(today.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}T00:00`;
+  return value < nowMinValue();
 }
 
 // Only compares the date part — the next meeting's time of day is unrestricted.
@@ -317,7 +303,9 @@ export async function listMeetings(req, res, next) {
           orderBy: { id: "asc" },
         },
       },
-      orderBy: [{ meetingDatetime: { sort: "asc", nulls: "last" } }, { id: "asc" }],
+      // Newest-created first so a freshly added (still unscheduled) meeting
+      // appears at the top of the list instead of sinking to the bottom.
+      orderBy: { id: "desc" },
     });
 
     const finalization = await prisma.clientFinalization.findUnique({
