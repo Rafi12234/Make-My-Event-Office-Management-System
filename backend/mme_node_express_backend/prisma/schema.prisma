@@ -15,6 +15,8 @@ model Employee {
   mustChangePassword Boolean @default(true) @map("must_change_password")
   createdById  BigInt?   @map("created_by") @db.UnsignedBigInt
   isActive     Boolean?  @default(true) @map("is_active")
+  // Fixed calendar-legend color for this employee (admin panel, feature 3).
+  colorHex     String?   @map("color_hex") @db.VarChar(7)
   lastUsedAt   DateTime? @map("last_used_at") @db.DateTime(0)
   createdAt    DateTime? @default(now()) @map("created_at") @db.DateTime(0)
   updatedAt    DateTime? @default(now()) @map("updated_at") @db.DateTime(0)
