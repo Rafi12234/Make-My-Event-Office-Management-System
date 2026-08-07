@@ -8,6 +8,9 @@ import ClientCallsPage from "./pages/ClientCallsPage";
 import CalendarPage from "./pages/CalendarPage";
 import CalendarDayPage from "./pages/CalendarDayPage";
 import AdminPage from "./pages/AdminPage";
+import AdminDashboardPage from "./pages/AdminDashboardPage";
+import AdminClientDetailPage from "./pages/AdminClientDetailPage";
+import AdminLoginPage from "./pages/AdminLoginPage";
 import AdminActivityPage from "./pages/admin/AdminActivityPage";
 import AdminCalendarPage from "./pages/admin/AdminCalendarPage";
 import AdminCalendarDayPage from "./pages/admin/AdminCalendarDayPage";
@@ -30,7 +33,11 @@ function App() {
       <Route path="/management/calls/:rowKey" element={<RequirePasswordChange><ClientCallsPage /></RequirePasswordChange>} />
       <Route path="/calendar" element={<RequirePasswordChange><CalendarPage /></RequirePasswordChange>} />
       <Route path="/calendar/day/:date" element={<RequirePasswordChange><CalendarDayPage /></RequirePasswordChange>} />
-      <Route path="/admin" element={<AdminPage />} />
+      <Route path="/admin" element={<Navigate to="/admin-dashboard" replace />} />
+      <Route path="/admin-dashboard" element={<AdminDashboardPage />} />
+      <Route path="/admin-dashboard/clients/:rowKey" element={<AdminClientDetailPage />} />
+      <Route path="/admin-employee-management" element={<AdminPage />} />
+      <Route path="/admin/login" element={<AdminLoginPage />} />
       <Route path="/admin/activity" element={<AdminActivityPage />} />
       <Route path="/admin/calendar" element={<AdminCalendarPage />} />
       <Route path="/admin/calendar/day/:date" element={<AdminCalendarDayPage />} />
