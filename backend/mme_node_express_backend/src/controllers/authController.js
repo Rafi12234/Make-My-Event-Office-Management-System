@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import { prisma } from "../config/prisma.js";
 import { setAdminCookie } from "../middleware/adminAuth.js";
+import { isValidSession } from "../middleware/employeeAuth.js";
 
 /**
  * POST /api/auth/admin-login
