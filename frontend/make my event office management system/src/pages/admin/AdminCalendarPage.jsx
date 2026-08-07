@@ -96,6 +96,31 @@ function formatColValue(type, value) {
   return s;
 }
 
+// "Last/Next Meeting Time" columns actually track whichever of a meeting or
+// a call happened/comes next. A client's hover card can list both a meeting
+// and a call the same day, so — unlike the per-event Day page — split each
+// such column into its own "Meeting"-labeled and/or "Call"-labeled row,
+// shown only for the kinds of events this client actually has that day.
+function buildDetailFields(worksheetColumns, clientRowData, clientEvents) {
+  const hasMeeting = (clientEvents || []).some((ev) => ev.source === "meeting" || ev.source === "next_meeting");
+  const hasCall    = (clientEvents || []).some((ev) => ev.source === "call" || ev.source === "next_call");
+
+  const fields = [];
+  for (const col of worksheetColumns || []) {
+    if (col.name === "Client Name" || col.type === "meeting_manager") continue;
+
+    if (col.type === "last_meeting_time" || col.type === "next_meeting_time") {
+      if (hasMeeting) fields.push({ ...col, key: `${col.key}__meeting`, value: clientRowData[`${col.key}__meeting`] });
+      if (hasCall) fields.push({ ...col, key: `${col.key}__call`, name: col.name.replace("Meeting", "Call"), value: clientRowData[`${col.key}__call`] });
+      continue;
+    }
+
+    fields.push({ ...col, value: clientRowData[col.key] });
+  }
+
+  return fields.filter((col) => col.value != null && String(col.value).trim() !== "");
+}
+
 // Same positioning strategy as CalendarPage.jsx's ClientHoverCard, so the
 // admin calendar's hover behavior matches the existing employee calendar —
 // including the "wide" mode (spreads into two columns instead of growing
@@ -160,9 +185,7 @@ function EmployeeDayHoverCard({ employeeName, employeeColor, dayEvents, rowData,
 
   const totalDetailFields = clients.reduce((sum, client) => {
     const clientRowData = rowData?.[client.rowKey] || {};
-    return sum + (worksheetColumns || []).filter(
-      (col) => col.name !== "Client Name" && col.type !== "meeting_manager" && clientRowData[col.key] != null && String(clientRowData[col.key]).trim() !== "",
-    ).length;
+    return sum + buildDetailFields(worksheetColumns, clientRowData, client.events).length;
   }, 0);
   const wide = totalDetailFields + dayEvents.length > 6;
   const style = computeTooltipStyle(rect, { wide });
@@ -182,13 +205,7 @@ function EmployeeDayHoverCard({ employeeName, employeeColor, dayEvents, rowData,
       <div className={wide ? "mt-3 columns-2 gap-x-6" : "mt-3 space-y-3"}>
         {clients.map((client) => {
           const clientRowData = rowData?.[client.rowKey] || {};
-          const detailFields = (worksheetColumns || []).filter(
-            (col) =>
-              col.name !== "Client Name" &&
-              col.type !== "meeting_manager" &&
-              clientRowData[col.key] != null &&
-              String(clientRowData[col.key]).trim() !== "",
-          );
+          const detailFields = buildDetailFields(worksheetColumns, clientRowData, client.events);
 
           return (
             <div key={client.rowKey || client.clientName} className="break-inside-avoid-column border-b border-mme-pink/30 pb-3 last:border-0 last:pb-0">
@@ -199,7 +216,7 @@ function EmployeeDayHoverCard({ employeeName, employeeColor, dayEvents, rowData,
                   {detailFields.map((col) => (
                     <div key={col.key} className="flex items-baseline gap-2">
                       <span className="w-24 shrink-0 text-[10px] font-black uppercase tracking-wide text-mme-purple/45">{col.name}</span>
-                      <span className="wrap-break-word text-xs font-semibold text-mme-purple/80">{formatColValue(col.type, clientRowData[col.key])}</span>
+                      <span className="wrap-break-word text-xs font-semibold text-mme-purple/80">{formatColValue(col.type, col.value)}</span>
                     </div>
                   ))}
                 </div>

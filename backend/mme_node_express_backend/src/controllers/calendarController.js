@@ -234,10 +234,14 @@ export async function getCalendarMonth(req, res, next) {
             // Same meeting-first, call-as-fallback rule ManagementPage uses
             // (row.values[col] || row.lastCallDatetime/nextCallDatetime) —
             // otherwise a client with only a call (no meeting) shows blank here.
-            const rawValue = col.dataType === "last_meeting_time"
-              ? (times?.lastMeeting || times?.lastCall)
-              : (times?.nextMeeting || times?.nextCall);
-            rowData[col.columnKey] = formatDateTime(rawValue) || "";
+            const isLast = col.dataType === "last_meeting_time";
+            const meetingRaw = isLast ? times?.lastMeeting : times?.nextMeeting;
+            const callRaw    = isLast ? times?.lastCall    : times?.nextCall;
+            rowData[col.columnKey] = formatDateTime(meetingRaw || callRaw) || "";
+            // Kept separately so callers can show "Last/Next Call Time" for a
+            // call event instead of the ambiguous meeting-or-call merged value.
+            rowData[`${col.columnKey}__meeting`] = formatDateTime(meetingRaw) || "";
+            rowData[`${col.columnKey}__call`]    = formatDateTime(callRaw) || "";
           }
         }
       }

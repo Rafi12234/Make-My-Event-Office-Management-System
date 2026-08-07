@@ -337,13 +337,24 @@ export default function AdminCalendarDayPage() {
                 <div className="space-y-2.5 p-5">
                   {group.events.map((ev) => {
                     const clientRowData = rowData?.[ev.rowKey] || {};
-                    const detailFields = (worksheetColumns || []).filter(
-                      (col) =>
-                        col.name !== "Client Name" &&
-                        col.type !== "meeting_manager" &&
-                        clientRowData[col.key] != null &&
-                        String(clientRowData[col.key]).trim() !== "",
-                    );
+                    const isCallEvent = ev.source === "call" || ev.source === "next_call";
+                    // "Last/Next Meeting Time" columns actually track whichever of a
+                    // meeting or a call happened/comes next — show the label and value
+                    // that match this specific event instead of the ambiguous merged one.
+                    const detailFields = (worksheetColumns || [])
+                      .filter((col) => col.name !== "Client Name" && col.type !== "meeting_manager")
+                      .map((col) => {
+                        if (col.type === "last_meeting_time" || col.type === "next_meeting_time") {
+                          const suffix = isCallEvent ? "__call" : "__meeting";
+                          const value = clientRowData[`${col.key}${suffix}`];
+                          const name = isCallEvent
+                            ? col.name.replace("Meeting", "Call")
+                            : col.name;
+                          return { ...col, name, value };
+                        }
+                        return { ...col, value: clientRowData[col.key] };
+                      })
+                      .filter((col) => col.value != null && String(col.value).trim() !== "");
 
                     return (
                       <div key={ev.id} className={`flex flex-wrap items-start gap-3 rounded-2xl border px-4 py-3 ${ev.missed ? "border-red-200 bg-red-50" : "border-mme-pink/40 bg-[#fff9fc]"}`}>
@@ -363,7 +374,7 @@ export default function AdminCalendarDayPage() {
                               {detailFields.map((col) => (
                                 <div key={col.key} className="flex items-baseline gap-2">
                                   <span className="w-24 shrink-0 text-[10px] font-black uppercase tracking-wide text-mme-purple/45">{col.name}</span>
-                                  <span className="text-xs font-semibold text-mme-purple/80">{formatColValue(col.type, clientRowData[col.key])}</span>
+                                  <span className="text-xs font-semibold text-mme-purple/80">{formatColValue(col.type, col.value)}</span>
                                 </div>
                               ))}
                             </div>

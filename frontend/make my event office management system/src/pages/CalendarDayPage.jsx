@@ -218,15 +218,6 @@ function MeetingImageGallery({ images }) {
 function ClientDayCard({ group, columns, extras, navigate, selectedDate }) {
   const { rowKey, clientName, rowData } = group;
 
-  const skipNames = new Set(["Client Name"]);
-  const detailFields = (columns || []).filter(
-    (col) =>
-      !skipNames.has(col.name) &&
-      col.type !== "meeting_manager" &&
-      rowData[col.key] != null &&
-      String(rowData[col.key]).trim() !== "",
-  );
-
   const isLoading = extras?.isLoading ?? true;
   const calls     = extras?.calls || [];
   const meetings  = extras?.meetings || [];
@@ -248,6 +239,24 @@ function ClientDayCard({ group, columns, extras, navigate, selectedDate }) {
     ? meetings.filter((m) => m.nextMeetingDatetime && extractIsoDate(m.nextMeetingDatetime) === selectedDate)
     : meetings.filter((m) => m.nextMeetingDatetime);
 
+  const skipNames = new Set(["Client Name"]);
+  // "Last/Next Meeting Time" columns track whichever of a meeting or a call
+  // happened/comes next — split into Meeting- and/or Call-labeled rows,
+  // shown only for the kinds of events this client actually has this day.
+  const hasMeetingEvent = meetingsOnDate.length > 0 || nextMeetingsOnDate.length > 0;
+  const hasCallEvent    = callsOnDate.length > 0 || nextCallsOnDate.length > 0;
+  const detailFields = [];
+  for (const col of columns || []) {
+    if (skipNames.has(col.name) || col.type === "meeting_manager") continue;
+    if (col.type === "last_meeting_time" || col.type === "next_meeting_time") {
+      if (hasMeetingEvent) detailFields.push({ ...col, key: `${col.key}__meeting`, value: rowData[`${col.key}__meeting`] });
+      if (hasCallEvent) detailFields.push({ ...col, key: `${col.key}__call`, name: col.name.replace("Meeting", "Call"), value: rowData[`${col.key}__call`] });
+      continue;
+    }
+    detailFields.push({ ...col, value: rowData[col.key] });
+  }
+  const visibleDetailFields = detailFields.filter((col) => col.value != null && String(col.value).trim() !== "");
+
   return (
     <div className="overflow-hidden rounded-3xl border border-[#d6d6d6]/60 bg-white shadow-sm">
       {/* Header */}
@@ -259,10 +268,10 @@ function ClientDayCard({ group, columns, extras, navigate, selectedDate }) {
       </div>
 
       {/* Full management sheet columns */}
-      {detailFields.length > 0 && (
+      {visibleDetailFields.length > 0 && (
         <div className="grid gap-4 border-b border-[#d6d6d6]/30 px-6 py-5 sm:grid-cols-2">
-          {detailFields.map((col) => {
-            const formatted = formatColValue(col.type, rowData[col.key]);
+          {visibleDetailFields.map((col) => {
+            const formatted = formatColValue(col.type, col.value);
             if (!formatted) return null;
             const isLong = formatted.length > 50;
             return (
