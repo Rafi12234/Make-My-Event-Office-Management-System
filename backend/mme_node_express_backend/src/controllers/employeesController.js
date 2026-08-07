@@ -26,6 +26,14 @@ export async function identifyEmployee(req, res, next) {
     return res.status(422).json({ message: "Email and password are required." });
   }
 
+  // An active Admin Panel session must be logged out of first — an account
+  // can never be signed in as both an admin and an employee at once.
+  if (isValidAdminSession(req)) {
+    return res.status(409).json({
+      message: "You're already logged in on the Admin Panel. Log out from there first.",
+    });
+  }
+
   try {
     const employee = await prisma.employee.findUnique({
       where: { email },
