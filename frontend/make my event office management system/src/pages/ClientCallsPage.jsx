@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import mmeLogo from "../assets/mme-logo-cropped.png";
 import BackButton from "../components/BackButton";
+import DateTimePicker from "../components/DateTimePicker";
 import {
   AlertTriangle,
   CalendarClock,
@@ -102,27 +103,65 @@ function CallCard({ call, rowKey, employeeId, employeeDirectory, onChanged, onDe
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState("");
 
-  const isDatetimeDirty = callDatetime !== toDatetimeLocalValue(call.callDatetime);
-  const isNextCallDirty = nextCallDatetime !== toDatetimeLocalValue(call.nextCallDatetime);
   const isNextCallAssigneeDirty = nextCallAssignedEmployeeId !== defaultNextCallAssigneeId(call, employeeId);
-  const isDirty = isDatetimeDirty || callDiscussion !== (call.callDiscussion || "") || isNextCallDirty || isNextCallAssigneeDirty;
+  // Datetime fields save themselves the instant their picker is confirmed
+  // (see persistCall below), so the general dirty flag only needs to track
+  // the discussion textarea and the next-call assignee dropdown — the two
+  // fields that have no built-in confirm control of their own.
+  const isDirty = callDiscussion !== (call.callDiscussion || "") || isNextCallAssigneeDirty;
 
   // Based on the persisted schedule (not the unsaved edit) — flags a next
   // call whose scheduled moment has already come and gone.
   const isNextCallOverdue = Boolean(call.nextCallDatetime) &&
     isPastDatetimeValue(toDatetimeLocalValue(call.nextCallDatetime));
 
-  async function handleSave() {
+  // Persists whichever fields are passed in, falling back to current state
+  // for the rest — lets each control (picker/dropdown/textarea) save itself
+  // the instant it's confirmed, instead of requiring a separate outside save.
+  async function persistCall(overrides = {}) {
+    const time = "callDatetime" in overrides ? overrides.callDatetime : callDatetime;
+    const nextTime = "nextCallDatetime" in overrides ? overrides.nextCallDatetime : nextCallDatetime;
+    const nextAssignee = "nextCallAssignedEmployeeId" in overrides ? overrides.nextCallAssignedEmployeeId : nextCallAssignedEmployeeId;
+
+    setIsSaving(true);
+    try {
+      await updateCall(rowKey, call.id, {
+        callDatetime: time || null,
+        callDiscussion: callDiscussion || null,
+        nextCallDatetime: nextTime || null,
+        nextCallAssignedEmployeeId: nextTime ? (nextAssignee || null) : null,
+        employeeId,
+      });
+      onChanged();
+    } catch (err) {
+      setError(err.message || "Failed to save call.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  function handleCallDatetimeChange(newValue) {
+    setCallDatetime(newValue);
     setError("");
-    if (isDatetimeDirty && callDatetime && isPastDatetimeValue(callDatetime)) {
+    if (newValue && isPastDatetimeValue(newValue)) {
       setError("Call time cannot be in the past. Please choose the current time or later.");
       return;
     }
-    if (isNextCallDirty && nextCallDatetime && isNextCallDateTooEarly(nextCallDatetime)) {
+    persistCall({ callDatetime: newValue });
+  }
+
+  function handleNextCallDatetimeChange(newValue) {
+    setNextCallDatetime(newValue);
+    setError("");
+    if (newValue && isNextCallDateTooEarly(newValue)) {
       setError("Next meeting call date cannot be before today. Any time of day is fine.");
       return;
     }
+    persistCall({ nextCallDatetime: newValue });
+  }
 
+  async function handleSave() {
+    setError("");
     setIsSaving(true);
     try {
       await updateCall(rowKey, call.id, {
@@ -219,30 +258,12 @@ function CallCard({ call, rowKey, employeeId, employeeDirectory, onChanged, onDe
             Call Time
           </label>
           <div className="flex flex-col gap-2">
-            <input
-              type="datetime-local"
+            <DateTimePicker
               value={callDatetime}
+              onChange={handleCallDatetimeChange}
               min={nowMinValue()}
-              onChange={(e) => setCallDatetime(e.target.value)}
-              className="w-full min-w-0 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
+              placeholder="Select call time"
             />
-
-            {isDatetimeDirty && (
-              <button
-                onClick={handleSave}
-                disabled={isSaving}
-                className="inline-flex w-full items-center justify-center gap-1.5 rounded-2xl bg-slate-900 px-4 py-2.5 text-xs font-black text-white transition-all duration-200 hover:bg-slate-700 disabled:opacity-60"
-                style={{ animation: "slideUp 0.2s ease" }}
-                title="Confirm this call time"
-              >
-                {isSaving ? (
-                  <Loader2 size={13} className="animate-spin" />
-                ) : (
-                  <CheckCircle2 size={13} />
-                )}
-                OK
-              </button>
-            )}
           </div>
 
           {(call.createdByName || call.updatedByName || call.assignedByEmployeeName) && (
@@ -305,30 +326,15 @@ function CallCard({ call, rowKey, employeeId, employeeDirectory, onChanged, onDe
               Next Meeting Call Date &amp; Time
             </label>
             <div className="flex max-w-xs items-stretch gap-2">
-              <input
-                type="datetime-local"
+              <DateTimePicker
                 value={nextCallDatetime}
+                onChange={handleNextCallDatetimeChange}
                 min={todayMinValue()}
-                onChange={(e) => setNextCallDatetime(e.target.value)}
-                className="w-full min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all duration-200 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
+                minDateOnly
+                subtle
+                placeholder="Select next call date & time"
+                className="w-full"
               />
-
-              {(isNextCallDirty || isNextCallAssigneeDirty) && (
-                <button
-                  onClick={handleSave}
-                  disabled={isSaving}
-                  className="shrink-0 inline-flex items-center justify-center gap-1.5 rounded-2xl bg-slate-900 px-4 text-xs font-black text-white transition-all duration-200 hover:bg-slate-700 disabled:opacity-60"
-                  style={{ animation: "slideUp 0.2s ease" }}
-                  title="Confirm this next call time"
-                >
-                  {isSaving ? (
-                    <Loader2 size={13} className="animate-spin" />
-                  ) : (
-                    <CheckCircle2 size={13} />
-                  )}
-                  OK
-                </button>
-              )}
             </div>
 
             <label className="mb-2 mt-4 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-600">

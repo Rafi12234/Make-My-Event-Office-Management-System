@@ -9,6 +9,7 @@ import {
 import { createPortal } from "react-dom";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import BackButton from "../components/BackButton";
+import DateTimePicker from "../components/DateTimePicker";
 import {
   BadgeCheck,
   CalendarClock,
@@ -255,10 +256,7 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
     }
   }
 
-  const isDatetimeDirty = meetingDatetime !== toDatetimeLocalValue(meeting.meetingDatetime);
-  const isNextMeetingDirty = nextMeetingDatetime !== toDatetimeLocalValue(meeting.nextMeetingDatetime);
   const isNextMeetingAssigneeDirty = nextMeetingAssignedEmployeeId !== defaultNextMeetingAssigneeId(meeting, employeeId);
-  const isDirty = isDatetimeDirty || isNextMeetingDirty || isNextMeetingAssigneeDirty;
 
   // Based on the persisted schedule (not the unsaved edit) — flags a next
   // meeting whose scheduled moment has already come and gone.
@@ -270,17 +268,52 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
       option.key === "other" || !meeting.items.some((item) => item.itemKey === option.key)
   );
 
-  async function handleSave() {
+  // Persists whichever fields are passed in, falling back to current state
+  // for the rest — lets each control (picker/dropdown) save itself the
+  // instant it's confirmed, instead of requiring a separate outside save.
+  async function persistMeeting(overrides = {}) {
+    const nextTime = "nextMeetingDatetime" in overrides ? overrides.nextMeetingDatetime : nextMeetingDatetime;
+    const nextAssignee = "nextMeetingAssignedEmployeeId" in overrides ? overrides.nextMeetingAssignedEmployeeId : nextMeetingAssignedEmployeeId;
+    const time = "meetingDatetime" in overrides ? overrides.meetingDatetime : meetingDatetime;
+
+    setIsSaving(true);
+    try {
+      await updateMeeting(rowKey, meeting.id, {
+        meetingDatetime: time || null,
+        nextMeetingDatetime: nextTime || null,
+        nextMeetingAssignedEmployeeId: nextTime ? (nextAssignee || null) : null,
+        employeeId,
+      });
+      onChanged();
+    } catch (err) {
+      setError(err.message || "Failed to save meeting.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  function handleMeetingDatetimeChange(newValue) {
+    setMeetingDatetime(newValue);
     setError("");
-    if (isDatetimeDirty && meetingDatetime && isPastDatetimeValue(meetingDatetime)) {
+    if (newValue && isPastDatetimeValue(newValue)) {
       setError("Meeting time cannot be in the past. Please choose the current time or later.");
       return;
     }
-    if (isNextMeetingDirty && nextMeetingDatetime && isNextMeetingDateTooEarly(nextMeetingDatetime)) {
+    persistMeeting({ meetingDatetime: newValue });
+  }
+
+  function handleNextMeetingDatetimeChange(newValue) {
+    setNextMeetingDatetime(newValue);
+    setError("");
+    if (newValue && isNextMeetingDateTooEarly(newValue)) {
       setError("Next meeting date cannot be before today. Any time of day is fine.");
       return;
     }
+    persistMeeting({ nextMeetingDatetime: newValue });
+  }
 
+  async function handleSaveAssignee() {
+    setError("");
     setIsSaving(true);
     try {
       await updateMeeting(rowKey, meeting.id, {
@@ -470,30 +503,13 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
             Meeting Time
           </label>
           <div className="flex items-stretch gap-2">
-            <input
-              type="datetime-local"
+            <DateTimePicker
               value={meetingDatetime}
+              onChange={handleMeetingDatetimeChange}
               min={nowMinValue()}
-              onChange={(e) => setMeetingDatetime(e.target.value)}
-              className="w-full min-w-0 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
+              placeholder="Select meeting time"
+              className="w-full"
             />
-
-            {isDirty && (
-              <button
-                onClick={handleSave}
-                disabled={isSaving}
-                className="shrink-0 inline-flex items-center justify-center gap-1.5 rounded-2xl bg-slate-900 px-4 text-xs font-black text-white transition-all duration-200 hover:bg-slate-700 disabled:opacity-60"
-                style={{ animation: "slideUp 0.2s ease" }}
-                title="Confirm this meeting time"
-              >
-                {isSaving ? (
-                  <Loader2 size={13} className="animate-spin" />
-                ) : (
-                  <CheckCircle2 size={13} />
-                )}
-                OK
-              </button>
-            )}
           </div>
 
           <div className="mt-5 border-t border-slate-100 pt-5">
@@ -502,21 +518,23 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
               Next Meeting Date &amp; Time
             </label>
             <div className="flex items-stretch gap-2">
-              <input
-                type="datetime-local"
+              <DateTimePicker
                 value={nextMeetingDatetime}
+                onChange={handleNextMeetingDatetimeChange}
                 min={todayMinValue()}
-                onChange={(e) => setNextMeetingDatetime(e.target.value)}
-                className="w-full min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all duration-200 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
+                minDateOnly
+                subtle
+                placeholder="Select next meeting date & time"
+                className="w-full"
               />
 
-              {(isNextMeetingDirty || isNextMeetingAssigneeDirty) && (
+              {isNextMeetingAssigneeDirty && (
                 <button
-                  onClick={handleSave}
+                  onClick={handleSaveAssignee}
                   disabled={isSaving}
                   className="shrink-0 inline-flex items-center justify-center gap-1.5 rounded-2xl bg-slate-900 px-4 text-xs font-black text-white transition-all duration-200 hover:bg-slate-700 disabled:opacity-60"
                   style={{ animation: "slideUp 0.2s ease" }}
-                  title="Confirm this next meeting time"
+                  title="Confirm the next meeting's assigned employee"
                 >
                   {isSaving ? (
                     <Loader2 size={13} className="animate-spin" />

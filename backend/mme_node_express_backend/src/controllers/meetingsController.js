@@ -303,7 +303,9 @@ export async function listMeetings(req, res, next) {
           orderBy: { id: "asc" },
         },
       },
-      orderBy: [{ meetingDatetime: { sort: "asc", nulls: "last" } }, { id: "asc" }],
+      // Newest-created first so a freshly added (still unscheduled) meeting
+      // appears at the top of the list instead of sinking to the bottom.
+      orderBy: { id: "desc" },
     });
 
     const finalization = await prisma.clientFinalization.findUnique({

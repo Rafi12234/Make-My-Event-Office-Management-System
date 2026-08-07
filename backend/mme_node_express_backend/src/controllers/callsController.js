@@ -86,7 +86,9 @@ export async function listCalls(req, res, next) {
           },
         },
       },
-      orderBy: [{ callDatetime: { sort: "asc", nulls: "last" } }, { id: "asc" }],
+      // Newest-created first so a freshly added (still unscheduled) call
+      // appears at the top of the list instead of sinking to the bottom.
+      orderBy: { id: "desc" },
     });
 
     res.json({
