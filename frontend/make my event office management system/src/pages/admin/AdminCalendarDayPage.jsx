@@ -309,9 +309,6 @@ export default function AdminCalendarDayPage() {
               <CalendarDays size={14} /> Admin Control
             </div>
             <h1 className="mt-2 text-2xl font-black text-mme-purple sm:text-3xl">{formatDisplayDate(date)}</h1>
-            <p className="mt-1.5 text-sm text-mme-purple/55">
-              {dayEvents.length === 0 ? "No meetings or calls this day" : `${dayEvents.length} event${dayEvents.length !== 1 ? "s" : ""} across ${byEmployee.length} employee${byEmployee.length !== 1 ? "s" : ""}`}
-            </p>
           </div>
           <div className="flex gap-2">
             <button
