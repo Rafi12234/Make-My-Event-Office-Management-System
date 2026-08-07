@@ -12,6 +12,8 @@ import AdminDashboardPage from "./pages/AdminDashboardPage";
 import AdminClientDetailPage from "./pages/AdminClientDetailPage";
 import AdminLoginPage from "./pages/AdminLoginPage";
 import AdminActivityPage from "./pages/admin/AdminActivityPage";
+import AdminMeetingDetailsPage from "./pages/admin/AdminMeetingDetailsPage";
+import AdminCallDetailsPage from "./pages/admin/AdminCallDetailsPage";
 import AdminCalendarPage from "./pages/admin/AdminCalendarPage";
 import AdminCalendarDayPage from "./pages/admin/AdminCalendarDayPage";
 import RedirectIfAuthed from "./components/RedirectIfAuthed";
@@ -39,6 +41,8 @@ function App() {
       <Route path="/admin-employee-management" element={<AdminPage />} />
       <Route path="/admin/login" element={<AdminLoginPage />} />
       <Route path="/admin/activity" element={<AdminActivityPage />} />
+      <Route path="/admin/activity/meetings/:rowKey" element={<AdminMeetingDetailsPage />} />
+      <Route path="/admin/activity/calls/:rowKey" element={<AdminCallDetailsPage />} />
       <Route path="/admin/calendar" element={<AdminCalendarPage />} />
       <Route path="/admin/calendar/day/:date" element={<AdminCalendarDayPage />} />
 

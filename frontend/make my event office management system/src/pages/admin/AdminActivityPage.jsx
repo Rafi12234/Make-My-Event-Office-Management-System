@@ -2,27 +2,14 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import {
   CalendarClock,
-  ChevronDown,
-  Pencil,
+  Info,
   Phone,
   UsersRound,
-  X,
 } from "lucide-react";
 import BackButton from "../../components/BackButton";
 import AdminLayout from "../../components/AdminLayout";
-import { adminLogout, fetchAdminMe, fetchAllEmployees } from "../../services/adminService";
-import {
-  fetchAllCalls,
-  fetchAllMeetings,
-  updateNextCallSchedule,
-  updateNextMeetingSchedule,
-} from "../../services/adminActivityService";
-
-// "YYYY-MM-DD HH:MM:SS" (backend shape) → "YYYY-MM-DDTHH:MM" (datetime-local input shape).
-function toDatetimeLocalValue(dbDatetime) {
-  if (!dbDatetime) return "";
-  return dbDatetime.replace(" ", "T").slice(0, 16);
-}
+import { adminLogout, fetchAdminMe } from "../../services/adminService";
+import { fetchAllCalls, fetchAllMeetings } from "../../services/adminActivityService";
 
 function formatDisplay(dbDatetime) {
   if (!dbDatetime) return null;
@@ -34,107 +21,9 @@ function formatDisplay(dbDatetime) {
   });
 }
 
-// ─── Edit Next Schedule Modal ────────────────────────────────────────────────
-function EditScheduleModal({ label, initialDatetime, initialAssignedEmployeeId, employees, onClose, onSave }) {
-  const [datetime, setDatetime] = useState(toDatetimeLocalValue(initialDatetime));
-  const [assignedEmployeeId, setAssignedEmployeeId] = useState(
-    initialAssignedEmployeeId != null ? String(initialAssignedEmployeeId) : "",
-  );
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-    try {
-      await onSave({
-        datetime,
-        assignedEmployeeId: assignedEmployeeId ? Number(assignedEmployeeId) : null,
-      });
-    } catch (err) {
-      setError(err.message);
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-[110] grid place-items-center bg-black/50 px-5 backdrop-blur-sm">
-      <div className="w-full max-w-sm overflow-hidden rounded-3xl border border-mme-pink/60 bg-white shadow-[0_30px_100px_rgba(91,55,101,0.25)]">
-        <div className="p-7">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-mme-blush text-mme-purple">
-            <Pencil size={18} />
-          </div>
-          <h2 className="mt-4 text-lg font-black text-mme-purple">Edit {label}</h2>
-          <p className="mt-1 text-sm text-mme-purple/55">
-            Update the scheduled date/time and who is responsible for it.
-          </p>
-
-          <form onSubmit={handleSubmit} className="mt-5 space-y-4">
-            {error && (
-              <div className="flex items-start gap-2.5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-600">
-                <X size={15} className="mt-0.5 shrink-0" />
-                {error}
-              </div>
-            )}
-
-            <div>
-              <label className="mb-1.5 block text-xs font-black uppercase tracking-[0.16em] text-mme-plum">
-                {label} Date &amp; Time
-              </label>
-              <input
-                type="datetime-local"
-                value={datetime}
-                onChange={(e) => setDatetime(e.target.value)}
-                className="w-full rounded-xl border border-mme-pink/70 bg-[#fff9fc] px-4 py-2.5 text-sm text-mme-purple outline-none focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/20"
-              />
-              <p className="mt-1 text-xs text-mme-purple/40">Leave empty to clear the schedule.</p>
-            </div>
-
-            <div>
-              <label className="mb-1.5 block text-xs font-black uppercase tracking-[0.16em] text-mme-plum">
-                Assigned Employee
-              </label>
-              <div className="relative">
-                <select
-                  value={assignedEmployeeId}
-                  onChange={(e) => setAssignedEmployeeId(e.target.value)}
-                  className="w-full appearance-none rounded-xl border border-mme-pink/70 bg-[#fff9fc] px-4 py-2.5 text-sm text-mme-purple outline-none focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/20"
-                >
-                  <option value="">Unassigned</option>
-                  {employees.map((emp) => (
-                    <option key={emp.id} value={emp.id}>{emp.fullName}</option>
-                  ))}
-                </select>
-                <ChevronDown size={15} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-mme-purple/50" />
-              </div>
-            </div>
-
-            <div className="flex gap-3 pt-1">
-              <button
-                type="button"
-                onClick={onClose}
-                className="flex-1 rounded-2xl border border-mme-pink/70 bg-white px-5 py-2.5 text-sm font-black text-mme-purple transition hover:bg-mme-blush/30"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={loading}
-                className="flex-1 rounded-2xl bg-mme-purple px-5 py-2.5 text-sm font-black text-white transition hover:bg-[#4b2c55] disabled:opacity-60"
-              >
-                {loading ? "Saving…" : "Save"}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Activity Row ────────────────────────────────────────────────────────────
-function ActivityRow({ kind, entry, onEdit }) {
+function ActivityRow({ kind, entry }) {
+  const navigate = useNavigate();
   const next = kind === "meeting" ? entry.nextMeeting : entry.nextCall;
   const loggedDatetime = kind === "meeting" ? entry.meetingDatetime : entry.callDatetime;
   const nextDatetime = next ? (kind === "meeting" ? next.nextMeetingDatetime : next.nextCallDatetime) : null;
@@ -164,10 +53,10 @@ function ActivityRow({ kind, entry, onEdit }) {
       </div>
 
       <button
-        onClick={() => onEdit(entry)}
+        onClick={() => navigate(`/admin/activity/${kind === "meeting" ? "meetings" : "calls"}/${entry.rowKey}`)}
         className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-mme-pink/70 bg-white px-3 py-1.5 text-xs font-black text-mme-purple transition hover:bg-mme-blush/40"
       >
-        <Pencil size={12} /> Edit Next {kind === "meeting" ? "Meeting" : "Call"}
+        <Info size={12} /> Details
       </button>
     </div>
   );
@@ -181,9 +70,7 @@ export default function AdminActivityPage() {
   const [tab, setTab] = useState("meetings");
   const [meetings, setMeetings] = useState([]);
   const [calls, setCalls] = useState([]);
-  const [employees, setEmployees] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [editing, setEditing] = useState(null); // { kind, entry }
   const [notice, setNotice] = useState(null);
 
   useEffect(() => {
@@ -198,11 +85,10 @@ export default function AdminActivityPage() {
   useEffect(() => {
     if (!admin) return;
     setIsLoading(true);
-    Promise.all([fetchAllMeetings(), fetchAllCalls(), fetchAllEmployees()])
-      .then(([meetingsData, callsData, employeesData]) => {
+    Promise.all([fetchAllMeetings(), fetchAllCalls()])
+      .then(([meetingsData, callsData]) => {
         setMeetings(meetingsData);
         setCalls(callsData);
-        setEmployees(employeesData.filter((e) => e.isActive));
       })
       .catch((err) => setNotice({ type: "error", message: err.message }))
       .finally(() => setIsLoading(false));
@@ -217,19 +103,6 @@ export default function AdminActivityPage() {
   async function handleLogout() {
     await adminLogout();
     navigate("/admin/login", { replace: true });
-  }
-
-  async function handleSave({ datetime, assignedEmployeeId }) {
-    const { kind, entry } = editing;
-    if (kind === "meeting") {
-      const data = await updateNextMeetingSchedule(entry.id, { nextMeetingDatetime: datetime, assignedEmployeeId });
-      setMeetings((prev) => prev.map((m) => (m.id === entry.id ? { ...m, nextMeeting: data.nextMeeting } : m)));
-    } else {
-      const data = await updateNextCallSchedule(entry.id, { nextCallDatetime: datetime, assignedEmployeeId });
-      setCalls((prev) => prev.map((c) => (c.id === entry.id ? { ...c, nextCall: data.nextCall } : c)));
-    }
-    setEditing(null);
-    setNotice({ type: "success", message: `Next ${kind} updated successfully.` });
   }
 
   const list = tab === "meetings" ? meetings : calls;
@@ -248,7 +121,7 @@ export default function AdminActivityPage() {
           </div>
           <h1 className="mt-2 text-2xl font-black text-mme-purple sm:text-3xl">Meeting &amp; Call Oversight</h1>
           <p className="mt-1.5 text-sm text-mme-purple/55">
-            Every client meeting and call across all employees. Edit the next scheduled date/time and who it's assigned to.
+            Every client meeting and call across all employees. Open Details for the full history, or edit the next scheduled date/time from the Company Calendar's day view.
           </p>
         </div>
 
@@ -301,24 +174,12 @@ export default function AdminActivityPage() {
                     key={entry.id}
                     kind={tab === "meetings" ? "meeting" : "call"}
                     entry={entry}
-                    onEdit={(e) => setEditing({ kind: tab === "meetings" ? "meeting" : "call", entry: e })}
                   />
                 ))}
               </div>
             )}
           </div>
         </div>
-
-      {editing && (
-        <EditScheduleModal
-          label={editing.kind === "meeting" ? "Next Meeting" : "Next Call"}
-          initialDatetime={editing.kind === "meeting" ? editing.entry.nextMeeting?.nextMeetingDatetime : editing.entry.nextCall?.nextCallDatetime}
-          initialAssignedEmployeeId={editing.kind === "meeting" ? editing.entry.nextMeeting?.assignedEmployeeId : editing.entry.nextCall?.assignedEmployeeId}
-          employees={employees}
-          onClose={() => setEditing(null)}
-          onSave={handleSave}
-        />
-      )}
     </AdminLayout>
   );
 }
