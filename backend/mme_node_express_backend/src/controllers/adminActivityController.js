@@ -44,6 +44,21 @@ function isValidId(value) {
   return Number.isInteger(id) && id > 0 ? id : null;
 }
 
+function isValidRowKey(rowKey) {
+  return /^[0-9a-fA-F-]{36}$/.test(String(rowKey || ""));
+}
+
+function parseRequirements(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 // ─── GET /api/admin/meetings — every meeting, every employee ───────
 
 export async function listAllMeetings(req, res, next) {
@@ -236,6 +251,155 @@ export async function updateNextCallSchedule(req, res, next) {
           assignedEmployeeId: updated.assignedEmployeeId,
           assignedEmployeeName: updated.assignedEmployee?.fullName || null,
         },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// ─── GET /api/admin/clients/:rowKey/meetings ────────────────────────
+// Full meeting history for one client — same shape/query as
+// meetingsController.js's listMeetings (used by ClientMeetingsPage), just
+// reachable with an admin session instead of an employee session.
+export async function getClientMeetingsForAdmin(req, res, next) {
+  const { rowKey } = req.params;
+  if (!isValidRowKey(rowKey)) {
+    return res.status(400).json({ message: "Invalid client reference." });
+  }
+
+  try {
+    const sheetId = await getDefaultSheetId();
+    const namesByRowKey = await resolveClientNames(sheetId, [rowKey]);
+
+    const meetings = await prisma.clientMeeting.findMany({
+      where: { linkedRowKey: rowKey },
+      include: {
+        createdBy: { select: { fullName: true } },
+        updatedBy: { select: { fullName: true } },
+        completedBy: { select: { fullName: true } },
+        assignedBy: { select: { fullName: true } },
+        nextMeeting: {
+          select: {
+            nextMeetingDatetime: true,
+            assignedEmployeeId: true,
+            assignedEmployee: { select: { fullName: true } },
+          },
+        },
+        images: { orderBy: { id: "asc" } },
+        items: {
+          include: { images: { orderBy: { id: "asc" } } },
+          orderBy: { id: "asc" },
+        },
+      },
+      orderBy: [{ meetingDatetime: { sort: "asc", nulls: "last" } }, { id: "asc" }],
+    });
+
+    const finalization = await prisma.clientFinalization.findUnique({
+      where: { linkedRowKey: rowKey },
+      include: { finalizedBy: { select: { fullName: true } } },
+    });
+
+    res.json({
+      data: {
+        rowKey,
+        clientName: namesByRowKey.get(rowKey) || "",
+        finalization: finalization
+          ? { finalizedAt: formatDateTime(finalization.finalizedAt), finalizedByName: finalization.finalizedBy?.fullName || null }
+          : null,
+        meetings: meetings.map((meeting) => ({
+          id: meeting.id,
+          meetingDatetime: formatDateTime(meeting.meetingDatetime),
+          nextMeetingDatetime: formatDateTime(meeting.nextMeeting?.nextMeetingDatetime),
+          nextMeetingAssignedEmployeeId: meeting.nextMeeting?.assignedEmployeeId ?? null,
+          nextMeetingAssignedEmployeeName: meeting.nextMeeting?.assignedEmployee?.fullName || null,
+          assignedByEmployeeName: meeting.assignedBy?.fullName || null,
+          requirements: parseRequirements(meeting.requirements),
+          isCompleted: Boolean(meeting.isCompleted),
+          completedByName: meeting.completedBy?.fullName || null,
+          completedAt: formatDateTime(meeting.completedAt),
+          createdByName: meeting.createdBy?.fullName || null,
+          updatedByName: meeting.updatedBy?.fullName || null,
+          createdAt: formatDateTime(meeting.createdAt),
+          updatedAt: formatDateTime(meeting.updatedAt),
+          images: meeting.images.map((image) => ({
+            id: image.id,
+            originalFileName: image.originalFileName,
+            tagName: image.tagName || "",
+            url: image.fileUrl,
+            isFinalSelected: Boolean(image.isFinalSelected),
+            createdAt: formatDateTime(image.createdAt),
+          })),
+          items: meeting.items.map((item) => ({
+            id: item.id,
+            itemKey: item.itemKey,
+            customLabel: item.customLabel || "",
+            description: item.description || "",
+            quantity: item.quantity ?? 1,
+            images: item.images.map((image) => ({
+              id: image.id,
+              originalFileName: image.originalFileName,
+              url: image.fileUrl,
+              isFinalSelected: Boolean(image.isFinalSelected),
+              createdAt: formatDateTime(image.createdAt),
+            })),
+          })),
+        })),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// ─── GET /api/admin/clients/:rowKey/calls ───────────────────────────
+// Full call history for one client — same shape/query as
+// callsController.js's listCalls (used by ClientCallsPage), just reachable
+// with an admin session instead of an employee session.
+export async function getClientCallsForAdmin(req, res, next) {
+  const { rowKey } = req.params;
+  if (!isValidRowKey(rowKey)) {
+    return res.status(400).json({ message: "Invalid client reference." });
+  }
+
+  try {
+    const sheetId = await getDefaultSheetId();
+    const namesByRowKey = await resolveClientNames(sheetId, [rowKey]);
+
+    const calls = await prisma.clientCall.findMany({
+      where: { linkedRowKey: rowKey },
+      include: {
+        createdBy: { select: { fullName: true } },
+        updatedBy: { select: { fullName: true } },
+        assignedBy: { select: { fullName: true } },
+        nextCall: {
+          select: {
+            nextCallDatetime: true,
+            assignedEmployeeId: true,
+            assignedEmployee: { select: { fullName: true } },
+          },
+        },
+      },
+      orderBy: [{ callDatetime: { sort: "asc", nulls: "last" } }, { id: "asc" }],
+    });
+
+    res.json({
+      data: {
+        rowKey,
+        clientName: namesByRowKey.get(rowKey) || "",
+        calls: calls.map((call) => ({
+          id: call.id,
+          callDatetime: formatDateTime(call.callDatetime),
+          callDiscussion: call.callDiscussion,
+          nextCallDatetime: formatDateTime(call.nextCall?.nextCallDatetime),
+          nextCallAssignedEmployeeId: call.nextCall?.assignedEmployeeId ?? null,
+          nextCallAssignedEmployeeName: call.nextCall?.assignedEmployee?.fullName || null,
+          assignedByEmployeeName: call.assignedBy?.fullName || null,
+          createdByName: call.createdBy?.fullName || null,
+          updatedByName: call.updatedBy?.fullName || null,
+          createdAt: formatDateTime(call.createdAt),
+          updatedAt: formatDateTime(call.updatedAt),
+        })),
       },
     });
   } catch (error) {

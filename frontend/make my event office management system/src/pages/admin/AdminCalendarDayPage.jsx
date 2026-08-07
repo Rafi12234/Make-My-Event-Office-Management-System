@@ -1,16 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import {
   CalendarDays,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   LogOut,
+  Pencil,
   Phone,
   Shield,
+  X,
 } from "lucide-react";
 import BackButton from "../../components/BackButton";
-import { adminLogout, fetchAdminMe } from "../../services/adminService";
+import { adminLogout, fetchAdminMe, fetchAllEmployees } from "../../services/adminService";
 import { fetchAdminCalendarMonth } from "../../services/adminCalendarService";
+import { updateNextCallSchedule, updateNextMeetingSchedule } from "../../services/adminActivityService";
 
 const EVENT_LABELS = {
   meeting: "Meeting",
@@ -69,6 +73,130 @@ function shiftDate(iso, delta) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+// "YYYY-MM-DD HH:MM:SS" (backend shape) → "YYYY-MM-DDTHH:MM" (datetime-local input shape).
+function toDatetimeLocalValue(dbDatetime) {
+  if (!dbDatetime) return "";
+  return dbDatetime.replace(" ", "T").slice(0, 16);
+}
+
+// Every event card (meeting, call, or their next-schedule marker) maps back
+// to one editable next-meeting/next-call record — this resolves which one,
+// regardless of which card the admin clicked.
+function getEditContext(ev) {
+  if (ev.source === "meeting") {
+    return { kind: "meeting", id: ev.meetingId, datetime: ev.nextMeetingDatetime, assignedEmployeeId: ev.nextMeetingAssignedEmployeeId };
+  }
+  if (ev.source === "next_meeting") {
+    return { kind: "meeting", id: ev.meetingId, datetime: `${ev.date} ${ev.time || "00:00"}:00`, assignedEmployeeId: ev.assignedEmployeeIdRaw };
+  }
+  if (ev.source === "call") {
+    return { kind: "call", id: ev.callId, datetime: ev.nextCallDatetime, assignedEmployeeId: ev.nextCallAssignedEmployeeId };
+  }
+  if (ev.source === "next_call") {
+    return { kind: "call", id: ev.callId, datetime: `${ev.date} ${ev.time || "00:00"}:00`, assignedEmployeeId: ev.assignedEmployeeIdRaw };
+  }
+  return null;
+}
+
+// ─── Edit Next Schedule Modal (moved here from AdminActivityPage) ────────────────────
+function EditScheduleModal({ label, initialDatetime, initialAssignedEmployeeId, employees, onClose, onSave }) {
+  const [datetime, setDatetime] = useState(toDatetimeLocalValue(initialDatetime));
+  const [assignedEmployeeId, setAssignedEmployeeId] = useState(
+    initialAssignedEmployeeId != null ? String(initialAssignedEmployeeId) : "",
+  );
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      await onSave({
+        datetime,
+        assignedEmployeeId: assignedEmployeeId ? Number(assignedEmployeeId) : null,
+      });
+    } catch (err) {
+      setError(err.message);
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[110] grid place-items-center bg-black/50 px-5 backdrop-blur-sm">
+      <div className="w-full max-w-sm overflow-hidden rounded-3xl border border-mme-pink/60 bg-white shadow-[0_30px_100px_rgba(91,55,101,0.25)]">
+        <div className="p-7">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-mme-blush text-mme-purple">
+            <Pencil size={18} />
+          </div>
+          <h2 className="mt-4 text-lg font-black text-mme-purple">Edit {label}</h2>
+          <p className="mt-1 text-sm text-mme-purple/55">
+            Update the scheduled date/time and who is responsible for it.
+          </p>
+
+          <form onSubmit={handleSubmit} className="mt-5 space-y-4">
+            {error && (
+              <div className="flex items-start gap-2.5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-600">
+                <X size={15} className="mt-0.5 shrink-0" />
+                {error}
+              </div>
+            )}
+
+            <div>
+              <label className="mb-1.5 block text-xs font-black uppercase tracking-[0.16em] text-mme-plum">
+                {label} Date &amp; Time
+              </label>
+              <input
+                type="datetime-local"
+                value={datetime}
+                onChange={(e) => setDatetime(e.target.value)}
+                className="w-full rounded-xl border border-mme-pink/70 bg-[#fff9fc] px-4 py-2.5 text-sm text-mme-purple outline-none focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/20"
+              />
+              <p className="mt-1 text-xs text-mme-purple/40">Leave empty to clear the schedule.</p>
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-black uppercase tracking-[0.16em] text-mme-plum">
+                Assigned Employee
+              </label>
+              <div className="relative">
+                <select
+                  value={assignedEmployeeId}
+                  onChange={(e) => setAssignedEmployeeId(e.target.value)}
+                  className="w-full appearance-none rounded-xl border border-mme-pink/70 bg-[#fff9fc] px-4 py-2.5 text-sm text-mme-purple outline-none focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/20"
+                >
+                  <option value="">Unassigned</option>
+                  {employees.map((emp) => (
+                    <option key={emp.id} value={emp.id}>{emp.fullName}</option>
+                  ))}
+                </select>
+                <ChevronDown size={15} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-mme-purple/50" />
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-1">
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 rounded-2xl border border-mme-pink/70 bg-white px-5 py-2.5 text-sm font-black text-mme-purple transition hover:bg-mme-blush/30"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex-1 rounded-2xl bg-mme-purple px-5 py-2.5 text-sm font-black text-white transition hover:bg-[#4b2c55] disabled:opacity-60"
+              >
+                {loading ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminCalendarDayPage() {
   const navigate = useNavigate();
   const { date } = useParams();
@@ -77,8 +205,10 @@ export default function AdminCalendarDayPage() {
   const [events, setEvents] = useState([]);
   const [rowData, setRowData] = useState({});
   const [worksheetColumns, setWorksheetColumns] = useState([]);
+  const [employees, setEmployees] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [notice, setNotice] = useState(null);
+  const [editing, setEditing] = useState(null); // event being edited
 
   useEffect(() => {
     fetchAdminMe()
@@ -89,11 +219,11 @@ export default function AdminCalendarDayPage() {
       .finally(() => setCheckingSession(false));
   }, [navigate]);
 
-  useEffect(() => {
-    if (!admin || !date) return;
+  const fetchMonth = useCallback(() => {
+    if (!date) return Promise.resolve();
     const [year, month] = date.split("-").map(Number);
     setIsLoading(true);
-    fetchAdminCalendarMonth(year, month)
+    return fetchAdminCalendarMonth(year, month)
       .then((data) => {
         setEvents(data.events || []);
         setRowData(data.rowData || {});
@@ -101,7 +231,15 @@ export default function AdminCalendarDayPage() {
       })
       .catch((err) => setNotice({ type: "error", message: err.message }))
       .finally(() => setIsLoading(false));
-  }, [admin, date]);
+  }, [date]);
+
+  useEffect(() => {
+    if (!admin) return;
+    fetchMonth();
+    fetchAllEmployees()
+      .then((data) => setEmployees(data.filter((e) => e.isActive)))
+      .catch(() => {});
+  }, [admin, fetchMonth]);
 
   const dayEvents = useMemo(() => events.filter((ev) => ev.date === date), [events, date]);
 
@@ -122,6 +260,18 @@ export default function AdminCalendarDayPage() {
   async function handleLogout() {
     await adminLogout();
     navigate("/admin", { replace: true });
+  }
+
+  async function handleSave({ datetime, assignedEmployeeId }) {
+    const { kind, id } = editing;
+    if (kind === "meeting") {
+      await updateNextMeetingSchedule(id, { nextMeetingDatetime: datetime, assignedEmployeeId });
+    } else {
+      await updateNextCallSchedule(id, { nextCallDatetime: datetime, assignedEmployeeId });
+    }
+    setEditing(null);
+    setNotice({ type: "success", message: `Next ${kind} updated successfully.` });
+    await fetchMonth();
   }
 
   if (checkingSession || !admin) return null;
@@ -180,7 +330,11 @@ export default function AdminCalendarDayPage() {
         </div>
 
         {notice && (
-          <div className="mb-5 flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-600">
+          <div className={`mb-5 flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm font-bold ${
+            notice.type === "error"
+              ? "border-red-200 bg-red-50 text-red-600"
+              : "border-green-200 bg-green-50 text-green-700"
+          }`}>
             {notice.message}
           </div>
         )}
@@ -252,12 +406,26 @@ export default function AdminCalendarDayPage() {
 
                           {ev.notes && <p className="mt-2 text-xs text-mme-purple/60">{ev.notes}</p>}
 
-                          {ev.source === "meeting" && ev.nextMeetingDatetime && (
-                            <p className="mt-2 text-xs font-bold text-mme-purple/70">Next meeting: {formatDisplay(ev.nextMeetingDatetime)}</p>
-                          )}
-                          {ev.source === "call" && ev.nextCallDatetime && (
-                            <p className="mt-2 text-xs font-bold text-mme-purple/70">Next call: {formatDisplay(ev.nextCallDatetime)}</p>
-                          )}
+                          <div className="mt-2 flex flex-wrap items-center gap-3">
+                            {ev.source === "meeting" && (
+                              <p className="text-xs font-bold text-mme-purple/70">
+                                Next meeting: {formatDisplay(ev.nextMeetingDatetime) || "Not scheduled yet"}
+                                {ev.nextMeetingAssignedEmployeeName ? ` \u00b7 Assigned to ${ev.nextMeetingAssignedEmployeeName}` : ""}
+                              </p>
+                            )}
+                            {ev.source === "call" && (
+                              <p className="text-xs font-bold text-mme-purple/70">
+                                Next call: {formatDisplay(ev.nextCallDatetime) || "Not scheduled yet"}
+                                {ev.nextCallAssignedEmployeeName ? ` \u00b7 Assigned to ${ev.nextCallAssignedEmployeeName}` : ""}
+                              </p>
+                            )}
+                            <button
+                              onClick={() => setEditing(getEditContext(ev))}
+                              className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-mme-pink/70 bg-white px-2.5 py-1 text-[11px] font-black text-mme-purple transition hover:bg-mme-blush/40"
+                            >
+                              <Pencil size={11} /> Edit Next {ev.source === "call" || ev.source === "next_call" ? "Call" : "Meeting"}
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
@@ -268,6 +436,17 @@ export default function AdminCalendarDayPage() {
           </div>
         )}
       </main>
+
+      {editing && (
+        <EditScheduleModal
+          label={editing.kind === "meeting" ? "Next Meeting" : "Next Call"}
+          initialDatetime={editing.datetime}
+          initialAssignedEmployeeId={editing.assignedEmployeeId}
+          employees={employees}
+          onClose={() => setEditing(null)}
+          onSave={handleSave}
+        />
+      )}
     </div>
   );
 }
