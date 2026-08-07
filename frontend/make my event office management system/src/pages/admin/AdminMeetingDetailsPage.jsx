@@ -1,6 +1,16 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate, useParams } from "react-router";
-import { CalendarClock, CheckCircle2, LogOut, Shield } from "lucide-react";
+import {
+  CalendarClock,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  LogOut,
+  Shield,
+  X,
+  ZoomIn,
+} from "lucide-react";
 import BackButton from "../../components/BackButton";
 import { adminLogout, fetchAdminMe } from "../../services/adminService";
 import { fetchClientMeetingsForAdmin, resolveImageUrl } from "../../services/adminActivityService";
@@ -12,7 +22,79 @@ function formatDisplayDatetime(value) {
   return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
-function MeetingCard({ meeting }) {
+// Full-screen gallery viewer with prev/next + keyboard navigation, matching
+// ClientMeetingsPage.jsx's ImageLightbox exactly (read-only here — no
+// upload/delete/final-select controls, just browsing).
+function ImageLightbox({ images, initialIndex, onClose }) {
+  const [index, setIndex] = useState(initialIndex);
+
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key === "Escape") onClose();
+      if (event.key === "ArrowRight") setIndex((i) => (i + 1) % images.length);
+      if (event.key === "ArrowLeft") setIndex((i) => (i - 1 + images.length) % images.length);
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [images.length, onClose]);
+
+  const image = images[index];
+  if (!image) return null;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-70 flex items-center justify-center bg-black/95 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <button
+        onClick={onClose}
+        className="absolute right-5 top-5 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition hover:bg-white/20 hover:scale-110"
+      >
+        <X size={20} />
+      </button>
+
+      {images.length > 1 && (
+        <button
+          onClick={(e) => { e.stopPropagation(); setIndex((i) => (i - 1 + images.length) % images.length); }}
+          className="absolute left-5 top-1/2 -translate-y-1/2 flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition hover:bg-white/25 hover:scale-110"
+        >
+          <ChevronLeft size={24} />
+        </button>
+      )}
+
+      <img
+        src={resolveImageUrl(image.url)}
+        alt={image.originalFileName || "Meeting image"}
+        className="max-h-[88vh] max-w-[88vw] rounded-2xl object-contain shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      />
+
+      {images.length > 1 && (
+        <button
+          onClick={(e) => { e.stopPropagation(); setIndex((i) => (i + 1) % images.length); }}
+          className="absolute right-5 top-1/2 -translate-y-1/2 flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm transition hover:bg-white/25 hover:scale-110"
+        >
+          <ChevronRight size={24} />
+        </button>
+      )}
+
+      {images.length > 1 && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 rounded-full bg-white/10 px-5 py-2.5 backdrop-blur-sm">
+          {images.map((_, i) => (
+            <button
+              key={i}
+              onClick={(e) => { e.stopPropagation(); setIndex(i); }}
+              className={`rounded-full transition ${i === index ? "h-2 w-6 bg-white" : "h-2 w-2 bg-white/40 hover:bg-white/70"}`}
+            />
+          ))}
+        </div>
+      )}
+    </div>,
+    document.body,
+  );
+}
+
+function MeetingCard({ meeting, onViewImage }) {
   return (
     <div className="overflow-hidden rounded-3xl border border-mme-pink/60 bg-white shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-mme-pink/40 px-6 py-4">
@@ -67,20 +149,28 @@ function MeetingCard({ meeting }) {
         {meeting.images?.length > 0 && (
           <div>
             <p className="mb-2 text-xs font-black uppercase tracking-wide text-mme-purple/45">Images</p>
-            <div className="flex flex-wrap gap-2">
-              {meeting.images.map((img) => (
-                <a
+            <div className="grid grid-cols-4 gap-2.5 sm:grid-cols-6 md:grid-cols-8">
+              {meeting.images.map((img, imageIndex) => (
+                <div
                   key={img.id}
-                  href={resolveImageUrl(img.url)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="relative h-20 w-20 overflow-hidden rounded-xl border border-mme-pink/50"
+                  onClick={() => onViewImage(meeting.images, imageIndex)}
+                  className={`group relative aspect-square w-full cursor-pointer overflow-hidden rounded-2xl border-2 transition hover:scale-105 hover:shadow-lg ${
+                    img.isFinalSelected ? "border-mme-purple shadow-md shadow-mme-purple/20" : "border-mme-pink/50 hover:border-mme-pink"
+                  }`}
                 >
-                  <img src={resolveImageUrl(img.url)} alt={img.tagName || img.originalFileName} className="h-full w-full object-cover" />
+                  <img
+                    src={resolveImageUrl(img.url)}
+                    alt={img.tagName || img.originalFileName || "Meeting image"}
+                    className="h-full w-full object-cover"
+                    loading="lazy"
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition group-hover:bg-black/30">
+                    <ZoomIn size={16} className="text-white opacity-0 transition group-hover:opacity-100" />
+                  </div>
                   {img.isFinalSelected && (
-                    <span className="absolute bottom-0 right-0 rounded-tl bg-mme-purple px-1 py-0.5 text-[8px] font-black text-white">FINAL</span>
+                    <span className="absolute bottom-1 right-1 rounded-md bg-mme-purple px-1.5 py-0.5 text-[8px] font-black text-white">FINAL</span>
                   )}
-                </a>
+                </div>
               ))}
             </div>
           </div>
@@ -105,6 +195,7 @@ export default function AdminMeetingDetailsPage() {
   const [data, setData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [notice, setNotice] = useState(null);
+  const [viewer, setViewer] = useState(null); // { images, index } | null
 
   useEffect(() => {
     fetchAdminMe()
@@ -190,11 +281,23 @@ export default function AdminMeetingDetailsPage() {
         ) : (
           <div className="space-y-5">
             {data.meetings.map((meeting) => (
-              <MeetingCard key={meeting.id} meeting={meeting} />
+              <MeetingCard
+                key={meeting.id}
+                meeting={meeting}
+                onViewImage={(images, index) => setViewer({ images, index })}
+              />
             ))}
           </div>
         )}
       </main>
+
+      {viewer && (
+        <ImageLightbox
+          images={viewer.images}
+          initialIndex={viewer.index}
+          onClose={() => setViewer(null)}
+        />
+      )}
     </div>
   );
 }

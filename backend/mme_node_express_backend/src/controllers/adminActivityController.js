@@ -77,6 +77,7 @@ export async function listAllMeetings(req, res, next) {
             assignedEmployee: { select: { fullName: true } },
           },
         },
+        _count: { select: { items: true } },
       },
       orderBy: [{ meetingDatetime: { sort: "desc", nulls: "last" } }, { id: "desc" }],
     });
@@ -90,6 +91,10 @@ export async function listAllMeetings(req, res, next) {
         clientName: namesByRowKey.get(meeting.linkedRowKey) || "",
         meetingDatetime: formatDateTime(meeting.meetingDatetime),
         isCompleted: meeting.isCompleted,
+        // "Completed" for the admin filter = actually has content logged
+        // (discussion notes or added items) — distinct from the employee's
+        // manual isCompleted toggle above.
+        hasCompletedDetails: Boolean(meeting.discussionNotes?.trim()) || meeting._count.items > 0,
         createdByName: meeting.createdBy?.fullName || null,
         assignedByEmployeeName: meeting.assignedBy?.fullName || null,
         nextMeeting: meeting.nextMeeting
@@ -137,6 +142,8 @@ export async function listAllCalls(req, res, next) {
         rowKey: call.linkedRowKey,
         clientName: namesByRowKey.get(call.linkedRowKey) || "",
         callDatetime: formatDateTime(call.callDatetime),
+        // "Completed" for the admin filter = a call discussion was logged.
+        hasCompletedDetails: Boolean(call.callDiscussion?.trim()),
         createdByName: call.createdBy?.fullName || null,
         assignedByEmployeeName: call.assignedBy?.fullName || null,
         nextCall: call.nextCall

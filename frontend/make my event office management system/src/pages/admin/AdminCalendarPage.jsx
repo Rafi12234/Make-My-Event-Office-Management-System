@@ -360,7 +360,6 @@ export default function AdminCalendarPage() {
     navigate("/admin/login", { replace: true });
   }
 
-  const totalEvents = events.length;
   const hoverGroup = hoverInfo ? byDateEmployee.get(hoverInfo.date)?.get(hoverInfo.employeeKey) : null;
 
   if (checkingSession || !admin) return null;
@@ -376,11 +375,6 @@ export default function AdminCalendarPage() {
             <CalendarDays size={14} /> Admin Control
           </div>
           <h1 className="mt-2 text-2xl font-black text-mme-purple sm:text-3xl">Company-Wide Calendar</h1>
-          <p className="mt-1.5 text-sm text-mme-purple/55">
-            {totalEvents === 0
-              ? "No meetings or calls scheduled this month"
-              : `${totalEvents} meeting/call event${totalEvents !== 1 ? "s" : ""} across all employees`}
-          </p>
         </div>
 
         {notice && (
