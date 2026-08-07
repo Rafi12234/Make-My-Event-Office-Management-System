@@ -143,13 +143,6 @@ export async function createCall(req, res, next) {
       select: { id: true },
     });
 
-    // Logging a new call fulfills whatever follow-up was pending from an
-    // earlier call, so clear any stale next-call schedules for this client —
-    // otherwise an old, already-passed date keeps winning as the "soonest".
-    await prisma.clientNextCall.deleteMany({
-      where: { linkedRowKey: rowKey, callId: { not: created.id } },
-    });
-
     res.status(201).json({ data: { id: created.id } });
   } catch (error) {
     next(error);

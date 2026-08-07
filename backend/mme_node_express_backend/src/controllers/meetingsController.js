@@ -396,14 +396,6 @@ export async function createMeeting(req, res, next) {
 
     await copyForwardFromPreviousMeeting(rowKey, created.id, employeeId);
 
-    // Logging a new meeting fulfills whatever follow-up was pending from an
-    // earlier meeting, so clear any stale next-meeting schedules for this
-    // client — otherwise an old, already-passed date keeps winning as the
-    // "soonest".
-    await prisma.clientNextMeeting.deleteMany({
-      where: { linkedRowKey: rowKey, meetingId: { not: created.id } },
-    });
-
     res.status(201).json({ data: { id: created.id } });
   } catch (error) {
     next(error);
