@@ -25,60 +25,81 @@ function formatDisplay(dbDatetime) {
   });
 }
 
-// ─── Activity Row ────────────────────────────────────────────────────────────
-// Two fully separate cards per client: the conducted meeting/call (who
-// logged it + Details drill-down) and the upcoming schedule (when + who
-// it's assigned to), each repeating the client name. Only the card matching
-// the active filter type is shown — Completed → conducted card only,
-// Next Meeting/Call → next-schedule card only, otherwise both.
-function ActivityRow({ kind, entry, filterType }) {
+// ─── Client Group Row ────────────────────────────────────────────────────────
+// One row per client with a dropdown: expanding it reveals exactly two
+// subrows — every completed meeting/call for that client (date-wise, with a
+// single Details button opening the full history) and every currently
+// scheduled next-meeting/next-call (each meeting/call can carry its own
+// independent next-schedule, so more than one may be active at once). Any
+// newly logged meeting/call or newly scheduled next-date for the same
+// client folds into these same two subrows automatically (grouped by
+// rowKey), never creating new ones.
+function ClientGroupRow({ kind, group }) {
   const navigate = useNavigate();
-  const next = kind === "meeting" ? entry.nextMeeting : entry.nextCall;
-  const loggedDatetime = kind === "meeting" ? entry.meetingDatetime : entry.callDatetime;
-  const nextDatetime = next ? (kind === "meeting" ? next.nextMeetingDatetime : next.nextCallDatetime) : null;
-  const showConducted = filterType !== "upcoming";
-  const showNext = filterType !== "completed";
+  const [expanded, setExpanded] = useState(false);
+  const label = kind === "meeting" ? "Meeting" : "Call";
+  const loggedDatetimeKey = kind === "meeting" ? "meetingDatetime" : "callDatetime";
 
   return (
-    <>
-      {showConducted && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-mme-pink/50 bg-white px-4 py-3.5 transition hover:border-mme-pink hover:shadow-sm">
-          <div className="min-w-0">
-            <p className="truncate font-black text-mme-purple">{entry.clientName || "Unnamed client"}</p>
-            <p className="mt-0.5 text-xs text-mme-purple/55">
-              Conducted {kind}: {formatDisplay(loggedDatetime) || "—"} {"\u00b7"} Logged by{" "}
-              <span className="font-bold text-mme-purple/75">{entry.createdByName || "—"}</span>
-            </p>
-          </div>
-          <button
-            onClick={() => navigate(`/admin/activity/${kind === "meeting" ? "meetings" : "calls"}/${entry.rowKey}`)}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-mme-pink/70 bg-white px-3 py-1.5 text-xs font-black text-mme-purple transition hover:bg-mme-blush/40"
-          >
-            <Info size={12} /> Details
-          </button>
-        </div>
-      )}
+    <div className="rounded-2xl border border-mme-pink/50 bg-white transition hover:border-mme-pink hover:shadow-sm">
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left"
+      >
+        <p className="truncate font-black text-mme-purple">{group.clientName || "Unnamed client"}</p>
+        <ChevronDown size={16} className={`shrink-0 text-mme-purple/50 transition-transform ${expanded ? "rotate-180" : ""}`} />
+      </button>
 
-      {showNext && (
-        <div className="rounded-2xl border border-mme-pink/50 bg-white px-4 py-3.5 transition hover:border-mme-pink hover:shadow-sm">
-          <p className="truncate font-black text-mme-purple">{entry.clientName || "Unnamed client"}</p>
-          <div className="mt-2 flex flex-wrap items-center gap-x-6 gap-y-1">
-            <p className="text-xs">
-              <span className="font-black uppercase tracking-wide text-mme-purple/40">Next {kind}: </span>
-              <span className={`font-bold ${nextDatetime ? "text-mme-purple" : "italic text-mme-purple/35"}`}>
-                {nextDatetime ? formatDisplay(nextDatetime) : `No upcoming ${kind}`}
-              </span>
-            </p>
-            <p className="text-xs">
-              <span className="font-black uppercase tracking-wide text-mme-purple/40">Assigned To: </span>
-              <span className={`font-bold ${next?.assignedEmployeeName ? "text-mme-purple" : "italic text-mme-purple/35"}`}>
-                {next?.assignedEmployeeName || "Unassigned"}
-              </span>
-            </p>
-          </div>
+      {expanded && (
+        <div className="space-y-3 border-t border-mme-pink/30 px-4 py-3.5">
+          {group.completed.length > 0 && (
+            <div className="rounded-xl border border-mme-pink/40 bg-[#fff9fc] p-3">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[10px] font-black uppercase tracking-wide text-mme-purple/50">
+                  Completed {label}s ({group.completed.length})
+                </p>
+                <button
+                  onClick={() => navigate(`/admin/activity/${kind === "meeting" ? "meetings" : "calls"}/${group.rowKey}`)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-mme-pink/70 bg-white px-2.5 py-1 text-[11px] font-black text-mme-purple transition hover:bg-mme-blush/40"
+                >
+                  <Info size={11} /> Details
+                </button>
+              </div>
+              <ul className="space-y-1">
+                {group.completed.map((entry) => (
+                  <li key={entry.id} className="text-xs text-mme-purple/70">
+                    {formatDisplay(entry[loggedDatetimeKey]) || "—"} {"\u00b7"} Logged by{" "}
+                    <span className="font-bold text-mme-purple/85">{entry.createdByName || "—"}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {group.nextEntries.length > 0 && (
+            <div className="rounded-xl border border-mme-pink/40 bg-[#fff9fc] p-3">
+              <p className="text-[10px] font-black uppercase tracking-wide text-mme-purple/50">
+                Next {label}{group.nextEntries.length !== 1 ? "s" : ""} ({group.nextEntries.length})
+              </p>
+              <ul className="mt-1 space-y-1">
+                {group.nextEntries.map((next, i) => (
+                  <li key={i} className="text-sm">
+                    <span className="font-bold text-mme-purple">{formatDisplay(next.datetime) || "Not scheduled yet"}</span>
+                    <span className="ml-2 font-normal text-mme-purple/60">
+                      Assigned To <span className="font-bold text-mme-purple">{next.assignedEmployeeName || "Unassigned"}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {group.completed.length === 0 && group.nextEntries.length === 0 && (
+            <p className="text-xs italic text-mme-purple/40">No completed or upcoming {kind} for this client.</p>
+          )}
         </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -215,6 +236,39 @@ export default function AdminActivityPage() {
     }
     return result;
   }, [typeFiltered, filterEmployees, filterType, kind, dateFrom, dateTo]);
+
+  // Groups the filtered entries by client (rowKey) — each client gets one
+  // row with exactly two subrows: completed history, and every currently
+  // scheduled next-meeting/next-call (a client can have more than one, since
+  // each meeting/call may carry its own independent next-schedule). Only the
+  // subrow matching the active category is populated — an entry filtered in
+  // under "Completed" can still carry a next-schedule assigned to someone
+  // else entirely, which must NOT leak into the Next subrow (and vice versa).
+  const clientGroups = useMemo(() => {
+    const showCompleted = filterType !== "upcoming";
+    const showNext = filterType !== "completed";
+    const groups = new Map();
+    for (const entry of filteredList) {
+      if (!groups.has(entry.rowKey)) {
+        groups.set(entry.rowKey, { rowKey: entry.rowKey, clientName: entry.clientName, completed: [], nextEntries: [] });
+      }
+      const group = groups.get(entry.rowKey);
+      if (!group.clientName && entry.clientName) group.clientName = entry.clientName;
+      if (showCompleted && entry.hasCompletedDetails) group.completed.push(entry);
+
+      if (showNext) {
+        const next = kind === "meeting" ? entry.nextMeeting : entry.nextCall;
+        if (next) {
+          const datetime = kind === "meeting" ? next.nextMeetingDatetime : next.nextCallDatetime;
+          group.nextEntries.push({ datetime, assignedEmployeeName: next.assignedEmployeeName });
+        }
+      }
+    }
+    for (const group of groups.values()) {
+      group.nextEntries.sort((a, b) => (a.datetime || "").localeCompare(b.datetime || ""));
+    }
+    return [...groups.values()];
+  }, [filteredList, kind, filterType]);
 
   function toggleFilterEmployee(name) {
     setFilterEmployees((prev) => {
@@ -438,7 +492,7 @@ export default function AdminActivityPage() {
               <div className="flex justify-center py-12">
                 <span className="h-8 w-8 animate-spin rounded-full border-3 border-mme-pink border-t-mme-purple" />
               </div>
-            ) : !filteredList.length ? (
+            ) : !clientGroups.length ? (
               <div className="flex flex-col items-center justify-center py-16 text-center">
                 <UsersRound size={38} className="text-mme-mauve" />
                 <p className="mt-4 font-black text-mme-purple">
@@ -447,13 +501,8 @@ export default function AdminActivityPage() {
               </div>
             ) : (
               <div className="space-y-2.5">
-                {filteredList.map((entry) => (
-                  <ActivityRow
-                    key={entry.id}
-                    kind={kind}
-                    entry={entry}
-                    filterType={filterType}
-                  />
+                {clientGroups.map((group) => (
+                  <ClientGroupRow key={group.rowKey} kind={kind} group={group} />
                 ))}
               </div>
             )}
