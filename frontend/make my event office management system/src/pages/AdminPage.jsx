@@ -1,15 +1,13 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router";
+import { useNavigate } from "react-router";
 import BackButton from "../components/BackButton";
+import AdminLayout from "../components/AdminLayout";
 import {
   Check,
   ChevronDown,
   Eye,
   EyeOff,
-  CalendarDays,
   KeyRound,
-  LogOut,
-  Phone,
   Plus,
   RotateCcw,
   Shield,
@@ -20,7 +18,6 @@ import {
   X,
 } from "lucide-react";
 import {
-  adminLogin,
   adminLogout,
   createEmployee,
   fetchAdminMe,
