@@ -87,9 +87,6 @@ function defaultNextCallAssigneeId(call, employeeId) {
 }
 
 function CallCard({ call, rowKey, employeeId, employeeDirectory, onChanged, onDeleted }) {
-  const [callDatetime, setCallDatetime] = useState(
-    toDatetimeLocalValue(call.callDatetime)
-  );
   const [callDiscussion, setCallDiscussion] = useState(
     call.callDiscussion || ""
   );
@@ -119,14 +116,12 @@ function CallCard({ call, rowKey, employeeId, employeeDirectory, onChanged, onDe
   // for the rest — lets each control (picker/dropdown/textarea) save itself
   // the instant it's confirmed, instead of requiring a separate outside save.
   async function persistCall(overrides = {}) {
-    const time = "callDatetime" in overrides ? overrides.callDatetime : callDatetime;
     const nextTime = "nextCallDatetime" in overrides ? overrides.nextCallDatetime : nextCallDatetime;
     const nextAssignee = "nextCallAssignedEmployeeId" in overrides ? overrides.nextCallAssignedEmployeeId : nextCallAssignedEmployeeId;
 
     setIsSaving(true);
     try {
       await updateCall(rowKey, call.id, {
-        callDatetime: time || null,
         callDiscussion: callDiscussion || null,
         nextCallDatetime: nextTime || null,
         nextCallAssignedEmployeeId: nextTime ? (nextAssignee || null) : null,
@@ -138,16 +133,6 @@ function CallCard({ call, rowKey, employeeId, employeeDirectory, onChanged, onDe
     } finally {
       setIsSaving(false);
     }
-  }
-
-  function handleCallDatetimeChange(newValue) {
-    setCallDatetime(newValue);
-    setError("");
-    if (newValue && isPastDatetimeValue(newValue)) {
-      setError("Call time cannot be in the past. Please choose the current time or later.");
-      return;
-    }
-    persistCall({ callDatetime: newValue });
   }
 
   function handleNextCallDatetimeChange(newValue) {
@@ -165,7 +150,6 @@ function CallCard({ call, rowKey, employeeId, employeeDirectory, onChanged, onDe
     setIsSaving(true);
     try {
       await updateCall(rowKey, call.id, {
-        callDatetime: callDatetime || null,
         callDiscussion: callDiscussion || null,
         nextCallDatetime: nextCallDatetime || null,
         nextCallAssignedEmployeeId: nextCallDatetime ? (nextCallAssignedEmployeeId || null) : null,
@@ -257,13 +241,12 @@ function CallCard({ call, rowKey, employeeId, employeeDirectory, onChanged, onDe
           <label className="mb-3 block text-[10px] font-black uppercase tracking-widest text-slate-600">
             Call Time
           </label>
-          <div className="flex flex-col gap-2">
-            <DateTimePicker
-              value={callDatetime}
-              onChange={handleCallDatetimeChange}
-              min={nowMinValue()}
-              placeholder="Select call time"
-            />
+          <div
+            className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700"
+            title="Set automatically when the call was created — not editable"
+          >
+            <CalendarClock size={14} className="shrink-0 text-slate-400" />
+            {formatDisplayDatetime(call.callDatetime)}
           </div>
 
           {(call.createdByName || call.updatedByName || call.assignedByEmployeeName) && (
@@ -420,8 +403,9 @@ export default function ClientCallsPage() {
     setIsCreating(true);
     setError("");
     try {
+      // The server stamps the call time itself (current moment) — no
+      // datetime is sent from here.
       await createCall(rowKey, {
-        callDatetime: null,
         callDiscussion: null,
         employeeId: employee?.id,
       });

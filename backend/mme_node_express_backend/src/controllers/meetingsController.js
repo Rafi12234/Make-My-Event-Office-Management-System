@@ -4,7 +4,7 @@ import { mkdirSync, unlink } from "node:fs";
 import { fileURLToPath } from "node:url";
 import multer from "multer";
 import { prisma } from "../config/prisma.js";
-import { formatDateTime, parseDateTimeLocal, nowMinValue, todayMinValue } from "../utils/dbDates.js";
+import { formatDateTime, parseDateTimeLocal, todayMinValue, nowInBusinessTimezone } from "../utils/dbDates.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -123,12 +123,6 @@ function isValidId(value) {
 // Compares the full "YYYY-MM-DDTHH:MM" value against the current minute so a
 // past time on today's date is rejected too (not just past calendar days) —
 // mirrors controllers/callsController.js.
-function isPastDatetime(datetimeLocalValue) {
-  const value = String(datetimeLocalValue || "").trim().slice(0, 16);
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return false;
-
-  return value < nowMinValue();
-}
 
 // Only compares the date part — the next meeting's time of day is unrestricted.
 function isNextMeetingDateTooEarly(datetimeLocalValue) {
@@ -373,11 +367,10 @@ export async function createMeeting(req, res, next) {
     return res.status(400).json({ message: "Invalid client reference." });
   }
 
-  if (req.body.meetingDatetime && isPastDatetime(req.body.meetingDatetime)) {
-    return res.status(422).json({ message: "Meeting time cannot be in the past. Please choose the current time or later." });
-  }
-
-  const meetingDatetime = parseDateTimeLocal(req.body.meetingDatetime);
+  // The meeting time is always the server's current moment at creation —
+  // never employee-editable — so a meeting can't be logged as having
+  // happened earlier (or later) than it really did.
+  const meetingDatetime = nowInBusinessTimezone();
   const employeeId = isValidId(req.body.employeeId);
 
   try {
@@ -427,23 +420,23 @@ export async function updateMeeting(req, res, next) {
     return res.status(400).json({ message: "Invalid reference." });
   }
 
-  const meetingDatetime = parseDateTimeLocal(req.body.meetingDatetime);
+  // `meetingDatetime` is fixed at creation (server time) and is never
+  // accepted here — only requirements/next-meeting fields are editable.
   const nextMeetingDatetime = parseDateTimeLocal(req.body.nextMeetingDatetime);
   const employeeId = isValidId(req.body.employeeId);
   const nextMeetingAssignedEmployeeId = isValidId(req.body.nextMeetingAssignedEmployeeId);
 
   // `requirements` is legacy (superseded by the Items feature below) and
   // is only touched here if a caller still explicitly sends it, so a plain
-  // "just update the meeting time" request never wipes older data.
-  const data = { meetingDatetime, updatedById: employeeId };
+  // "just update the next-meeting schedule" request never wipes older data.
+  const data = { updatedById: employeeId };
   if (req.body.requirements !== undefined) {
     data.requirements = sanitizeRequirements(req.body.requirements);
   }
 
   try {
     // Only re-validate fields the caller is actually changing — otherwise an
-    // untouched meeting time that has since ticked into the past (or an
-    // existing next-meeting date) would block saving unrelated edits.
+    // existing next-meeting date would block saving unrelated edits.
     // Mirrors controllers/callsController.js.
     const existing = await prisma.clientMeeting.findFirst({
       where: { id, linkedRowKey: rowKey },
@@ -451,11 +444,6 @@ export async function updateMeeting(req, res, next) {
     });
     if (!existing) {
       return res.status(404).json({ message: "Meeting not found." });
-    }
-
-    const meetingDatetimeChanged = formatDateTime(existing.meetingDatetime) !== formatDateTime(meetingDatetime);
-    if (meetingDatetimeChanged && req.body.meetingDatetime && isPastDatetime(req.body.meetingDatetime)) {
-      return res.status(422).json({ message: "Meeting time cannot be in the past. Please choose the current time or later." });
     }
 
     const nextMeetingDatetimeChanged = formatDateTime(existing.nextMeeting?.nextMeetingDatetime) !== formatDateTime(nextMeetingDatetime);
