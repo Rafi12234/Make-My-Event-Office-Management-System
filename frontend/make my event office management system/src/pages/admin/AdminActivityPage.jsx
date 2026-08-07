@@ -3,14 +3,13 @@ import { useNavigate } from "react-router";
 import {
   CalendarClock,
   ChevronDown,
-  LogOut,
   Pencil,
   Phone,
-  Shield,
   UsersRound,
   X,
 } from "lucide-react";
 import BackButton from "../../components/BackButton";
+import AdminLayout from "../../components/AdminLayout";
 import { adminLogout, fetchAdminMe, fetchAllEmployees } from "../../services/adminService";
 import {
   fetchAllCalls,
@@ -190,7 +189,7 @@ export default function AdminActivityPage() {
   useEffect(() => {
     fetchAdminMe()
       .then((me) => {
-        if (!me) return navigate("/admin", { replace: true });
+        if (!me) return navigate("/admin/login", { replace: true });
         setAdmin(me);
       })
       .finally(() => setCheckingSession(false));
@@ -217,7 +216,7 @@ export default function AdminActivityPage() {
 
   async function handleLogout() {
     await adminLogout();
-    navigate("/admin", { replace: true });
+    navigate("/admin/login", { replace: true });
   }
 
   async function handleSave({ datetime, assignedEmployeeId }) {
@@ -238,39 +237,9 @@ export default function AdminActivityPage() {
   if (checkingSession || !admin) return null;
 
   return (
-    <div className="min-h-screen bg-[#fff9fc]">
-      <header className="sticky top-0 z-40 border-b border-mme-pink/50 bg-white/90 backdrop-blur-md">
-        <div className="mx-auto flex max-w-350 items-center justify-between px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-mme-purple font-black text-white shadow-lg shadow-mme-purple/20">
-              <Shield size={20} />
-            </div>
-            <div>
-              <p className="text-base font-black text-mme-purple sm:text-lg">Admin Portal</p>
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-mme-plum sm:text-xs">
-                Make My Event
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="hidden items-center gap-2 rounded-xl border border-mme-pink/60 bg-[#fff9fc] px-3 py-2 text-xs font-bold text-mme-purple/65 sm:flex">
-              <Shield size={13} className="text-mme-plum" />
-              {admin.fullName}
-            </div>
-            <button
-              onClick={handleLogout}
-              className="inline-flex items-center gap-2 rounded-xl border border-mme-pink/70 bg-white px-3 py-2 text-xs font-black text-mme-purple transition hover:bg-red-50 hover:border-red-200 hover:text-red-500"
-            >
-              <LogOut size={14} /> Logout
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-350 px-4 py-8 sm:px-6">
+    <AdminLayout admin={admin} onLogout={handleLogout}>
         <div className="mb-5">
-          <BackButton to="/admin" title="Back to Admin Portal" />
+          <BackButton to="/admin-dashboard" title="Back to Admin Dashboard" />
         </div>
 
         <div className="mb-7">
@@ -339,7 +308,6 @@ export default function AdminActivityPage() {
             )}
           </div>
         </div>
-      </main>
 
       {editing && (
         <EditScheduleModal
@@ -351,6 +319,6 @@ export default function AdminActivityPage() {
           onSave={handleSave}
         />
       )}
-    </div>
+    </AdminLayout>
   );
 }
