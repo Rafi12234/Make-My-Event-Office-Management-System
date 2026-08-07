@@ -26,114 +26,6 @@ import {
   toggleEmployeeActive,
 } from "../services/adminService";
 
-// ─── Login Form ──────────────────────────────────────────────────────────────
-function LoginView({ onLogin }) {
-  const [form, setForm] = useState({ email: "", password: "" });
-  const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-    try {
-      const admin = await adminLogin(form.email.trim(), form.password);
-      onLogin(admin);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-[#fff9fc] px-4">
-      <div className="w-full max-w-md">
-        {/* Logo */}
-        <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-mme-purple shadow-lg shadow-mme-purple/25">
-            <Shield size={30} className="text-white" />
-          </div>
-          <h1 className="text-2xl font-black text-mme-purple">Admin Portal</h1>
-          <p className="mt-1 text-sm text-mme-purple/55">Make My Event — Office Management</p>
-        </div>
-
-        {/* Card */}
-        <div className="rounded-3xl border border-mme-pink/60 bg-white p-8 shadow-[0_20px_60px_rgba(91,55,101,0.09)]">
-          <h2 className="mb-6 text-lg font-black text-mme-purple">Sign in as Admin</h2>
-
-          {error && (
-            <div className="mb-5 flex items-start gap-2.5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-600">
-              <X size={16} className="mt-0.5 shrink-0" />
-              {error}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="mb-1.5 block text-xs font-black uppercase tracking-[0.16em] text-mme-plum">
-                Email
-              </label>
-              <input
-                type="email"
-                required
-                autoFocus
-                value={form.email}
-                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                placeholder="admin@example.com"
-                className="w-full rounded-xl border border-mme-pink/70 bg-[#fff9fc] px-4 py-3 text-sm text-mme-purple outline-none transition placeholder:text-mme-purple/30 focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/20"
-              />
-            </div>
-
-            <div>
-              <label className="mb-1.5 block text-xs font-black uppercase tracking-[0.16em] text-mme-plum">
-                Password
-              </label>
-              <div className="relative">
-                <input
-                  type={showPassword ? "text" : "password"}
-                  required
-                  value={form.password}
-                  onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                  placeholder="Enter admin password"
-                  className="w-full rounded-xl border border-mme-pink/70 bg-[#fff9fc] px-4 py-3 pr-12 text-sm text-mme-purple outline-none transition placeholder:text-mme-purple/30 focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/20"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-mme-purple/40 hover:text-mme-purple"
-                >
-                  {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
-                </button>
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="mt-2 w-full rounded-xl bg-mme-purple py-3 text-sm font-black text-white shadow-md shadow-mme-purple/20 transition hover:bg-[#4b2c55] disabled:opacity-60"
-            >
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                  Signing in…
-                </span>
-              ) : (
-                "Sign In"
-              )}
-            </button>
-          </form>
-        </div>
-
-        <p className="mt-6 text-center text-xs text-mme-purple/40">
-          <Link to="/" className="hover:text-mme-purple">← Back to app</Link>
-        </p>
-      </div>
-    </div>
-  );
-}
-
 // ─── Create Employee Form ────────────────────────────────────────────────────
 function CreateEmployeeForm({ adminId, onCreated }) {
   const [form, setForm] = useState({ fullName: "", email: "", role: "Employee", password: "" });
@@ -515,6 +407,7 @@ function EmployeeTable({ employees, adminId, onToggle }) {
 
 // ─── Main Admin Page ─────────────────────────────────────────────────────────
 export default function AdminPage() {
+  const navigate = useNavigate();
   const [admin, setAdmin] = useState(null);
   const [checkingSession, setCheckingSession] = useState(true);
   const [employees, setEmployees] = useState([]);
@@ -524,9 +417,12 @@ export default function AdminPage() {
 
   useEffect(() => {
     fetchAdminMe()
-      .then(setAdmin)
+      .then((me) => {
+        if (!me) return navigate("/admin/login", { replace: true });
+        setAdmin(me);
+      })
       .finally(() => setCheckingSession(false));
-  }, []);
+  }, [navigate]);
 
   useEffect(() => {
     if (!notice) return undefined;
@@ -543,14 +439,9 @@ export default function AdminPage() {
       .finally(() => setIsLoading(false));
   }, [admin]);
 
-  function handleLogin(adminData) {
-    setAdmin(adminData);
-  }
-
   async function handleLogout() {
     await adminLogout();
-    setAdmin(null);
-    setEmployees([]);
+    navigate("/admin/login", { replace: true });
   }
 
   function handleCreated(newEmployee) {
@@ -569,54 +460,10 @@ export default function AdminPage() {
     });
   }
 
-  if (checkingSession) return null;
-  if (!admin) return <LoginView onLogin={handleLogin} />;
+  if (checkingSession || !admin) return null;
 
   return (
-    <div className="min-h-screen bg-[#fff9fc]">
-      {/* Header */}
-      <header className="sticky top-0 z-40 border-b border-mme-pink/50 bg-white/90 backdrop-blur-md">
-        <div className="mx-auto flex max-w-[1400px] items-center justify-between px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-mme-purple font-black text-white shadow-lg shadow-mme-purple/20">
-              <Shield size={20} />
-            </div>
-            <div>
-              <p className="text-base font-black text-mme-purple sm:text-lg">Admin Portal</p>
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-mme-plum sm:text-xs">
-                Make My Event
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="hidden items-center gap-2 rounded-xl border border-mme-pink/60 bg-[#fff9fc] px-3 py-2 text-xs font-bold text-mme-purple/65 sm:flex">
-              <Shield size={13} className="text-mme-plum" />
-              {admin.fullName}
-            </div>
-            <Link
-              to="/admin/activity"
-              className="inline-flex items-center gap-2 rounded-xl border border-mme-pink/70 bg-white px-3 py-2 text-xs font-black text-mme-purple transition hover:bg-mme-blush/40"
-            >
-              <Phone size={14} /> Meeting &amp; Call Oversight
-            </Link>
-            <Link
-              to="/admin/calendar"
-              className="inline-flex items-center gap-2 rounded-xl border border-mme-pink/70 bg-white px-3 py-2 text-xs font-black text-mme-purple transition hover:bg-mme-blush/40"
-            >
-              <CalendarDays size={14} /> Company Calendar
-            </Link>
-            <button
-              onClick={handleLogout}
-              className="inline-flex items-center gap-2 rounded-xl border border-mme-pink/70 bg-white px-3 py-2 text-xs font-black text-mme-purple transition hover:bg-red-50 hover:border-red-200 hover:text-red-500"
-            >
-              <LogOut size={14} /> Logout
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-[1400px] px-4 py-8 sm:px-6">
+    <AdminLayout admin={admin} onLogout={handleLogout}>
         <div className="mb-5">
           <BackButton to="/" title="Back to app" />
         </div>
@@ -688,7 +535,6 @@ export default function AdminPage() {
             )}
           </div>
         </div>
-      </main>
 
       {/* Toast Notice */}
       {notice && (
@@ -706,6 +552,6 @@ export default function AdminPage() {
           </button>
         </div>
       )}
-    </div>
+    </AdminLayout>
   );
 }
