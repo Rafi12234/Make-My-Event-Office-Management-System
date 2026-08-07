@@ -189,15 +189,6 @@ function formatColValue(type, value) {
 // call details) but leaves out meeting pictures.
 
 function ClientHoverCard({ clientName, rowData, columns, extras, rect, selectedDate, rowKey, navigate, onMouseEnter, onMouseLeave }) {
-  const skipNames = new Set(["Client Name"]);
-  const detailFields = (columns || []).filter(
-    (col) =>
-      !skipNames.has(col.name) &&
-      col.type !== "meeting_manager" &&
-      rowData[col.key] != null &&
-      String(rowData[col.key]).trim() !== "",
-  );
-
   const isLoading = extras?.isLoading ?? true;
   const calls     = extras?.calls || [];
   const meetings  = extras?.meetings || [];
@@ -218,10 +209,28 @@ function ClientHoverCard({ clientName, rowData, columns, extras, rect, selectedD
     ? meetings.filter((m) => m.nextMeetingDatetime && extractIsoDate(m.nextMeetingDatetime) === selectedDate)
     : meetings.filter((m) => m.nextMeetingDatetime);
 
+  const skipNames = new Set(["Client Name"]);
+  // "Last/Next Meeting Time" columns track whichever of a meeting or a call
+  // happened/comes next — split into Meeting- and/or Call-labeled rows,
+  // shown only for the kinds of events this client actually has this day.
+  const hasMeetingEvent = meetingsOnDate.length > 0 || nextMeetingsOnDate.length > 0;
+  const hasCallEvent    = callsOnDate.length > 0 || nextCallsOnDate.length > 0;
+  const detailFields = [];
+  for (const col of columns || []) {
+    if (skipNames.has(col.name) || col.type === "meeting_manager") continue;
+    if (col.type === "last_meeting_time" || col.type === "next_meeting_time") {
+      if (hasMeetingEvent) detailFields.push({ ...col, key: `${col.key}__meeting`, value: rowData[`${col.key}__meeting`] });
+      if (hasCallEvent) detailFields.push({ ...col, key: `${col.key}__call`, name: col.name.replace("Meeting", "Call"), value: rowData[`${col.key}__call`] });
+      continue;
+    }
+    detailFields.push({ ...col, value: rowData[col.key] });
+  }
+  const visibleDetailFields = detailFields.filter((col) => col.value != null && String(col.value).trim() !== "");
+
   // A lot of content is easier to scan spread across two columns than
   // stretched into one very tall card — and it means the card never needs
   // an inner scrollbar no matter how much history a client has.
-  const wide  = detailFields.length + meetingsOnDate.length + callsOnDate.length + nextCallsOnDate.length + nextMeetingsOnDate.length > 6;
+  const wide  = visibleDetailFields.length + meetingsOnDate.length + callsOnDate.length + nextCallsOnDate.length + nextMeetingsOnDate.length > 6;
   const style = computeTooltipStyle(rect, { wide });
 
   return (
@@ -252,10 +261,10 @@ function ClientHoverCard({ clientName, rowData, columns, extras, rect, selectedD
       </div>
 
       <div className={wide ? "columns-2 gap-x-6" : ""}>
-        {detailFields.length > 0 && (
+        {visibleDetailFields.length > 0 && (
           <div className="mt-2 break-inside-avoid-column space-y-1.5 border-b border-[#d6d6d6]/30 pb-3">
-            {detailFields.map((col) => {
-              const formatted = formatColValue(col.type, rowData[col.key]);
+            {visibleDetailFields.map((col) => {
+              const formatted = formatColValue(col.type, col.value);
               if (!formatted) return null;
               return (
                 <div key={col.key} className="flex items-baseline gap-2">

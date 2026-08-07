@@ -205,11 +205,6 @@ function ImageLightbox({ images, initialIndex, onClose }) {
 }
 
 function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged, onDeleted }) {
-  // A brand-new meeting has no time yet — default the picker to right now
-  // instead of leaving it blank, so the employee can just click OK.
-  const [meetingDatetime, setMeetingDatetime] = useState(
-    toDatetimeLocalValue(meeting.meetingDatetime) || nowMinValue()
-  );
   const [nextMeetingDatetime, setNextMeetingDatetime] = useState(
     toDatetimeLocalValue(meeting.nextMeetingDatetime)
   );
@@ -274,12 +269,10 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
   async function persistMeeting(overrides = {}) {
     const nextTime = "nextMeetingDatetime" in overrides ? overrides.nextMeetingDatetime : nextMeetingDatetime;
     const nextAssignee = "nextMeetingAssignedEmployeeId" in overrides ? overrides.nextMeetingAssignedEmployeeId : nextMeetingAssignedEmployeeId;
-    const time = "meetingDatetime" in overrides ? overrides.meetingDatetime : meetingDatetime;
 
     setIsSaving(true);
     try {
       await updateMeeting(rowKey, meeting.id, {
-        meetingDatetime: time || null,
         nextMeetingDatetime: nextTime || null,
         nextMeetingAssignedEmployeeId: nextTime ? (nextAssignee || null) : null,
         employeeId,
@@ -290,16 +283,6 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
     } finally {
       setIsSaving(false);
     }
-  }
-
-  function handleMeetingDatetimeChange(newValue) {
-    setMeetingDatetime(newValue);
-    setError("");
-    if (newValue && isPastDatetimeValue(newValue)) {
-      setError("Meeting time cannot be in the past. Please choose the current time or later.");
-      return;
-    }
-    persistMeeting({ meetingDatetime: newValue });
   }
 
   function handleNextMeetingDatetimeChange(newValue) {
@@ -317,7 +300,6 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
     setIsSaving(true);
     try {
       await updateMeeting(rowKey, meeting.id, {
-        meetingDatetime: meetingDatetime || null,
         nextMeetingDatetime: nextMeetingDatetime || null,
         nextMeetingAssignedEmployeeId: nextMeetingDatetime ? (nextMeetingAssignedEmployeeId || null) : null,
         employeeId,
@@ -502,14 +484,12 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
           <label className="mb-3 block text-[10px] font-black uppercase tracking-widest text-slate-400">
             Meeting Time
           </label>
-          <div className="flex items-stretch gap-2">
-            <DateTimePicker
-              value={meetingDatetime}
-              onChange={handleMeetingDatetimeChange}
-              min={nowMinValue()}
-              placeholder="Select meeting time"
-              className="w-full"
-            />
+          <div
+            className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700"
+            title="Set automatically when the meeting was created — not editable"
+          >
+            <CalendarClock size={14} className="shrink-0 text-slate-400" />
+            {formatDisplayDatetime(meeting.meetingDatetime)}
           </div>
 
           <div className="mt-5 border-t border-slate-100 pt-5">
@@ -1441,8 +1421,9 @@ export default function ClientMeetingsPage() {
     setIsCreating(true);
     setError("");
     try {
+      // The server stamps the meeting time itself (current moment) — no
+      // datetime is sent from here.
       await createMeeting(rowKey, {
-        meetingDatetime: null,
         employeeId: employee?.id,
       });
       await refresh();

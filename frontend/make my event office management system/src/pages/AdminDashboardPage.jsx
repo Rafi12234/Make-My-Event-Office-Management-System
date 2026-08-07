@@ -261,7 +261,7 @@ export default function AdminDashboardPage() {
                   <Sparkles size={17} />
                 </div>
                 <h2 className="font-black text-mme-purple">
-                  {showAllClients ? "All Clients" : "Top Clients"}
+                  {showAllClients ? "All Clients" : "All Clients"}
                 </h2>
                 <span className="rounded-full bg-mme-blush px-3 py-1 text-xs font-black text-mme-purple">
                   {showAllClients ? dashboard.clients.length : Math.min(CLIENTS_PREVIEW_COUNT, dashboard.clients.length)} of {dashboard.clients.length}

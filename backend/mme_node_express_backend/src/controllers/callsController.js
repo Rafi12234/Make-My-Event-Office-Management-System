@@ -1,5 +1,5 @@
 import { prisma } from "../config/prisma.js";
-import { formatDateTime, parseDateTimeLocal, nowMinValue, todayMinValue } from "../utils/dbDates.js";
+import { formatDateTime, parseDateTimeLocal, todayMinValue, nowInBusinessTimezone } from "../utils/dbDates.js";
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -40,17 +40,6 @@ function isValidRowKey(rowKey) {
 function isValidId(value) {
   const id = Number(value);
   return Number.isInteger(id) && id > 0 ? id : null;
-}
-
-// Compares the full "YYYY-MM-DDTHH:MM" value against the current minute so a
-// past time on today's date is rejected too (not just past calendar days) —
-// otherwise an employee could backdate a call to an earlier time today.
-// Matches the naive/no-timezone-shift date handling in dbDates.js.
-function isPastDatetime(datetimeLocalValue) {
-  const value = String(datetimeLocalValue || "").trim().slice(0, 16);
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return false;
-
-  return value < nowMinValue();
 }
 
 // Only compares the date part — the next call's time of day is unrestricted.
@@ -123,11 +112,10 @@ export async function createCall(req, res, next) {
     return res.status(400).json({ message: "Invalid client reference." });
   }
 
-  if (req.body.callDatetime && isPastDatetime(req.body.callDatetime)) {
-    return res.status(422).json({ message: "Call time cannot be in the past. Please choose the current time or later." });
-  }
-
-  const callDatetime = parseDateTimeLocal(req.body.callDatetime);
+  // The call time is always the server's current moment at creation — never
+  // employee-editable — so a call can't be logged as having happened
+  // earlier (or later) than it really did.
+  const callDatetime = nowInBusinessTimezone();
   const callDiscussion = req.body.callDiscussion
     ? String(req.body.callDiscussion)
     : null;
@@ -178,7 +166,8 @@ export async function updateCall(req, res, next) {
     return res.status(400).json({ message: "Invalid reference." });
   }
 
-  const callDatetime = parseDateTimeLocal(req.body.callDatetime);
+  // `callDatetime` is fixed at creation (server time) and is never accepted
+  // here — only discussion notes/next-call fields are editable.
   const callDiscussion = req.body.callDiscussion
     ? String(req.body.callDiscussion)
     : null;
@@ -188,19 +177,13 @@ export async function updateCall(req, res, next) {
 
   try {
     // Only re-validate fields the caller is actually changing — otherwise an
-    // untouched call time that has since ticked into the past (or an
-    // existing next-call date) would block saving unrelated edits.
+    // existing next-call date would block saving unrelated edits.
     const existing = await prisma.clientCall.findFirst({
       where: { id, linkedRowKey: rowKey },
       include: { nextCall: { select: { nextCallDatetime: true } } },
     });
     if (!existing) {
       return res.status(404).json({ message: "Call not found." });
-    }
-
-    const callDatetimeChanged = formatDateTime(existing.callDatetime) !== formatDateTime(callDatetime);
-    if (callDatetimeChanged && req.body.callDatetime && isPastDatetime(req.body.callDatetime)) {
-      return res.status(422).json({ message: "Call time cannot be in the past. Please choose the current time or later." });
     }
 
     const nextCallDatetimeChanged = formatDateTime(existing.nextCall?.nextCallDatetime) !== formatDateTime(nextCallDatetime);
@@ -210,7 +193,7 @@ export async function updateCall(req, res, next) {
 
     const result = await prisma.clientCall.updateMany({
       where: { id, linkedRowKey: rowKey },
-      data: { callDatetime, callDiscussion, updatedById: employeeId },
+      data: { callDiscussion, updatedById: employeeId },
     });
 
     if (!result.count) {
