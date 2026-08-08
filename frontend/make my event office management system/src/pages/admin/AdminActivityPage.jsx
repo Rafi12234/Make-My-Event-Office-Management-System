@@ -114,12 +114,16 @@ export default function AdminActivityPage() {
   const [employees, setEmployees] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [notice, setNotice] = useState(null);
-  const [filterType, setFilterType] = useState("all"); // "all" | "completed" | "upcoming"
+  // Completed and Next are independent toggles (both on by default) so an
+  // admin can see both at once for the same employee/date range — they are
+  // no longer a single mutually-exclusive category choice.
+  const [showCompleted, setShowCompleted] = useState(true);
+  const [showNext, setShowNext] = useState(true);
   const [filterEmployees, setFilterEmployees] = useState(new Set());
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [showFilters, setShowFilters] = useState(false);
-  const [hoveredSection, setHoveredSection] = useState(null); // "completed" | "upcoming" | "date" | null
+  const [hoveredSection, setHoveredSection] = useState(null); // "employees" | "date" | null
   const filterDropdownRef = useRef(null);
 
   useEffect(() => {
@@ -158,12 +162,11 @@ export default function AdminActivityPage() {
   const kind = tab === "meetings" ? "meeting" : "call";
   const list = tab === "meetings" ? meetings : calls;
 
-  // Switching tabs or the active category invalidates whichever employees
-  // were previously checked (the two categories filter by a different
-  // person — who logged it vs. who it's assigned to).
+  // Switching tabs invalidates whichever employees were previously checked —
+  // a name checked on the Meetings tab may not even appear on the Calls tab.
   useEffect(() => {
     setFilterEmployees(new Set());
-  }, [tab, filterType]);
+  }, [tab]);
 
   // Close the dropdown on an outside click, same behavior as
   // ManagementPage.jsx's Filters dropdown.
@@ -177,92 +180,73 @@ export default function AdminActivityPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showFilters]);
 
-  const typeFiltered = useMemo(() => {
-    if (filterType === "completed") return list.filter((e) => e.hasCompletedDetails);
-    if (filterType === "upcoming") return list.filter((e) => Boolean(kind === "meeting" ? e.nextMeeting : e.nextCall));
-    return list;
-  }, [list, filterType, kind]);
-
-  function employeeNameFor(entry) {
-    if (filterType === "upcoming") {
-      return (kind === "meeting" ? entry.nextMeeting?.assignedEmployeeName : entry.nextCall?.assignedEmployeeName) || null;
-    }
-    return entry.createdByName || null;
+  function passesEmployeeFilter(name) {
+    return filterEmployees.size === 0 || (name && filterEmployees.has(name));
   }
 
-  // Date Range filters against whichever date is being shown for the active
-  // category — the next-schedule date under "Next Meeting/Call", otherwise
-  // the conducted meeting/call date — same "YYYY-MM-DD" comparison
-  // ManagementPage.jsx's date-range filter uses.
-  function dateValueFor(entry) {
-    let dt;
-    if (filterType === "upcoming") {
-      const next = kind === "meeting" ? entry.nextMeeting : entry.nextCall;
-      dt = next ? (kind === "meeting" ? next.nextMeetingDatetime : next.nextCallDatetime) : null;
-    } else {
-      dt = kind === "meeting" ? entry.meetingDatetime : entry.callDatetime;
-    }
-    return dt ? dt.slice(0, 10) : null;
+  function passesDateFilter(dateOnly) {
+    if (!dateFrom && !dateTo) return true;
+    if (!dateOnly) return false;
+    if (dateFrom && dateOnly < dateFrom) return false;
+    if (dateTo && dateOnly > dateTo) return false;
+    return true;
   }
 
+  // The employee list applies to BOTH categories at once, matched against
+  // whichever role is relevant to that subrow — who logged the completed
+  // entry, or who the next-schedule is assigned to — so picking one employee
+  // and a date range surfaces their completed AND next entries together,
+  // instead of forcing an either/or category choice first.
   const employeeCounts = useMemo(() => {
-    if (filterType === "all") return [];
     const counts = new Map();
-    for (const entry of typeFiltered) {
-      const name = employeeNameFor(entry);
-      if (!name) continue;
-      counts.set(name, (counts.get(name) || 0) + 1);
+    for (const entry of list) {
+      if (showCompleted && entry.hasCompletedDetails) {
+        const loggedDate = (kind === "meeting" ? entry.meetingDatetime : entry.callDatetime)?.slice(0, 10) || null;
+        if (entry.createdByName && passesDateFilter(loggedDate)) {
+          counts.set(entry.createdByName, (counts.get(entry.createdByName) || 0) + 1);
+        }
+      }
+      const next = kind === "meeting" ? entry.nextMeeting : entry.nextCall;
+      if (showNext && next) {
+        const nextDate = (kind === "meeting" ? next.nextMeetingDatetime : next.nextCallDatetime)?.slice(0, 10) || null;
+        if (next.assignedEmployeeName && passesDateFilter(nextDate)) {
+          counts.set(next.assignedEmployeeName, (counts.get(next.assignedEmployeeName) || 0) + 1);
+        }
+      }
     }
     // Show every employee the admin created, not just those with a match —
     // the count is 0 for anyone with no completed/upcoming entries here.
     return employees
       .map((emp) => ({ name: emp.fullName, count: counts.get(emp.fullName) || 0 }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-  }, [typeFiltered, filterType, kind, employees]);
+  }, [list, kind, showCompleted, showNext, dateFrom, dateTo, employees]);
 
-  const filteredList = useMemo(() => {
-    let result = typeFiltered;
-    if (filterEmployees.size > 0) {
-      result = result.filter((entry) => filterEmployees.has(employeeNameFor(entry)));
-    }
-    if (dateFrom || dateTo) {
-      result = result.filter((entry) => {
-        const date = dateValueFor(entry);
-        if (!date) return false;
-        if (dateFrom && date < dateFrom) return false;
-        if (dateTo && date > dateTo) return false;
-        return true;
-      });
-    }
-    return result;
-  }, [typeFiltered, filterEmployees, filterType, kind, dateFrom, dateTo]);
-
-  // Groups the filtered entries by client (rowKey) — each client gets one
-  // row with exactly two subrows: completed history, and every currently
-  // scheduled next-meeting/next-call (a client can have more than one, since
-  // each meeting/call may carry its own independent next-schedule). Only the
-  // subrow matching the active category is populated — an entry filtered in
-  // under "Completed" can still carry a next-schedule assigned to someone
-  // else entirely, which must NOT leak into the Next subrow (and vice versa).
+  // Groups every meeting/call by client (rowKey) into two independent
+  // subrows — completed history and scheduled next-meeting/next-call — each
+  // filtered on its own terms (Completed matches by who logged it, Next
+  // matches by who it's assigned to) so the SAME employee + date range can
+  // surface both at once for a client instead of one excluding the other.
   const clientGroups = useMemo(() => {
-    const showCompleted = filterType !== "upcoming";
-    const showNext = filterType !== "completed";
     const groups = new Map();
-    for (const entry of filteredList) {
+    for (const entry of list) {
+      const loggedDate = (kind === "meeting" ? entry.meetingDatetime : entry.callDatetime)?.slice(0, 10) || null;
+      const isCompletedMatch =
+        showCompleted && entry.hasCompletedDetails && passesEmployeeFilter(entry.createdByName) && passesDateFilter(loggedDate);
+
+      const next = kind === "meeting" ? entry.nextMeeting : entry.nextCall;
+      const nextDatetime = next ? (kind === "meeting" ? next.nextMeetingDatetime : next.nextCallDatetime) : null;
+      const nextDate = nextDatetime?.slice(0, 10) || null;
+      const isNextMatch = showNext && Boolean(next) && passesEmployeeFilter(next?.assignedEmployeeName) && passesDateFilter(nextDate);
+
+      if (!isCompletedMatch && !isNextMatch) continue;
+
       if (!groups.has(entry.rowKey)) {
         groups.set(entry.rowKey, { rowKey: entry.rowKey, clientName: entry.clientName, completed: [], nextEntries: [] });
       }
       const group = groups.get(entry.rowKey);
       if (!group.clientName && entry.clientName) group.clientName = entry.clientName;
-      if (showCompleted && entry.hasCompletedDetails) group.completed.push(entry);
-
-      if (showNext) {
-        const next = kind === "meeting" ? entry.nextMeeting : entry.nextCall;
-        if (next) {
-          const datetime = kind === "meeting" ? next.nextMeetingDatetime : next.nextCallDatetime;
-          group.nextEntries.push({ datetime, assignedEmployeeName: next.assignedEmployeeName });
-        }
-      }
+      if (isCompletedMatch) group.completed.push(entry);
+      if (isNextMatch) group.nextEntries.push({ datetime: nextDatetime, assignedEmployeeName: next.assignedEmployeeName });
     }
     for (const group of groups.values()) {
       group.nextEntries.sort((a, b) => (a.datetime || "").localeCompare(b.datetime || ""));
@@ -271,7 +255,9 @@ export default function AdminActivityPage() {
     // follow-up carries nothing worth showing the admin — drop those empty
     // client cards instead of rendering a group with no content at all.
     return [...groups.values()].filter((group) => group.completed.length > 0 || group.nextEntries.length > 0);
-  }, [filteredList, kind, filterType]);
+  }, [list, kind, showCompleted, showNext, filterEmployees, dateFrom, dateTo]);
+
+  const totalClientCount = useMemo(() => new Set(list.map((e) => e.rowKey)).size, [list]);
 
   function toggleFilterEmployee(name) {
     setFilterEmployees((prev) => {
@@ -282,13 +268,9 @@ export default function AdminActivityPage() {
     });
   }
 
-  function selectCategory(key) {
-    setFilterType(key);
-    setHoveredSection(key);
-  }
-
   function clearFilters() {
-    setFilterType("all");
+    setShowCompleted(true);
+    setShowNext(true);
     setFilterEmployees(new Set());
     setDateFrom("");
     setDateTo("");
@@ -296,7 +278,7 @@ export default function AdminActivityPage() {
   }
 
   const activeFilterCount =
-    (filterType !== "all" ? 1 : 0) + filterEmployees.size + (dateFrom ? 1 : 0) + (dateTo ? 1 : 0);
+    (showCompleted ? 0 : 1) + (showNext ? 0 : 1) + filterEmployees.size + (dateFrom ? 1 : 0) + (dateTo ? 1 : 0);
 
   if (checkingSession || !admin) return null;
 
@@ -350,7 +332,7 @@ export default function AdminActivityPage() {
               <button
                 onClick={() => {
                   setShowFilters((v) => !v);
-                  if (!showFilters) setHoveredSection(filterType !== "all" ? filterType : null);
+                  if (!showFilters) setHoveredSection("employees");
                 }}
                 className="inline-flex items-center gap-2 rounded-xl bg-mme-purple px-4 py-2.5 text-sm font-black text-white shadow-md shadow-mme-purple/20 transition hover:bg-[#4b2c55]"
               >
@@ -364,28 +346,48 @@ export default function AdminActivityPage() {
 
               {showFilters && (
                 <div className="absolute right-0 top-full z-50 mt-2 flex rounded-2xl border border-mme-pink/60 bg-white shadow-[0_20px_60px_rgba(91,55,101,0.18)]" style={{ minWidth: 480 }}>
-                  {/* Left — category list */}
+                  {/* Left — category toggles + section nav */}
                   <div className="w-56 shrink-0 border-r border-mme-pink/40 py-2">
-                    {[
-                      { key: "completed", label: `Completed ${tab === "meetings" ? "Meetings" : "Calls"}`, hasValue: filterType === "completed" },
-                      { key: "upcoming", label: `Next ${tab === "meetings" ? "Meetings" : "Calls"}`, hasValue: filterType === "upcoming" },
-                    ].map(({ key, label, hasValue }) => (
-                      <button
-                        key={key}
-                        onClick={() => selectCategory(key)}
-                        className={`flex w-full items-center justify-between px-4 py-2.5 text-left text-sm font-bold transition ${
-                          hoveredSection === key ? "bg-mme-purple text-white" : "text-mme-purple hover:bg-mme-blush/40"
-                        }`}
-                      >
-                        <span className="flex items-center gap-2">
-                          {label}
-                          {hasValue && (
-                            <span className={`h-2 w-2 rounded-full ${hoveredSection === key ? "bg-white" : "bg-mme-purple"}`} />
-                          )}
-                        </span>
-                        <span className="text-xs opacity-60">{"\u203a"}</span>
-                      </button>
-                    ))}
+                    {/* Completed/Next are checkboxes, not a single category
+                        choice — both can stay checked so an employee's
+                        completed AND next entries show together. */}
+                    <label className="flex w-full cursor-pointer items-center gap-3 px-4 py-2.5 text-left text-sm font-bold text-mme-purple transition hover:bg-mme-blush/40">
+                      <input
+                        type="checkbox"
+                        checked={showCompleted}
+                        onChange={() => setShowCompleted((v) => !v)}
+                        className="h-4 w-4 accent-mme-purple"
+                      />
+                      <CheckCircle2 size={14} className="shrink-0 text-mme-purple/60" />
+                      Completed {tab === "meetings" ? "Meetings" : "Calls"}
+                    </label>
+                    <label className="flex w-full cursor-pointer items-center gap-3 px-4 py-2.5 text-left text-sm font-bold text-mme-purple transition hover:bg-mme-blush/40">
+                      <input
+                        type="checkbox"
+                        checked={showNext}
+                        onChange={() => setShowNext((v) => !v)}
+                        className="h-4 w-4 accent-mme-purple"
+                      />
+                      <CalendarClock size={14} className="shrink-0 text-mme-purple/60" />
+                      Next {tab === "meetings" ? "Meetings" : "Calls"}
+                    </label>
+
+                    <div className="my-1.5 border-t border-mme-pink/30" />
+
+                    <button
+                      onClick={() => setHoveredSection("employees")}
+                      className={`flex w-full items-center justify-between px-4 py-2.5 text-left text-sm font-bold transition ${
+                        hoveredSection === "employees" ? "bg-mme-purple text-white" : "text-mme-purple hover:bg-mme-blush/40"
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        Employees
+                        {filterEmployees.size > 0 && (
+                          <span className={`h-2 w-2 rounded-full ${hoveredSection === "employees" ? "bg-white" : "bg-mme-purple"}`} />
+                        )}
+                      </span>
+                      <span className="text-xs opacity-60">{"\u203a"}</span>
+                    </button>
 
                     <button
                       onClick={() => setHoveredSection("date")}
@@ -414,25 +416,15 @@ export default function AdminActivityPage() {
                     )}
                   </div>
 
-                  {/* Right — employee options for the hovered/selected category */}
+                  {/* Right — employee list / date range for the selected section */}
                   <div className="flex-1 p-5">
-                    {hoveredSection === null && (
-                      <div className="flex h-full min-h-32 items-center justify-center text-center">
-                        <div>
-                          <SlidersHorizontal size={26} className="mx-auto text-mme-mauve" />
-                          <p className="mt-3 text-sm font-bold text-mme-purple/50">Choose a category to filter</p>
-                        </div>
-                      </div>
-                    )}
-
-                    {(hoveredSection === "completed" || hoveredSection === "upcoming") && (
+                    {hoveredSection === "employees" && (
                       <div>
                         <p className="mb-3 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-mme-plum">
-                          {hoveredSection === "completed" ? <CheckCircle2 size={12} /> : <CalendarClock size={12} />}
-                          {hoveredSection === "completed" ? "Logged By" : "Assigned To"}
+                          <UsersRound size={12} /> Logged By / Assigned To
                         </p>
                         {employeeCounts.length === 0 ? (
-                          <p className="text-sm font-bold text-mme-purple/40">No {tab} match this category yet.</p>
+                          <p className="text-sm font-bold text-mme-purple/40">No {tab} match the categories above yet.</p>
                         ) : (
                           <div className="max-h-64 space-y-1 overflow-y-auto">
                             {employeeCounts.map(({ name, count }) => (
@@ -455,7 +447,7 @@ export default function AdminActivityPage() {
                     {hoveredSection === "date" && (
                       <div>
                         <p className="mb-3 text-[10px] font-black uppercase tracking-[0.18em] text-mme-plum">
-                          Date Range ({filterType === "upcoming" ? "Next" : "Conducted"} {tab === "meetings" ? "Meeting" : "Call"})
+                          Date Range ({tab === "meetings" ? "Meeting" : "Call"} conducted or scheduled)
                         </p>
                         <div className="flex flex-col gap-3">
                           <div>
@@ -488,7 +480,7 @@ export default function AdminActivityPage() {
           <div className="p-6">
             {!isLoading && activeFilterCount > 0 && (
               <p className="mb-4 text-xs font-bold text-mme-purple/50">
-                {filteredList.length} of {list.length} {tab}
+                {clientGroups.length} of {totalClientCount} clients match these filters
               </p>
             )}
             {isLoading ? (
