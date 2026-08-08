@@ -316,6 +316,7 @@ export async function listMeetings(req, res, next) {
           : null,
         meetings: meetings.map((meeting) => ({
           id: meeting.id,
+          createdById: meeting.createdById ?? null,
           meetingDatetime: formatDateTime(meeting.meetingDatetime),
           nextMeetingDatetime: formatDateTime(meeting.nextMeeting?.nextMeetingDatetime),
           nextMeetingAssignedEmployeeId: meeting.nextMeeting?.assignedEmployeeId ?? null,

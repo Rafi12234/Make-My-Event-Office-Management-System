@@ -215,29 +215,36 @@ function MeetingImageGallery({ images }) {
   );
 }
 
-function ClientDayCard({ group, columns, extras, navigate, selectedDate }) {
+function ClientDayCard({ group, columns, extras, navigate, selectedDate, employeeId }) {
   const { rowKey, clientName, rowData } = group;
 
   const isLoading = extras?.isLoading ?? true;
-  const calls     = extras?.calls || [];
-  const meetings  = extras?.meetings || [];
   const error     = extras?.error || "";
+  // This card lives on each employee's OWN personalised calendar — a call or
+  // meeting another employee logged for this same client (or a follow-up
+  // scheduled to someone else) must never leak in here, so every section is
+  // scoped to only what I created or what's assigned to me, matching the
+  // same rule the backend uses to decide what shows up on my calendar at all.
+  const myCalls    = (extras?.calls || []).filter((c) => c.createdById === employeeId);
+  const myMeetings = (extras?.meetings || []).filter((m) => m.createdById === employeeId);
+  const myNextCalls    = (extras?.calls || []).filter((c) => c.nextCallAssignedEmployeeId === employeeId);
+  const myNextMeetings = (extras?.meetings || []).filter((m) => m.nextMeetingAssignedEmployeeId === employeeId);
   // Matches on either the call's own date OR its scheduled follow-up date,
   // so viewing the day the next call is due also surfaces that same call.
   const callsOnDate = selectedDate
-    ? calls.filter(
+    ? myCalls.filter(
         (c) => extractIsoDate(c.callDatetime) === selectedDate || extractIsoDate(c.nextCallDatetime) === selectedDate,
       )
-    : calls;
+    : myCalls;
   const meetingsOnDate = selectedDate
-    ? meetings.filter((m) => extractIsoDate(m.meetingDatetime) === selectedDate)
-    : meetings;
+    ? myMeetings.filter((m) => extractIsoDate(m.meetingDatetime) === selectedDate)
+    : myMeetings;
   const nextCallsOnDate = selectedDate
-    ? calls.filter((c) => c.nextCallDatetime && extractIsoDate(c.nextCallDatetime) === selectedDate)
-    : calls.filter((c) => c.nextCallDatetime);
+    ? myNextCalls.filter((c) => c.nextCallDatetime && extractIsoDate(c.nextCallDatetime) === selectedDate)
+    : myNextCalls.filter((c) => c.nextCallDatetime);
   const nextMeetingsOnDate = selectedDate
-    ? meetings.filter((m) => m.nextMeetingDatetime && extractIsoDate(m.nextMeetingDatetime) === selectedDate)
-    : meetings.filter((m) => m.nextMeetingDatetime);
+    ? myNextMeetings.filter((m) => m.nextMeetingDatetime && extractIsoDate(m.nextMeetingDatetime) === selectedDate)
+    : myNextMeetings.filter((m) => m.nextMeetingDatetime);
 
   const skipNames = new Set(["Client Name"]);
   // "Last/Next Meeting Time" columns track whichever of a meeting or a call
@@ -693,6 +700,7 @@ export default function CalendarDayPage() {
                       extras={clientExtras[group.rowKey]}
                       navigate={navigate}
                       selectedDate={date}
+                      employeeId={employee?.id}
                     />
                   ))}
                 </div>
