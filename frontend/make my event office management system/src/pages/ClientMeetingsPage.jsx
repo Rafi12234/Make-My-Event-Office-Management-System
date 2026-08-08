@@ -20,6 +20,8 @@ import {
   ClipboardList,
   ImagePlus,
   Loader2,
+  Pencil,
+  Save,
   Sparkles,
   Trash2,
   UserRound,
@@ -205,6 +207,11 @@ function ImageLightbox({ images, initialIndex, onClose }) {
 }
 
 function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged, onDeleted }) {
+  // A meeting only "counts" once it has at least one item on record —
+  // until then the card stays fully unlocked so the employee can freely
+  // fill it in and hit Save for the first time.
+  const hasContent = meeting.items.length > 0;
+  const [isEditing, setIsEditing] = useState(!hasContent);
   const [nextMeetingDatetime, setNextMeetingDatetime] = useState(
     toDatetimeLocalValue(meeting.nextMeetingDatetime)
   );
@@ -220,8 +227,36 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
   const [draftCustomLabel, setDraftCustomLabel] = useState("");
   const [error, setError] = useState("");
   const [dirtyItemIds, setDirtyItemIds] = useState(() => new Set());
-  const [isSavingItems, setIsSavingItems] = useState(false);
   const itemRowRefs = useRef({});
+  // Items created this editing session that have not been confirmed by a
+  // Save click yet - discarded on Cancel or if the employee leaves without saving.
+  const [pendingNewItemIds, setPendingNewItemIds] = useState(() => new Set());
+  const pendingNewItemIdsRef = useRef(pendingNewItemIds);
+  const wasEmptyAtMountRef = useRef(!hasContent);
+  const meetingItemIdsRef = useRef(meeting.items.map((item) => item.id));
+
+  useEffect(() => {
+    pendingNewItemIdsRef.current = pendingNewItemIds;
+  }, [pendingNewItemIds]);
+
+  useEffect(() => {
+    meetingItemIdsRef.current = meeting.items.map((item) => item.id);
+  }, [meeting.items]);
+
+  useEffect(() => {
+    return () => {
+      const ids = Array.from(pendingNewItemIdsRef.current);
+      if (ids.length === 0) return;
+      Promise.allSettled(ids.map((id) => deleteMeetingItem(rowKey, meeting.id, id)))
+        .then(() => {
+          const remainingWillBeEmpty = meetingItemIdsRef.current.every((id) => ids.includes(id));
+          if (wasEmptyAtMountRef.current && remainingWillBeEmpty) {
+            return deleteMeeting(rowKey, meeting.id).catch(() => {});
+          }
+        })
+        .catch(() => {});
+    };
+  }, [rowKey, meeting.id]);
 
   const handleItemDirtyChange = useCallback((itemId, isItemDirty) => {
     setDirtyItemIds((prev) => {
@@ -232,23 +267,23 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
     });
   }, []);
 
+  const handleItemRemoved = useCallback((itemId) => {
+    setPendingNewItemIds((prev) => {
+      if (!prev.has(itemId)) return prev;
+      const next = new Set(prev);
+      next.delete(itemId);
+      return next;
+    });
+  }, []);
+
   const hasDirtyItems = dirtyItemIds.size > 0;
 
-  async function handleSaveAll() {
-    setIsSavingItems(true);
-    setError("");
-    try {
-      const idsToSave = Array.from(dirtyItemIds);
-      const results = await Promise.allSettled(
-        idsToSave.map((id) => itemRowRefs.current[id]?.save())
-      );
-      if (results.some((r) => r.status === "rejected")) {
-        setError("Some items failed to save. Please check the highlighted rows.");
-      }
-      onChanged();
-    } finally {
-      setIsSavingItems(false);
-    }
+  async function saveDirtyItems() {
+    const idsToSave = Array.from(dirtyItemIds);
+    const results = await Promise.allSettled(
+      idsToSave.map((id) => itemRowRefs.current[id]?.save())
+    );
+    return results.some((r) => r.status === "rejected");
   }
 
   const isNextMeetingAssigneeDirty = nextMeetingAssignedEmployeeId !== defaultNextMeetingAssigneeId(meeting, employeeId);
@@ -263,40 +298,38 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
       option.key === "other" || !meeting.items.some((item) => item.itemKey === option.key)
   );
 
-  // Persists whichever fields are passed in, falling back to current state
-  // for the rest — lets each control (picker/dropdown) save itself the
-  // instant it's confirmed, instead of requiring a separate outside save.
-  async function persistMeeting(overrides = {}) {
-    const nextTime = "nextMeetingDatetime" in overrides ? overrides.nextMeetingDatetime : nextMeetingDatetime;
-    const nextAssignee = "nextMeetingAssignedEmployeeId" in overrides ? overrides.nextMeetingAssignedEmployeeId : nextMeetingAssignedEmployeeId;
+  const hasPendingNewItems = pendingNewItemIds.size > 0;
 
-    setIsSaving(true);
-    try {
-      await updateMeeting(rowKey, meeting.id, {
-        nextMeetingDatetime: nextTime || null,
-        nextMeetingAssignedEmployeeId: nextTime ? (nextAssignee || null) : null,
-        employeeId,
-      });
-      onChanged();
-    } catch (err) {
-      setError(err.message || "Failed to save meeting.");
-    } finally {
-      setIsSaving(false);
-    }
-  }
+  // Nothing auto-saves anymore — next-meeting time, next-meeting assignee
+  // and item edits only take effect once the unified Save button is clicked.
+  const isDirty =
+    nextMeetingDatetime !== toDatetimeLocalValue(meeting.nextMeetingDatetime) ||
+    isNextMeetingAssigneeDirty ||
+    hasDirtyItems ||
+    hasPendingNewItems;
+
+  // Locked (read-only) once the meeting has real content and isn't
+  // currently being edited — the employee must click "Edit" to change it.
+  const fieldsLocked = hasContent && !isEditing;
 
   function handleNextMeetingDatetimeChange(newValue) {
     setNextMeetingDatetime(newValue);
     setError("");
     if (newValue && isNextMeetingDateTooEarly(newValue)) {
       setError("Next meeting date cannot be before today. Any time of day is fine.");
-      return;
     }
-    persistMeeting({ nextMeetingDatetime: newValue });
   }
 
-  async function handleSaveAssignee() {
+  async function handleSave() {
     setError("");
+    if (meeting.items.length === 0) {
+      setError("Add at least one item before saving.");
+      return;
+    }
+    if (nextMeetingDatetime && isNextMeetingDateTooEarly(nextMeetingDatetime)) {
+      setError("Next meeting date cannot be before today. Any time of day is fine.");
+      return;
+    }
     setIsSaving(true);
     try {
       await updateMeeting(rowKey, meeting.id, {
@@ -304,12 +337,48 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
         nextMeetingAssignedEmployeeId: nextMeetingDatetime ? (nextMeetingAssignedEmployeeId || null) : null,
         employeeId,
       });
+      const itemsFailed = await saveDirtyItems();
+      if (itemsFailed) {
+        setError("Some items failed to save. Please check the highlighted rows.");
+      } else {
+        setPendingNewItemIds(new Set());
+        setIsEditing(false);
+      }
       onChanged();
     } catch (err) {
       setError(err.message || "Failed to save meeting.");
     } finally {
       setIsSaving(false);
     }
+  }
+
+  function handleEdit() {
+    setError("");
+    setIsEditing(true);
+  }
+
+  // Removes any items added this session that were never confirmed by
+  // Save — returns true if anything was actually discarded.
+  async function discardPendingNewItems() {
+    const ids = Array.from(pendingNewItemIds);
+    if (ids.length === 0) return false;
+    setPendingNewItemIds(new Set());
+    await Promise.allSettled(ids.map((id) => deleteMeetingItem(rowKey, meeting.id, id)));
+    const remainingWillBeEmpty = meeting.items.every((item) => ids.includes(item.id));
+    if (wasEmptyAtMountRef.current && remainingWillBeEmpty) {
+      await deleteMeeting(rowKey, meeting.id).catch(() => {});
+    }
+    return true;
+  }
+
+  async function handleCancel() {
+    setError("");
+    setNextMeetingDatetime(toDatetimeLocalValue(meeting.nextMeetingDatetime));
+    setNextMeetingAssignedEmployeeId(defaultNextMeetingAssigneeId(meeting, employeeId));
+    Object.values(itemRowRefs.current).forEach((row) => row?.cancel());
+    setIsEditing(false);
+    const discarded = await discardPendingNewItems();
+    if (discarded) onChanged();
   }
 
   async function handleToggleComplete() {
@@ -348,13 +417,20 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
     setIsCreatingItem(true);
     setError("");
     try {
-      await createMeetingItem(rowKey, meeting.id, {
+      const created = await createMeetingItem(rowKey, meeting.id, {
         itemKey,
         customLabel,
         description: "",
         quantity: 1,
         employeeId,
       });
+      if (created?.id) {
+        setPendingNewItemIds((prev) => {
+          const next = new Set(prev);
+          next.add(created.id);
+          return next;
+        });
+      }
       setIsAddingItem(false);
       setDraftItemKey("");
       setDraftCustomLabel("");
@@ -431,6 +507,42 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
         </div>
 
         <div className="flex items-center gap-2">
+          {hasContent && !isEditing && (
+            <button
+              onClick={handleEdit}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 shadow-sm transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+            >
+              <Pencil size={13} />
+              Edit
+            </button>
+          )}
+          {isEditing && (
+            <>
+              <button
+                onClick={handleSave}
+                disabled={isSaving || !isDirty}
+                className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white shadow-md shadow-slate-900/20 transition-all duration-200 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                style={{ animation: "slideUp 0.2s ease" }}
+              >
+                {isSaving ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <Save size={13} />
+                )}
+                Save
+              </button>
+              {hasContent && (
+                <button
+                  onClick={handleCancel}
+                  disabled={isSaving}
+                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 shadow-sm transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  <X size={13} />
+                  Cancel
+                </button>
+              )}
+            </>
+          )}
           <button
             onClick={handleToggleComplete}
             disabled={isCompleting}
@@ -504,26 +616,10 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
                 min={todayMinValue()}
                 minDateOnly
                 subtle
+                disabled={fieldsLocked}
                 placeholder="Select next meeting date & time"
                 className="w-full"
               />
-
-              {isNextMeetingAssigneeDirty && (
-                <button
-                  onClick={handleSaveAssignee}
-                  disabled={isSaving}
-                  className="shrink-0 inline-flex items-center justify-center gap-1.5 rounded-2xl bg-slate-900 px-4 text-xs font-black text-white transition-all duration-200 hover:bg-slate-700 disabled:opacity-60"
-                  style={{ animation: "slideUp 0.2s ease" }}
-                  title="Confirm the next meeting's assigned employee"
-                >
-                  {isSaving ? (
-                    <Loader2 size={13} className="animate-spin" />
-                  ) : (
-                    <CheckCircle2 size={13} />
-                  )}
-                  OK
-                </button>
-              )}
             </div>
 
             <label className="mb-2 mt-4 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-600">
@@ -533,7 +629,8 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
             <select
               value={nextMeetingAssignedEmployeeId}
               onChange={(e) => setNextMeetingAssignedEmployeeId(e.target.value)}
-              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all duration-200 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
+              disabled={fieldsLocked}
+              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all duration-200 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100 disabled:cursor-not-allowed disabled:opacity-70"
             >
               <option value="">Unassigned</option>
               {employeeDirectory.map((emp) => (
@@ -598,36 +695,22 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
             </div>
 
             <div className="relative flex items-center gap-2">
-              <button
-                onClick={handleSaveAll}
-                disabled={!hasDirtyItems || isSavingItems}
-                className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-xs font-black shadow-sm transition-all duration-200 disabled:cursor-not-allowed ${
-                  hasDirtyItems
-                    ? "border-slate-900 bg-slate-900 text-white hover:bg-slate-700"
-                    : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40"
-                }`}
-              >
-                {isSavingItems ? (
-                  <Loader2 size={13} className="animate-spin" />
-                ) : (
-                  <CheckCircle2 size={13} />
-                )}
-                Save
-              </button>
-              <button
-                onClick={isAddingItem ? handleCancelAddItem : handleStartAddItem}
-                disabled={isCreatingItem || (!isAddingItem && availableItemOptions.length === 0)}
-                className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white transition-all duration-200 hover:bg-slate-700 disabled:opacity-50"
-              >
-                {isCreatingItem ? (
-                  <Loader2 size={13} className="animate-spin" />
-                ) : isAddingItem ? (
-                  <X size={13} />
-                ) : (
-                  <Plus size={13} />
-                )}
-                {isAddingItem ? "Cancel" : "Add Item"}
-              </button>
+              {!fieldsLocked && (
+                <button
+                  onClick={isAddingItem ? handleCancelAddItem : handleStartAddItem}
+                  disabled={isCreatingItem || (!isAddingItem && availableItemOptions.length === 0)}
+                  className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white transition-all duration-200 hover:bg-slate-700 disabled:opacity-50"
+                >
+                  {isCreatingItem ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : isAddingItem ? (
+                    <X size={13} />
+                  ) : (
+                    <Plus size={13} />
+                  )}
+                  {isAddingItem ? "Cancel" : "Add Item"}
+                </button>
+              )}
             </div>
           </div>
 
@@ -636,7 +719,7 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
               <ClipboardList size={28} className="mb-3 text-slate-300" />
               <p className="text-sm font-black text-slate-400">No items yet</p>
               <p className="mt-1 text-xs font-medium text-slate-300">
-                Click "Add Item" to get started
+                {fieldsLocked ? "Click \"Edit\" to add items." : "Click \"Add Item\" to get started"}
               </p>
             </div>
           ) : (
@@ -728,8 +811,10 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
                         meetingId={meeting.id}
                         item={item}
                         employeeId={employeeId}
+                        locked={fieldsLocked}
                         onChanged={onChanged}
                         onDirtyChange={handleItemDirtyChange}
+                        onItemRemoved={handleItemRemoved}
                       />
                     ))}
                   </tbody>
@@ -750,7 +835,7 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
 }
 
 const MeetingItemRow = forwardRef(function MeetingItemRow(
-  { rowKey, meetingId, item, employeeId, onChanged, onDirtyChange },
+  { rowKey, meetingId, item, employeeId, locked, onChanged, onDirtyChange, onItemRemoved },
   ref
 ) {
   const [description, setDescription] = useState(item.description || "");
@@ -814,8 +899,15 @@ const MeetingItemRow = forwardRef(function MeetingItemRow(
     }
   }
 
+  function handleCancel() {
+    setDescription(item.description || "");
+    setQuantity(item.quantity ?? 1);
+    setError("");
+  }
+
   useImperativeHandle(ref, () => ({
     save: handleSave,
+    cancel: handleCancel,
     isDirty,
   }));
 
@@ -857,6 +949,7 @@ const MeetingItemRow = forwardRef(function MeetingItemRow(
     setError("");
     try {
       await deleteMeetingItem(rowKey, meetingId, item.id);
+      onItemRemoved?.(item.id);
       onChanged();
     } catch (err) {
       setError(err.message || "Failed to remove item.");
@@ -904,9 +997,9 @@ const MeetingItemRow = forwardRef(function MeetingItemRow(
           </span>
           <button
             onClick={handleDeleteItem}
-            disabled={isDeleting}
+            disabled={isDeleting || locked}
             title="Delete this item"
-            className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-500 transition-all duration-150 hover:bg-red-500 hover:text-white disabled:opacity-50"
+            className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-500 transition-all duration-150 hover:bg-red-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isDeleting ? (
               <Loader2 size={12} className="animate-spin" />
@@ -922,8 +1015,13 @@ const MeetingItemRow = forwardRef(function MeetingItemRow(
           rows={3}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
+          readOnly={locked}
           placeholder="Describe this item..."
-          className="w-full resize-none rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-xs leading-5 text-slate-700 outline-none transition-all duration-200 placeholder:text-slate-300 hover:border-slate-300 hover:bg-slate-50 focus:border-slate-400 focus:bg-white focus:ring-2 focus:ring-slate-100"
+          className={`w-full resize-none rounded-xl border border-slate-200 px-2 py-1.5 text-xs leading-5 text-slate-700 outline-none transition-all duration-200 placeholder:text-slate-300 ${
+            locked
+              ? "cursor-default bg-slate-50"
+              : "bg-white hover:border-slate-300 hover:bg-slate-50 focus:border-slate-400 focus:bg-white focus:ring-2 focus:ring-slate-100"
+          }`}
         />
       </td>
 
@@ -933,7 +1031,8 @@ const MeetingItemRow = forwardRef(function MeetingItemRow(
           min="0"
           value={quantity}
           onChange={(e) => setQuantity(e.target.value)}
-          className="w-full rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700 outline-none transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 focus:border-slate-400 focus:bg-white focus:ring-2 focus:ring-slate-100"
+          disabled={locked}
+          className="w-full rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700 outline-none transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 focus:border-slate-400 focus:bg-white focus:ring-2 focus:ring-slate-100 disabled:cursor-not-allowed disabled:opacity-70"
         />
         {isSaving && (
           <Loader2 size={11} className="mt-1 animate-spin text-slate-300" />
@@ -944,8 +1043,8 @@ const MeetingItemRow = forwardRef(function MeetingItemRow(
       <td className="px-3 py-2.5">
         <button
           onClick={() => fileInputRef.current?.click()}
-          disabled={isUploading}
-          className="mb-3 inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-black text-slate-600 shadow-sm transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-60"
+          disabled={isUploading || locked}
+          className="mb-3 inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-black text-slate-600 shadow-sm transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isUploading ? (
             <Loader2 size={11} className="animate-spin" />
@@ -972,7 +1071,7 @@ const MeetingItemRow = forwardRef(function MeetingItemRow(
             {orderedImages.map((image, imageIndex) => (
               <div
                 key={image.id}
-                draggable
+                draggable={!locked}
                 onDragStart={() => handleImageDragStart(imageIndex)}
                 onDragOver={handleImageDragOver}
                 onDrop={() => handleImageDrop(imageIndex)}
@@ -1000,15 +1099,17 @@ const MeetingItemRow = forwardRef(function MeetingItemRow(
                     className="text-white opacity-0 transition-all duration-200 group-hover:opacity-100"
                   />
                 </div>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDeleteImage(image.id);
-                  }}
-                  className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-lg bg-black/70 text-white opacity-0 transition-all duration-200 group-hover:opacity-100 hover:bg-red-500"
-                >
-                  <X size={10} />
-                </button>
+                {!locked && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteImage(image.id);
+                    }}
+                    className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-lg bg-black/70 text-white opacity-0 transition-all duration-200 group-hover:opacity-100 hover:bg-red-500"
+                  >
+                    <X size={10} />
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -1394,6 +1495,12 @@ export default function ClientMeetingsPage() {
   const [showFinalize, setShowFinalize] = useState(false);
   const [error, setError] = useState("");
   const [employeeDirectory, setEmployeeDirectory] = useState([]);
+  // Tracks meeting ids created during this visit that haven't yet been
+  // given a discussion note or an item — if the employee navigates away
+  // without saving one, these get quietly deleted so an empty card never
+  // counts as a real meeting.
+  const pendingEmptyMeetingIdsRef = useRef(new Set());
+  const meetingsRef = useRef([]);
 
   const refresh = useCallback(async () => {
     setError("");
@@ -1410,6 +1517,10 @@ export default function ClientMeetingsPage() {
   }, [rowKey]);
 
   useEffect(() => {
+    meetingsRef.current = meetings;
+  }, [meetings]);
+
+  useEffect(() => {
     if (!employee) {
       navigate("/login", { replace: true });
       return;
@@ -1421,15 +1532,36 @@ export default function ClientMeetingsPage() {
       .catch(() => setEmployeeDirectory([]));
   }, [employee, navigate, refresh]);
 
+  // Cleans up any still-empty meeting created during this visit when
+  // leaving this client (navigating away or unmounting) — satisfies "goes
+  // back or to another page ... will not be stored as any meeting".
+  useEffect(() => {
+    pendingEmptyMeetingIdsRef.current = new Set();
+    return () => {
+      const ids = Array.from(pendingEmptyMeetingIdsRef.current);
+      for (const id of ids) {
+        const current = meetingsRef.current.find((m) => m.id === id);
+        if (current && current.items.length === 0) {
+          deleteMeeting(rowKey, id).catch(() => {});
+        }
+      }
+    };
+  }, [rowKey]);
+
+  const hasEmptyMeeting = meetings.some(
+    (m) => m.items.length === 0
+  );
+
   async function handleCreateMeeting() {
     setIsCreating(true);
     setError("");
     try {
       // The server stamps the meeting time itself (current moment) — no
       // datetime is sent from here.
-      await createMeeting(rowKey, {
+      const created = await createMeeting(rowKey, {
         employeeId: employee?.id,
       });
+      pendingEmptyMeetingIdsRef.current.add(created.id);
       await refresh();
     } catch (err) {
       setError(err.message || "Failed to create meeting.");
@@ -1537,8 +1669,9 @@ export default function ClientMeetingsPage() {
               </button>
               <button
                 onClick={handleCreateMeeting}
-                disabled={isCreating}
-                className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-black text-white shadow-md shadow-slate-900/20 transition-all duration-200 hover:bg-slate-700 hover:shadow-lg hover:shadow-slate-900/25 disabled:opacity-60"
+                disabled={isCreating || hasEmptyMeeting}
+                title={hasEmptyMeeting ? "Finish and save the existing new meeting first" : undefined}
+                className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-black text-white shadow-md shadow-slate-900/20 transition-all duration-200 hover:bg-slate-700 hover:shadow-lg hover:shadow-slate-900/25 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isCreating ? (
                   <Loader2 size={16} className="animate-spin" />
@@ -1547,6 +1680,11 @@ export default function ClientMeetingsPage() {
                 )}
                 Add New Meeting
               </button>
+              {hasEmptyMeeting && (
+                <p className="text-xs font-semibold text-slate-400">
+                  Add at least one item to the new meeting before starting another.
+                </p>
+              )}
             </div>
           </div>
 
@@ -1588,8 +1726,8 @@ export default function ClientMeetingsPage() {
               </div>
               <button
                 onClick={handleCreateMeeting}
-                disabled={isCreating}
-                className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-black text-white transition-all duration-200 hover:bg-slate-700 disabled:opacity-60"
+                disabled={isCreating || hasEmptyMeeting}
+                className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-black text-white transition-all duration-200 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isCreating ? (
                   <Loader2 size={15} className="animate-spin" />
