@@ -12,7 +12,6 @@ import {
   LogOut,
   Phone,
   Plus,
-  RotateCcw,
   Save,
   Search,
   SlidersHorizontal,
@@ -714,14 +713,6 @@ export default function ManagementPage() {
     setNotice({ type: "success", message: `"${column.name}" column added.` });
   }
 
-  function resetWorkspace() {
-    const accepted = window.confirm("Reset the entire management sheet? This removes all rows and custom columns stored in this browser.");
-    if (!accepted) return;
-
-    setWorkspace((current) => ({ ...current, rows: [] }));
-    setNotice({ type: "success", message: "Management sheet cleared. Press Save Changes to persist." });
-  }
-
   async function handleSaveChanges(rowsOverride) {
     if (!employee?.id || isSaving) return;
     setIsSaving(true);
@@ -976,9 +967,6 @@ export default function ManagementPage() {
               <Link to="/calendar" className="inline-flex items-center gap-2 rounded-xl bg-[#301934] px-4 py-2.5 text-sm font-black text-white shadow-md shadow-[#301934]/30 transition-all duration-200 hover:brightness-125 hover:shadow-lg hover:shadow-[#301934]/40 active:scale-[0.97]">
                 <CalendarDays size={17} /> Calendar
               </Link>
-              <button onClick={resetWorkspace} className="inline-flex items-center gap-2 rounded-xl bg-[#191970] px-4 py-2.5 text-sm font-black text-white shadow-md shadow-[#191970]/30 transition-all duration-200 hover:brightness-125 hover:shadow-lg hover:shadow-[#191970]/40 active:scale-[0.97]">
-                <RotateCcw size={17} /> Reset demo
-              </button>
             </div>
           </div>
 
