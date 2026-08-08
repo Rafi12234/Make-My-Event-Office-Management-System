@@ -29,6 +29,7 @@ import {
   VENUE_OPTIONS,
   createEmptyRow,
   Showed_Column_Name,
+  sortColumnsByDefaultOrder,
 } from "../data/defaultSheet";
 import { clearCurrentEmployee, loadCurrentEmployee } from "../services/authStorage";
 import {
@@ -102,6 +103,64 @@ function saveStoredColumnWidths(employeeId, columns) {
     if (Number.isFinite(width) && width >= 60) next[column.id] = width;
   }
   localStorage.setItem(getColumnWidthsStorageKey(employeeId), JSON.stringify(next));
+}
+
+// Filters/sort live in sessionStorage (not localStorage) so they persist
+// across refreshes and page navigation but reset once the tab is closed.
+function getFiltersStorageKey(employeeId) {
+  return `mme_management_filters_v1_${employeeId || "anonymous"}`;
+}
+
+function loadStoredFilters(employeeId) {
+  try {
+    const raw = JSON.parse(sessionStorage.getItem(getFiltersStorageKey(employeeId)) || "null");
+    if (!raw) return null;
+    return {
+      dateFrom: raw.dateFrom || "",
+      dateTo: raw.dateTo || "",
+      shifts: new Set(raw.shifts || []),
+      venues: new Set(raw.venues || []),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveStoredFilters(employeeId, filters) {
+  try {
+    sessionStorage.setItem(
+      getFiltersStorageKey(employeeId),
+      JSON.stringify({
+        dateFrom: filters.dateFrom,
+        dateTo: filters.dateTo,
+        shifts: [...filters.shifts],
+        venues: [...filters.venues],
+      }),
+    );
+  } catch {
+    // Ignore storage failures (e.g. private browsing quota).
+  }
+}
+
+function getSortOrderStorageKey(employeeId) {
+  return `mme_management_sort_order_v1_${employeeId || "anonymous"}`;
+}
+
+function loadStoredSortOrder(employeeId) {
+  try {
+    const stored = sessionStorage.getItem(getSortOrderStorageKey(employeeId));
+    return stored === "newest" || stored === "oldest" ? stored : "default";
+  } catch {
+    return "default";
+  }
+}
+
+function saveStoredSortOrder(employeeId, sortOrder) {
+  try {
+    sessionStorage.setItem(getSortOrderStorageKey(employeeId), sortOrder);
+  } catch {
+    // Ignore storage failures (e.g. private browsing quota).
+  }
 }
 
 /* ─── Hover Preview Panel ─── */
@@ -372,12 +431,23 @@ export default function ManagementPage() {
   const [hoverPreview, setHoverPreview] = useState(null);
   const hoverHideTimeout = useRef(null);
   const workspaceRef = useRef({ columns: [], rows: [] });
-  const [filters, setFilters] = useState({
-    dateFrom: "",
-    dateTo: "",
-    shifts: new Set(),
-    venues: new Set(),
-  });
+  const [filters, setFilters] = useState(() =>
+    loadStoredFilters(employee?.id) || {
+      dateFrom: "",
+      dateTo: "",
+      shifts: new Set(),
+      venues: new Set(),
+    },
+  );
+  const [sortOrder, setSortOrder] = useState(() => loadStoredSortOrder(employee?.id));
+
+  useEffect(() => {
+    saveStoredFilters(employee?.id, filters);
+  }, [employee, filters]);
+
+  useEffect(() => {
+    saveStoredSortOrder(employee?.id, sortOrder);
+  }, [employee, sortOrder]);
 
   const employeeNames = useMemo(() => {
     const names = employeeDirectory.map((item) => item.fullName);
@@ -472,8 +542,13 @@ export default function ManagementPage() {
       rows = rows.filter((row) => filters.venues.has(c ? row.values[c.id] ?? "" : ""));
     }
 
+    if (sortOrder === "newest" || sortOrder === "oldest") {
+      const sign = sortOrder === "newest" ? -1 : 1;
+      rows = [...rows].sort((a, b) => sign * (new Date(a.createdAt || 0) - new Date(b.createdAt || 0)));
+    }
+
     return rows;
-  }, [searchText, workspace.rows, workspace.columns, filters]);
+  }, [searchText, workspace.rows, workspace.columns, filters, sortOrder]);
 
   const activeFilterCount = useMemo(
     () =>
@@ -567,7 +642,8 @@ export default function ManagementPage() {
           loadEmployeeDirectory(),
         ]);
         if (cancelled) return;
-        const columnsWithStoredWidths = applyStoredColumnWidths(nextWorkspace.columns, employee?.id);
+        const orderedColumns = sortColumnsByDefaultOrder(nextWorkspace.columns);
+        const columnsWithStoredWidths = applyStoredColumnWidths(orderedColumns, employee?.id);
         setWorkspace({
           ...nextWorkspace,
           columns: columnsWithStoredWidths,
@@ -1008,6 +1084,7 @@ export default function ManagementPage() {
                           { key: "date",     label: "Date Range",       hasValue: filters.dateFrom || filters.dateTo },
                           { key: "shift",    label: "Shift",            hasValue: filters.shifts.size > 0 },
                           { key: "venue",    label: "Venue",            hasValue: filters.venues.size > 0 },
+                          { key: "sort",     label: "Sort By",          hasValue: sortOrder !== "default" },
                         ].map(({ key, label, hasValue }) => (
                           <button
                             key={key}
@@ -1100,6 +1177,30 @@ export default function ManagementPage() {
                                 <label key={opt} className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 transition-colors duration-150 hover:bg-[#f4f4f4]/30">
                                   <input type="checkbox" checked={filters.venues.has(opt)} onChange={() => toggleFilter("venues", opt)} className="h-4 w-4 accent-black" />
                                   <span className="text-sm font-bold text-black">{opt}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {hoveredSection === "sort" && (
+                          <div className="animate-[fadeIn_0.15s_ease-out]">
+                            <p className="mb-3 text-[10px] font-black uppercase tracking-[0.18em] text-[#333333]">Sort by upload time</p>
+                            <div className="space-y-2">
+                              {[
+                                { value: "default", label: "Default order" },
+                                { value: "newest",   label: "Newest upload first" },
+                                { value: "oldest",   label: "Oldest upload first" },
+                              ].map((opt) => (
+                                <label key={opt.value} className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 transition-colors duration-150 hover:bg-[#f4f4f4]/30">
+                                  <input
+                                    type="radio"
+                                    name="sortOrder"
+                                    checked={sortOrder === opt.value}
+                                    onChange={() => setSortOrder(opt.value)}
+                                    className="h-4 w-4 accent-black"
+                                  />
+                                  <span className="text-sm font-bold text-black">{opt.label}</span>
                                 </label>
                               ))}
                             </div>
