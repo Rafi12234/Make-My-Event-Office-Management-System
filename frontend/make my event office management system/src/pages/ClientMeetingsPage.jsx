@@ -601,7 +601,11 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
               <button
                 onClick={handleSaveAll}
                 disabled={!hasDirtyItems || isSavingItems}
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 shadow-sm transition-all duration-200 hover:bg-slate-50 hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40"
+                className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-xs font-black shadow-sm transition-all duration-200 disabled:cursor-not-allowed ${
+                  hasDirtyItems
+                    ? "border-slate-900 bg-slate-900 text-white hover:bg-slate-700"
+                    : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-40"
+                }`}
               >
                 {isSavingItems ? (
                   <Loader2 size={13} className="animate-spin" />

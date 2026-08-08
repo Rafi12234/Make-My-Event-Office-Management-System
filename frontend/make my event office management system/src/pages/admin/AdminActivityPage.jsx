@@ -267,7 +267,10 @@ export default function AdminActivityPage() {
     for (const group of groups.values()) {
       group.nextEntries.sort((a, b) => (a.datetime || "").localeCompare(b.datetime || ""));
     }
-    return [...groups.values()];
+    // A logged meeting/call with no discussion/items and no upcoming
+    // follow-up carries nothing worth showing the admin — drop those empty
+    // client cards instead of rendering a group with no content at all.
+    return [...groups.values()].filter((group) => group.completed.length > 0 || group.nextEntries.length > 0);
   }, [filteredList, kind, filterType]);
 
   function toggleFilterEmployee(name) {
