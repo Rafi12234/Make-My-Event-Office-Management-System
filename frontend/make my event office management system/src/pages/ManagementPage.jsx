@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import mmeLogo from "../assets/mme-logo-cropped.png";
 import {
@@ -163,7 +163,78 @@ function saveStoredSortOrder(employeeId, sortOrder) {
   }
 }
 
+// Remembers the page's scroll position across navigation away and back
+// (e.g. opening a client's meetings/calls page then returning here) so the
+// employee isn't dropped back to the top of a long, filtered list.
+function getScrollStorageKey(employeeId) {
+  return `mme_management_scroll_v1_${employeeId || "anonymous"}`;
+}
+
+function loadStoredScrollY(employeeId) {
+  const raw = Number(sessionStorage.getItem(getScrollStorageKey(employeeId)));
+  return Number.isFinite(raw) && raw > 0 ? raw : 0;
+}
+
+function saveStoredScrollY(employeeId, scrollY) {
+  try {
+    sessionStorage.setItem(getScrollStorageKey(employeeId), String(scrollY));
+  } catch {
+    // Ignore storage failures (e.g. private browsing quota).
+  }
+}
+
 /* ─── Hover Preview Panel ─── */
+
+const HOVER_PANEL_WIDTH = 320; // matches the w-80 class below
+const HOVER_PANEL_MARGIN = 8;
+
+// Anchors the panel below the trigger button, but flips it above when there
+// isn't enough room below (and vice versa) — picking whichever side actually
+// fits, or the side with more room if neither fully does — then clamps
+// inside the viewport so it's never rendered off-screen.
+function PositionedHoverPanel({ preview, onMouseEnter, onMouseLeave, children }) {
+  const panelRef = useRef(null);
+  const [style, setStyle] = useState({
+    top: preview.anchorBottom + HOVER_PANEL_MARGIN,
+    left: Math.min(preview.anchorLeft, window.innerWidth - HOVER_PANEL_WIDTH - HOVER_PANEL_MARGIN),
+    visibility: "hidden",
+  });
+
+  useLayoutEffect(() => {
+    const height = panelRef.current?.offsetHeight || 0;
+    const spaceBelow = window.innerHeight - preview.anchorBottom;
+    const spaceAbove = preview.anchorTop;
+    const fitsBelow = spaceBelow >= height + HOVER_PANEL_MARGIN;
+    const fitsAbove = spaceAbove >= height + HOVER_PANEL_MARGIN;
+
+    let top;
+    if (fitsBelow || (!fitsAbove && spaceBelow >= spaceAbove)) {
+      top = Math.min(preview.anchorBottom + HOVER_PANEL_MARGIN, window.innerHeight - height - HOVER_PANEL_MARGIN);
+    } else {
+      top = preview.anchorTop - HOVER_PANEL_MARGIN - height;
+    }
+    top = Math.max(HOVER_PANEL_MARGIN, top);
+
+    const left = Math.max(
+      HOVER_PANEL_MARGIN,
+      Math.min(preview.anchorLeft, window.innerWidth - HOVER_PANEL_WIDTH - HOVER_PANEL_MARGIN),
+    );
+
+    setStyle({ top, left, visibility: "visible" });
+  }, [preview.anchorTop, preview.anchorBottom, preview.anchorLeft, preview.status, preview.items]);
+
+  return (
+    <div
+      ref={panelRef}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      style={{ position: "fixed", top: style.top, left: style.left, visibility: style.visibility }}
+      className="animate-[scaleIn_0.2s_ease-out] z-[130] max-h-96 w-80 origin-top-left overflow-auto rounded-2xl border border-[#d6d6d6] bg-white p-4 shadow-2xl"
+    >
+      {children}
+    </div>
+  );
+}
 
 function HoverPreviewPanel({ preview, onMouseEnter, onMouseLeave }) {
   const isMeetings = preview.type === "meetings";
@@ -176,14 +247,44 @@ function HoverPreviewPanel({ preview, onMouseEnter, onMouseLeave }) {
     return !Number.isNaN(parsed) && parsed >= now;
   }
 
-  // Meetings keep the old future/past split on their own datetime. For calls,
-  // the follow-up is the explicit next-call date/time set on the most recent
-  // call — same value already driving the NMT column — so that's what
-  // "Upcoming" shows, alongside any call itself still scheduled for later.
+  function toTime(value) {
+    if (!value) return null;
+    const parsed = new Date(String(value).replace(" ", "T")).getTime();
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+
+  // A meeting's own "next meeting" follow-up is a separate schedule (not
+  // yet its own meeting row) attached to whichever meeting set it — find
+  // the soonest one on record across all meetings, same "soonest wins" rule
+  // as the backend, so it shows up as its own Upcoming entry.
+  let nextMeetingSchedule = null;
+  if (isMeetings && preview.status === "ready") {
+    for (const item of preview.items) {
+      const time = toTime(item.nextMeetingDatetime);
+      if (time !== null && (!nextMeetingSchedule || time < nextMeetingSchedule.time)) {
+        nextMeetingSchedule = {
+          id: `next-meeting-${item.id}`,
+          time,
+          display: item.nextMeetingDatetime,
+          isNextMeetingSchedule: true,
+          assignedName: item.nextMeetingAssignedEmployeeName,
+        };
+      }
+    }
+  }
+
+  // Meetings keep the old future/past split on their own datetime, plus the
+  // explicit next-meeting schedule above. For calls, the follow-up is the
+  // explicit next-call date/time set on the most recent call — same value
+  // already driving the NMT column — so that's what "Upcoming" shows,
+  // alongside any call itself still scheduled for later.
   const upcoming = preview.status !== "ready"
     ? []
     : isMeetings
-      ? preview.items.filter(isUpcoming)
+      ? [
+          ...(nextMeetingSchedule ? [nextMeetingSchedule] : []),
+          ...preview.items.filter(isUpcoming),
+        ]
       : [
           ...(preview.nextCallDatetime ? [{ id: "next-call", time: preview.nextCallDatetime, isNextCallSchedule: true }] : []),
           ...preview.items.filter(isUpcoming),
@@ -194,14 +295,55 @@ function HoverPreviewPanel({ preview, onMouseEnter, onMouseLeave }) {
       ? preview.items.filter((item) => !isUpcoming(item))
       : preview.items.filter((item) => !isUpcoming(item));
 
+  // Whoever logged/held the most recent past meeting or call — for
+  // meetings, the person who marked it complete wins if that happened,
+  // otherwise the one who created the entry.
+  const lastDoneByName = previous.length
+    ? isMeetings
+      ? previous[0].completedByName || previous[0].createdByName
+      : previous[0].createdByName
+    : null;
+
+  // Whoever is on the hook for the next meeting/call — mirrors the
+  // backend's "soonest wins" rule (computeMeetingCallTimes) so this always
+  // matches the NAT column, whether the source is an explicit follow-up
+  // schedule or a real future-dated meeting/call row.
+  let nextAssignedToName = null;
+  if (preview.status === "ready") {
+    if (isMeetings) {
+      if (nextMeetingSchedule) {
+        nextAssignedToName = nextMeetingSchedule.assignedName || null;
+      } else {
+        const upcomingMeeting = preview.items.find(isUpcoming);
+        nextAssignedToName = upcomingMeeting?.createdByName || null;
+      }
+    } else {
+      const matching = preview.items.find(
+        (item) => item.nextCallDatetime && item.nextCallDatetime === preview.nextCallDatetime,
+      );
+      if (matching) {
+        nextAssignedToName = matching.nextCallAssignedEmployeeName;
+      } else {
+        const upcomingCall = preview.items.find(isUpcoming);
+        nextAssignedToName = upcomingCall?.createdByName || null;
+      }
+    }
+  }
+
   function renderItem(item) {
-    const time = isMeetings ? item.meetingDatetime : (item.isNextCallSchedule ? item.time : item.callDatetime);
-    const isMissed = !isMeetings && item.isNextCallSchedule && isOverdueDatetime(item.time);
+    const isSyntheticSchedule = item.isNextCallSchedule || item.isNextMeetingSchedule;
+    const time = isSyntheticSchedule ? item.display ?? item.time : (isMeetings ? item.meetingDatetime : item.callDatetime);
+    const isMissed = isSyntheticSchedule && isOverdueDatetime(item.display ?? item.time);
     return (
       <li key={item.id} className="animate-[fadeInUp_0.2s_ease-out] rounded-xl border border-[#d6d6d6]/50 px-3 py-2 transition-all duration-200 hover:border-[#333333]/20 hover:shadow-sm">
         <p className={`text-xs font-bold ${isMissed ? "text-red-600" : "text-black"}`}>
           {time ? formatMeetingTimeDisplay(time, "Not scheduled") : "Not scheduled"}
         </p>
+        {isMeetings && item.isNextMeetingSchedule && (
+          <p className={`mt-0.5 text-[10px] font-black uppercase tracking-wide ${isMissed ? "text-red-600" : "text-[#f2662b]"}`}>
+            {isMissed ? "Next meeting · Missed" : "Next meeting"}
+          </p>
+        )}
         {isMeetings && item.isCompleted && (
           <p className="mt-0.5 text-[10px] font-black uppercase tracking-wide text-emerald-600">Completed</p>
         )}
@@ -217,10 +359,15 @@ function HoverPreviewPanel({ preview, onMouseEnter, onMouseLeave }) {
     );
   }
 
-  function renderGroup(title, items) {
+  function renderGroup(title, items, metaLabel, metaName) {
     return (
       <div>
         <p className="mb-1.5 text-[10px] font-black uppercase tracking-wide text-black/40">{title}</p>
+        {metaName && (
+          <p className="mb-1.5 text-[11px] font-bold text-black/55">
+            {metaLabel}: <span className="text-black">{metaName}</span>
+          </p>
+        )}
         {items.length ? (
           <ul className="space-y-1.5">{items.map(renderItem)}</ul>
         ) : (
@@ -231,12 +378,7 @@ function HoverPreviewPanel({ preview, onMouseEnter, onMouseLeave }) {
   }
 
   return (
-    <div
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-      style={{ position: "fixed", top: preview.top, left: preview.left }}
-      className="animate-[scaleIn_0.2s_ease-out] z-[130] max-h-96 w-80 origin-top-left overflow-auto rounded-2xl border border-[#d6d6d6] bg-white p-4 shadow-2xl"
-    >
+    <PositionedHoverPanel preview={preview} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
       <p className="mb-3 flex items-center gap-1.5 text-xs font-black uppercase tracking-[0.14em] text-[#333333]">
         {isMeetings ? <CalendarClock size={14} /> : <Phone size={14} />}
         {isMeetings ? "Meetings" : "Calls"} · {preview.clientName || "Client"}
@@ -251,11 +393,11 @@ function HoverPreviewPanel({ preview, onMouseEnter, onMouseLeave }) {
       {preview.status === "error" && <p className="text-sm text-red-600">{preview.error}</p>}
       {preview.status === "ready" && (
         <div className="space-y-4">
-          {renderGroup("Upcoming", upcoming)}
-          {renderGroup("Previous", previous)}
+          {renderGroup("Upcoming", upcoming, "Assigned to", nextAssignedToName)}
+          {renderGroup("Previous", previous, "Done by", lastDoneByName)}
         </div>
       )}
-    </div>
+    </PositionedHoverPanel>
   );
 }
 
@@ -397,18 +539,28 @@ function EmptyState({ onAddRow, onUpload }) {
 
 /* ─── Main Component ─── */
 
+// Module-level cache (survives unmount/remount while the SPA tab stays
+// open) so navigating to a client's meeting/call page and back shows the
+// previous data instantly — no loading spinner, no jump to the top — while
+// a fresh copy is still fetched quietly in the background to stay current.
+let cachedWorkspace = null;
+let cachedEmployeeDirectory = null;
+
 export default function ManagementPage() {
   const navigate = useNavigate();
   const [employee, setEmployee] = useState(() => loadCurrentEmployee());
-  const [employeeDirectory, setEmployeeDirectory] = useState([]);
+  const [employeeDirectory, setEmployeeDirectory] = useState(() => cachedEmployeeDirectory || []);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
-  const [workspace, setWorkspace] = useState(() => ({
-    id: "meeting-management",
-    name: "Meeting Management",
-    columns: [],
-    rows: [],
-  }));
-  const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(true);
+  const [workspace, setWorkspace] = useState(
+    () =>
+      cachedWorkspace || {
+        id: "meeting-management",
+        name: "Meeting Management",
+        columns: [],
+        rows: [],
+      },
+  );
+  const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(() => !cachedWorkspace);
   const [searchText, setSearchText] = useState("");
   const [showAddColumn, setShowAddColumn] = useState(false);
   const [importPreview, setImportPreview] = useState(null);
@@ -481,8 +633,9 @@ export default function ManagementPage() {
       type,
       rowId: row.id,
       clientName,
-      top: rect.bottom + 8,
-      left: Math.min(rect.left, window.innerWidth - 340),
+      anchorTop: rect.top,
+      anchorBottom: rect.bottom,
+      anchorLeft: rect.left,
       status: "loading",
       items: [],
       error: "",
@@ -636,7 +789,9 @@ export default function ManagementPage() {
 
     async function loadSharedData() {
       try {
-        setIsLoadingWorkspace(true);
+        // Only show the full-page spinner when there's nothing cached to
+        // show yet — a cached return visit refreshes silently underneath.
+        if (!cachedWorkspace) setIsLoadingWorkspace(true);
         const [nextWorkspace, employees] = await Promise.all([
           loadWorkspace(),
           loadEmployeeDirectory(),
@@ -644,11 +799,14 @@ export default function ManagementPage() {
         if (cancelled) return;
         const orderedColumns = sortColumnsByDefaultOrder(nextWorkspace.columns);
         const columnsWithStoredWidths = applyStoredColumnWidths(orderedColumns, employee?.id);
-        setWorkspace({
+        const nextState = {
           ...nextWorkspace,
           columns: columnsWithStoredWidths,
           rows: nextWorkspace.rows.filter((row) => !isRowBlank(row, nextWorkspace.columns)),
-        });
+        };
+        cachedWorkspace = nextState;
+        cachedEmployeeDirectory = employees;
+        setWorkspace(nextState);
         setEmployeeDirectory(employees);
       } catch (error) {
         if (!cancelled) {
@@ -672,6 +830,49 @@ export default function ManagementPage() {
       cancelled = true;
     };
   }, [employee?.id]);
+
+  // Continuously remember scroll position so navigating away (e.g. to a
+  // client's meetings/calls page) and back restores exactly where the
+  // employee left off, instead of jumping back to the top of the list.
+  // NOTE: don't also save on the effect's cleanup — React's StrictMode
+  // (dev only) mounts, cleans up, then re-mounts every component once, and
+  // saving scrollY=0 during that throwaway cleanup would clobber the real
+  // saved position before the restore effect below ever gets to read it.
+  useEffect(() => {
+    let ticking = false;
+    function handleScroll() {
+      if (ticking) return;
+      ticking = true;
+      window.requestAnimationFrame(() => {
+        saveStoredScrollY(employee?.id, window.scrollY);
+        ticking = false;
+      });
+    }
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, [employee?.id]);
+
+  // Restore the remembered scroll position once the workspace has finished
+  // loading and the full row list has rendered. Double-rAF (rather than one)
+  // so this runs after the browser has actually painted the restored rows —
+  // otherwise the page can still be too short to scroll to the saved spot,
+  // e.g. right after returning via the browser/system back button.
+  useEffect(() => {
+    if (isLoadingWorkspace) return undefined;
+    const restoreY = loadStoredScrollY(employee?.id);
+    if (!restoreY) return undefined;
+
+    let innerFrame = 0;
+    const outerFrame = window.requestAnimationFrame(() => {
+      innerFrame = window.requestAnimationFrame(() => {
+        window.scrollTo(0, restoreY);
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(outerFrame);
+      window.cancelAnimationFrame(innerFrame);
+    };
+  }, [isLoadingWorkspace, employee?.id]);
 
   useEffect(() => {
     if (!hasMounted.current) return;
@@ -719,6 +920,8 @@ export default function ManagementPage() {
 
   function handleLogout() {
     clearCurrentEmployee();
+    cachedWorkspace = null;
+    cachedEmployeeDirectory = null;
     setEmployee(null);
     navigate("/", { replace: true });
   }
@@ -737,6 +940,7 @@ export default function ManagementPage() {
       ...current,
       rows: [...current.rows, createEmptyRow(current.columns, current.rows.length + 1)],
     }));
+    setNotice({ type: "success", message: "New row added at the bottom of the sheet." });
   }
 
   async function deleteRow(rowId) {
@@ -1230,9 +1434,9 @@ export default function ManagementPage() {
             {workspace.rows.length === 0 ? (
               <EmptyState onAddRow={addRow} onUpload={() => fileInputRef.current?.click()} />
             ) : (
-              <div className="max-h-[calc(100vh-265px)] min-h-[420px] overflow-auto">
+              <div className="min-h-[420px] overflow-x-auto">
                 <table className="w-full border-separate border-spacing-0 text-left" style={{ minWidth: "100%" }}>
-                  <thead className="sticky top-0 z-20">
+                  <thead>
                     <tr>
                       <th className="sticky left-0 z-30 w-14 min-w-14 border-b border-r border-[#d6d6d6]/60 bg-black px-2 py-3 text-center text-xs font-black text-white">#</th>
                       {workspace.columns.map((column) => (
@@ -1400,11 +1604,11 @@ export default function ManagementPage() {
             notice.type === "error"
               ? "border-red-200 bg-red-50 text-red-700"
               : notice.type === "info"
-              ? "border-[#d6d6d6] bg-white text-black"
-              : "border-[#d6d6d6] bg-white text-black"
+              ? "border-sky-200 bg-sky-50 text-sky-800"
+              : "border-emerald-200 bg-emerald-50 text-emerald-800"
           }`}
         >
-          {notice.type === "error" ? <X className="mt-0.5 shrink-0" size={18} /> : notice.type === "info" ? <CalendarDays className="mt-0.5 shrink-0 text-[#333333]" size={18} /> : <Check className="mt-0.5 shrink-0 text-[#333333]" size={18} />}
+          {notice.type === "error" ? <X className="mt-0.5 shrink-0" size={18} /> : notice.type === "info" ? <CalendarDays className="mt-0.5 shrink-0 text-sky-600" size={18} /> : <Check className="mt-0.5 shrink-0 text-emerald-600" size={18} />}
           <p className="text-sm font-bold leading-6">{notice.message}</p>
           <button onClick={() => setNotice(null)} className="ml-2 opacity-50 transition-opacity duration-150 hover:opacity-100"><X size={15} /></button>
         </div>
