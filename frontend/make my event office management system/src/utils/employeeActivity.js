@@ -26,6 +26,31 @@ export function passesDateFilter(dateOnly, dateFrom, dateTo) {
   return true;
 }
 
+// An "upcoming" entry (nextMeeting/nextCall) whose scheduled datetime has
+// already passed means the schedule was never fulfilled — missed/late.
+export function isOverdueDatetime(dbDatetime) {
+  if (!dbDatetime) return false;
+  const [datePart, timePart] = dbDatetime.split(" ");
+  const date = new Date(`${datePart}T${timePart || "00:00:00"}`);
+  return !Number.isNaN(date.getTime()) && date.getTime() < Date.now();
+}
+
+// Human-readable "how late" duration, e.g. "45 min late", "3h 20m late",
+// "2d 5h late". Returns null if not overdue (or datetime is unparseable).
+export function formatLateDuration(dbDatetime) {
+  if (!isOverdueDatetime(dbDatetime)) return null;
+  const [datePart, timePart] = dbDatetime.split(" ");
+  const date = new Date(`${datePart}T${timePart || "00:00:00"}`);
+  const totalMinutes = Math.floor((Date.now() - date.getTime()) / 60000);
+  if (totalMinutes < 60) return `${totalMinutes} min late`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours < 24) return `${hours}h ${minutes}m late`;
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  return `${days}d ${remHours}h late`;
+}
+
 // Groups every meeting/call into per-employee "previous" (completed, matched
 // by who logged it) and "upcoming" (matched by who the next-schedule is
 // assigned to) buckets. Each date is checked against the same date range

@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import BackButton from "../../components/BackButton";
 import AdminLayout from "../../components/AdminLayout";
-import { CalendarClock, Phone, Shield, UsersRound, X } from "lucide-react";
+import { AlertTriangle, CalendarClock, Phone, Shield, UsersRound, X } from "lucide-react";
 import { adminLogout, fetchAdminMe, fetchAllEmployees } from "../../services/adminService";
 import { fetchAllCalls, fetchAllMeetings } from "../../services/adminActivityService";
-import { buildEmployeeActivity, initials } from "../../utils/employeeActivity";
+import { buildEmployeeActivity, initials, isOverdueDatetime } from "../../utils/employeeActivity";
 import { RoutineEntryRow, StatChip } from "../../components/EmployeeActivityWidgets";
 
 export default function AdminEmployeeDetailPage() {
@@ -65,6 +65,14 @@ export default function AdminEmployeeDetailPage() {
     return buildEmployeeActivity([employee], meetings, calls, dateFrom, dateTo)[0];
   }, [employee, meetings, calls, dateFrom, dateTo]);
 
+  // Always all-time (ignores the date filter above) — missed schedules stay
+  // relevant no matter what range is currently shown.
+  const missedCount = useMemo(() => {
+    if (!employee) return 0;
+    const allTimeBucket = buildEmployeeActivity([employee], meetings, calls, "", "")[0];
+    return allTimeBucket.upcoming.filter((entry) => isOverdueDatetime(entry.datetime)).length;
+  }, [employee, meetings, calls]);
+
   function clearFilters() {
     setDateFrom("");
     setDateTo("");
@@ -115,6 +123,28 @@ export default function AdminEmployeeDetailPage() {
               </span>
             </div>
           </div>
+
+          {/* Missing / Late Meetings & Calls — dedicated page */}
+          <button
+            onClick={() => navigate(`/admin-employee-management/${employee.id}/missed`)}
+            className="mb-6 flex w-full items-center justify-between rounded-3xl border border-mme-pink/60 bg-white px-6 py-4 shadow-[0_8px_30px_rgba(91,55,101,0.07)] transition hover:border-mme-pink hover:shadow-md"
+          >
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-50 text-red-500">
+                <AlertTriangle size={17} />
+              </div>
+              <div className="text-left">
+                <span className="block font-black text-mme-purple">Missing / Late Meetings &amp; Calls</span>
+                <span className="block text-xs font-bold text-mme-purple/45">Schedules that passed without being fulfilled</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {missedCount > 0 && (
+                <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-black text-red-600">{missedCount}</span>
+              )}
+              <span className="text-xs font-black text-mme-purple/50">Open {"\u203a"}</span>
+            </div>
+          </button>
 
           {/* Date range filter for this employee's routine */}
           <div className="mb-6 rounded-3xl border border-mme-pink/60 bg-white p-5 shadow-[0_8px_30px_rgba(91,55,101,0.07)]">

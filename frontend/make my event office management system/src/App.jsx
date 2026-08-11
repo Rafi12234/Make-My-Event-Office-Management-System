@@ -14,6 +14,7 @@ import AdminClientDetailPage from "./pages/AdminClientDetailPage";
 import AdminLoginPage from "./pages/AdminLoginPage";
 import AdminActivityPage from "./pages/admin/AdminActivityPage";
 import AdminEmployeeDetailPage from "./pages/admin/AdminEmployeeDetailPage";
+import AdminEmployeeMissedPage from "./pages/admin/AdminEmployeeMissedPage";
 import AdminEmployeeAccountsPage from "./pages/admin/AdminEmployeeAccountsPage";
 import AdminMeetingDetailsPage from "./pages/admin/AdminMeetingDetailsPage";
 import AdminCallDetailsPage from "./pages/admin/AdminCallDetailsPage";
@@ -61,6 +62,7 @@ function App() {
         <Route path="/admin-dashboard/clients/:rowKey" element={<AdminClientDetailPage />} />
         <Route path="/admin-employee-management" element={<AdminPage />} />
         <Route path="/admin-employee-management/accounts" element={<AdminEmployeeAccountsPage />} />
+        <Route path="/admin-employee-management/:employeeId/missed" element={<AdminEmployeeMissedPage />} />
         <Route path="/admin-employee-management/:employeeId" element={<AdminEmployeeDetailPage />} />
         <Route path="/admin/login" element={<AdminLoginPage />} />
         <Route path="/admin/activity" element={<AdminActivityPage />} />
