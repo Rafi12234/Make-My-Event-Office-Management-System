@@ -190,7 +190,14 @@ export default function AdminEmployeeDetailPage() {
               <div className="p-6">
                 {bucket.previous.length ? (
                   <ul className="space-y-1.5">
-                    {bucket.previous.map((entry, i) => <RoutineEntryRow key={`p-${i}`} entry={entry} />)}
+                    {bucket.previous.map((entry, i) => (
+                      <RoutineEntryRow
+                        key={`p-${i}`}
+                        entry={entry}
+                        backTo={`/admin-employee-management/${employee.id}`}
+                        backLabel={`Back to ${employee.fullName}'s record`}
+                      />
+                    ))}
                   </ul>
                 ) : (
                   <p className="text-sm italic text-mme-purple/40">No completed meetings/calls in this range.</p>
@@ -205,7 +212,14 @@ export default function AdminEmployeeDetailPage() {
               <div className="p-6">
                 {bucket.upcoming.length ? (
                   <ul className="space-y-1.5">
-                    {bucket.upcoming.map((entry, i) => <RoutineEntryRow key={`u-${i}`} entry={entry} />)}
+                    {bucket.upcoming.map((entry, i) => (
+                      <RoutineEntryRow
+                        key={`u-${i}`}
+                        entry={entry}
+                        backTo={`/admin-employee-management/${employee.id}`}
+                        backLabel={`Back to ${employee.fullName}'s record`}
+                      />
+                    ))}
                   </ul>
                 ) : (
                   <p className="text-sm italic text-mme-purple/40">No upcoming meetings/calls in this range.</p>

@@ -12,7 +12,9 @@ export function StatChip({ icon: Icon, label, count, tone }) {
   );
 }
 
-export function RoutineEntryRow({ entry }) {
+// `backTo`/`backLabel` are forwarded as navigation state so the detail page's
+// Back button can return here instead of always going to /admin/activity.
+export function RoutineEntryRow({ entry, backTo, backLabel }) {
   const navigate = useNavigate();
   const Icon = entry.type === "meeting" ? CalendarClock : Phone;
   return (
@@ -27,7 +29,9 @@ export function RoutineEntryRow({ entry }) {
         </div>
       </div>
       <button
-        onClick={() => navigate(`/admin/activity/${entry.type === "meeting" ? "meetings" : "calls"}/${entry.rowKey}`)}
+        onClick={() => navigate(`/admin/activity/${entry.type === "meeting" ? "meetings" : "calls"}/${entry.rowKey}`, {
+          state: backTo ? { from: backTo, fromLabel: backLabel } : undefined,
+        })}
         className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-mme-pink/70 bg-white px-2.5 py-1 text-[11px] font-black text-mme-purple transition hover:bg-mme-blush/40"
       >
         <Info size={11} /> Details
