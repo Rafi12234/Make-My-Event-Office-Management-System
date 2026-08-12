@@ -20,9 +20,16 @@ async function apiRequest(path, options = {}) {
   return payload.data ?? payload;
 }
 
+// Uses localStorage (not sessionStorage) so the cached employee survives
+// closing the tab/browser entirely — the server-side mme_session cookie is
+// effectively permanent (see employeeAuth.js), so the client cache needs to
+// match that lifetime. Without this, closing the tab without logging out
+// would wipe the local cache while the cookie stayed valid, leaving the SPA
+// thinking no one was logged in even though the server still considered the
+// employee authenticated.
 export function loadCurrentEmployee() {
   try {
-    const raw = sessionStorage.getItem(EMPLOYEE_STORAGE_KEY);
+    const raw = localStorage.getItem(EMPLOYEE_STORAGE_KEY);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
@@ -35,7 +42,7 @@ export async function saveCurrentEmployee({ email, password }) {
     body: JSON.stringify({ email, password }),
   });
 
-  sessionStorage.setItem(EMPLOYEE_STORAGE_KEY, JSON.stringify(savedEmployee));
+  localStorage.setItem(EMPLOYEE_STORAGE_KEY, JSON.stringify(savedEmployee));
   return savedEmployee;
 }
 
@@ -46,12 +53,12 @@ export async function changeEmployeePassword({ currentPassword, newPassword }) {
   });
 
   const merged = { ...loadCurrentEmployee(), ...updatedEmployee };
-  sessionStorage.setItem(EMPLOYEE_STORAGE_KEY, JSON.stringify(merged));
+  localStorage.setItem(EMPLOYEE_STORAGE_KEY, JSON.stringify(merged));
   return merged;
 }
 
 export function clearCurrentEmployee() {
-  sessionStorage.removeItem(EMPLOYEE_STORAGE_KEY);
+  localStorage.removeItem(EMPLOYEE_STORAGE_KEY);
   // Clear the server-side session cookie too. Fire-and-forget: local
   // storage is already cleared either way, and the caller navigates away
   // immediately after calling this.

@@ -23,6 +23,7 @@ import AdminCalendarDayPage from "./pages/admin/AdminCalendarDayPage";
 import AdminClientsManagementPage from "./pages/admin/AdminClientsManagementPage";
 import RedirectIfAuthed from "./components/RedirectIfAuthed";
 import RequirePasswordChange from "./components/RequirePasswordChange";
+import BlockIfEmployeeSession from "./components/BlockIfEmployeeSession";
 
 // history.scrollRestoration is set to "manual" in main.jsx, so nothing
 // scrolls automatically anymore — reset to the top on every route change
@@ -43,6 +44,11 @@ function ScrollToTop() {
 // now (see server.js's page-fallback guard + the requireEmployee API
 // middleware) — an unauthenticated request for these paths never reaches
 // this router at all, it gets redirected to /login before the SPA loads.
+//
+// Conversely, while a valid employee session exists, every Admin Panel
+// route is wrapped in BlockIfEmployeeSession so it bounces back to
+// /management instead of loading — an employee must log out explicitly
+// before the admin login screen (or any admin page) becomes reachable.
 function App() {
   return (
     <>
@@ -58,19 +64,19 @@ function App() {
         <Route path="/calendar" element={<RequirePasswordChange><CalendarPage /></RequirePasswordChange>} />
         <Route path="/calendar/day/:date" element={<RequirePasswordChange><CalendarDayPage /></RequirePasswordChange>} />
         <Route path="/admin" element={<Navigate to="/admin-dashboard" replace />} />
-        <Route path="/admin-dashboard" element={<AdminDashboardPage />} />
-        <Route path="/admin-dashboard/clients/:rowKey" element={<AdminClientDetailPage />} />
-        <Route path="/admin-employee-management" element={<AdminPage />} />
-        <Route path="/admin-employee-management/accounts" element={<AdminEmployeeAccountsPage />} />
-        <Route path="/admin-employee-management/:employeeId/missed" element={<AdminEmployeeMissedPage />} />
-        <Route path="/admin-employee-management/:employeeId" element={<AdminEmployeeDetailPage />} />
-        <Route path="/admin/login" element={<AdminLoginPage />} />
-        <Route path="/admin/activity" element={<AdminActivityPage />} />
-        <Route path="/admin/activity/meetings/:rowKey" element={<AdminMeetingDetailsPage />} />
-        <Route path="/admin/activity/calls/:rowKey" element={<AdminCallDetailsPage />} />
-        <Route path="/admin/calendar" element={<AdminCalendarPage />} />
-        <Route path="/admin/calendar/day/:date" element={<AdminCalendarDayPage />} />
-        <Route path="/admin/clients-management" element={<AdminClientsManagementPage />} />
+        <Route path="/admin-dashboard" element={<BlockIfEmployeeSession><AdminDashboardPage /></BlockIfEmployeeSession>} />
+        <Route path="/admin-dashboard/clients/:rowKey" element={<BlockIfEmployeeSession><AdminClientDetailPage /></BlockIfEmployeeSession>} />
+        <Route path="/admin-employee-management" element={<BlockIfEmployeeSession><AdminPage /></BlockIfEmployeeSession>} />
+        <Route path="/admin-employee-management/accounts" element={<BlockIfEmployeeSession><AdminEmployeeAccountsPage /></BlockIfEmployeeSession>} />
+        <Route path="/admin-employee-management/:employeeId/missed" element={<BlockIfEmployeeSession><AdminEmployeeMissedPage /></BlockIfEmployeeSession>} />
+        <Route path="/admin-employee-management/:employeeId" element={<BlockIfEmployeeSession><AdminEmployeeDetailPage /></BlockIfEmployeeSession>} />
+        <Route path="/admin/login" element={<BlockIfEmployeeSession><AdminLoginPage /></BlockIfEmployeeSession>} />
+        <Route path="/admin/activity" element={<BlockIfEmployeeSession><AdminActivityPage /></BlockIfEmployeeSession>} />
+        <Route path="/admin/activity/meetings/:rowKey" element={<BlockIfEmployeeSession><AdminMeetingDetailsPage /></BlockIfEmployeeSession>} />
+        <Route path="/admin/activity/calls/:rowKey" element={<BlockIfEmployeeSession><AdminCallDetailsPage /></BlockIfEmployeeSession>} />
+        <Route path="/admin/calendar" element={<BlockIfEmployeeSession><AdminCalendarPage /></BlockIfEmployeeSession>} />
+        <Route path="/admin/calendar/day/:date" element={<BlockIfEmployeeSession><AdminCalendarDayPage /></BlockIfEmployeeSession>} />
+        <Route path="/admin/clients-management" element={<BlockIfEmployeeSession><AdminClientsManagementPage /></BlockIfEmployeeSession>} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
