@@ -311,7 +311,7 @@ export async function getClientMeetingsForAdmin(req, res, next) {
           orderBy: { id: "asc" },
         },
       },
-      orderBy: [{ meetingDatetime: { sort: "asc", nulls: "last" } }, { id: "asc" }],
+      orderBy: [{ meetingDatetime: { sort: "desc", nulls: "last" } }, { id: "desc" }],
     });
 
     const finalization = await prisma.clientFinalization.findUnique({
@@ -399,7 +399,7 @@ export async function getClientCallsForAdmin(req, res, next) {
           },
         },
       },
-      orderBy: [{ callDatetime: { sort: "asc", nulls: "last" } }, { id: "asc" }],
+      orderBy: [{ callDatetime: { sort: "desc", nulls: "last" } }, { id: "desc" }],
     });
 
     res.json({

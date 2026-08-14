@@ -2,7 +2,18 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import BackButton from "../../components/BackButton";
 import AdminLayout from "../../components/AdminLayout";
-import { AlertTriangle, CalendarClock, Phone, Shield, UsersRound, X } from "lucide-react";
+import {
+  AlertTriangle,
+  CalendarClock,
+  CheckCircle2,
+  ChevronRight,
+  Filter,
+  Mail,
+  Phone,
+  Shield,
+  UsersRound,
+  X,
+} from "lucide-react";
 import { adminLogout, fetchAdminMe, fetchAllEmployees } from "../../services/adminService";
 import { fetchAllCalls, fetchAllMeetings } from "../../services/adminActivityService";
 import { buildEmployeeActivity, initials, isOverdueDatetime } from "../../utils/employeeActivity";
@@ -21,6 +32,22 @@ function relativeDateValue(dayOffset) {
   return toDateInputValue(d);
 }
 
+function currentWeekRange() {
+  const now = new Date();
+  const day = now.getDay();
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() + diffToMonday);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return [toDateInputValue(monday), toDateInputValue(sunday)];
+}
+
+const TYPE_OPTIONS = [
+  { key: "all", label: "All Activity", icon: null },
+  { key: "meeting", label: "Meetings", icon: CalendarClock },
+  { key: "call", label: "Calls", icon: Phone },
+];
 
 export default function AdminEmployeeDetailPage() {
   const navigate = useNavigate();
@@ -80,15 +107,19 @@ export default function AdminEmployeeDetailPage() {
     return buildEmployeeActivity([employee], meetings, calls, dateFrom, dateTo)[0];
   }, [employee, meetings, calls, dateFrom, dateTo]);
 
-  // Always all-time (ignores the date filter above) — missed schedules stay
-  // relevant no matter what range is currently shown.
-  const missedCount = useMemo(() => {
-    if (!employee) return 0;
-    const allTimeBucket = buildEmployeeActivity([employee], meetings, calls, "", "")[0];
-    return allTimeBucket.upcoming.filter((entry) => isOverdueDatetime(entry.datetime)).length;
+  // Always all-time — used for header quick-stats + the missed counter, so an
+  // admin gets the real picture regardless of whatever date filter is active.
+  const allTimeBucket = useMemo(() => {
+    if (!employee) return null;
+    return buildEmployeeActivity([employee], meetings, calls, "", "")[0];
   }, [employee, meetings, calls]);
 
-  function clearFilters() {
+  const missedCount = useMemo(() => {
+    if (!allTimeBucket) return 0;
+    return allTimeBucket.upcoming.filter((entry) => isOverdueDatetime(entry.datetime)).length;
+  }, [allTimeBucket]);
+
+  function clearDateFilters() {
     setDateFrom("");
     setDateTo("");
   }
@@ -99,10 +130,22 @@ export default function AdminEmployeeDetailPage() {
     setDateTo(value);
   }
 
+  function applyThisWeek() {
+    const [from, to] = currentWeekRange();
+    setDateFrom(from);
+    setDateTo(to);
+  }
+
+  const todayValue = relativeDateValue(0);
   const yesterdayValue = relativeDateValue(-1);
   const tomorrowValue = relativeDateValue(1);
+  const [weekStart, weekEnd] = currentWeekRange();
+
+  const isAllTimeActive = !dateFrom && !dateTo;
+  const isTodayActive = dateFrom === todayValue && dateTo === todayValue;
   const isYesterdayActive = dateFrom === yesterdayValue && dateTo === yesterdayValue;
   const isTomorrowActive = dateFrom === tomorrowValue && dateTo === tomorrowValue;
+  const isThisWeekActive = dateFrom === weekStart && dateTo === weekEnd;
 
   const filteredPrevious = useMemo(() => {
     if (!bucket) return [];
@@ -114,20 +157,36 @@ export default function AdminEmployeeDetailPage() {
     return typeFilter === "all" ? bucket.upcoming : bucket.upcoming.filter((e) => e.type === typeFilter);
   }, [bucket, typeFilter]);
 
+  const activeTypeIndex = TYPE_OPTIONS.findIndex((o) => o.key === typeFilter);
+  const listKey = `${dateFrom}|${dateTo}|${typeFilter}`;
+
   if (checkingSession || !admin) return null;
 
   return (
     <AdminLayout admin={admin} onLogout={handleLogout}>
+      <style>{`
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes pulseSoft {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.35); }
+          50% { box-shadow: 0 0 0 9px rgba(239,68,68,0); }
+        }
+        .animate-fadeInUp { animation: fadeInUp .45s cubic-bezier(0.22,1,0.36,1) both; }
+        .animate-fadeIn { animation: fadeIn .35s ease both; }
+        .animate-pulseSoft { animation: pulseSoft 2s ease-in-out infinite; }
+      `}</style>
+
       <div className="mb-5">
         <BackButton to="/admin-employee-management" title="Back to Employee Management" />
       </div>
 
       {isLoading ? (
-        <div className="flex justify-center py-20">
-          <span className="h-8 w-8 animate-spin rounded-full border-3 border-mme-pink border-t-mme-purple" />
+        <div className="flex flex-col items-center justify-center gap-3 py-24">
+          <span className="h-9 w-9 animate-spin rounded-full border-[3px] border-mme-pink border-t-mme-purple" />
+          <p className="text-sm font-bold text-mme-purple/50">Loading employee activity…</p>
         </div>
       ) : !employee ? (
-        <div className="rounded-3xl border border-mme-pink/60 bg-white p-10 text-center shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
+        <div className="animate-fadeInUp rounded-3xl border border-mme-pink/60 bg-white p-10 text-center shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
           <UsersRound size={34} className="mx-auto text-mme-mauve" />
           <p className="mt-4 font-black text-mme-purple">Employee not found</p>
           <p className="mt-1 text-sm text-mme-purple/50">This employee may have been removed.</p>
@@ -135,146 +194,211 @@ export default function AdminEmployeeDetailPage() {
       ) : (
         <>
           {/* Employee identity header */}
-          <div className="mb-6 flex flex-wrap items-center gap-4 rounded-3xl border border-mme-pink/60 bg-white p-6 shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
-            <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-lg font-black ${
-              employee.role === "Admin" ? "bg-mme-purple text-white" : "bg-mme-blush text-mme-purple"
-            }`}>
-              {initials(employee.fullName)}
+          <div className="animate-fadeInUp mb-5 rounded-3xl border border-mme-pink/60 bg-gradient-to-br from-white to-mme-blush/25 p-6 shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
+            <div className="flex flex-wrap items-center gap-4">
+              <div
+                className={`flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl text-lg font-black shadow-md ring-4 ring-white transition-transform duration-300 hover:scale-105 ${
+                  employee.role === "Admin" ? "bg-mme-purple text-white" : "bg-mme-blush text-mme-purple"
+                }`}
+              >
+                {initials(employee.fullName)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <h1 className="truncate text-xl font-black text-mme-purple sm:text-2xl">{employee.fullName}</h1>
+                <p className="mt-0.5 flex items-center gap-1.5 truncate text-sm font-semibold text-mme-purple/55">
+                  <Mail size={13} /> {employee.email}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-black transition-transform hover:scale-105 ${
+                    employee.role === "Admin" ? "bg-mme-purple/10 text-mme-purple" : "bg-mme-blush text-mme-plum"
+                  }`}
+                >
+                  {employee.role === "Admin" ? <Shield size={12} /> : <UsersRound size={12} />}
+                  {employee.role}
+                </span>
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-black transition-transform hover:scale-105 ${
+                    employee.isActive ? "bg-green-50 text-green-700" : "bg-red-50 text-red-500"
+                  }`}
+                >
+                  <span className={`h-1.5 w-1.5 rounded-full ${employee.isActive ? "bg-green-500" : "bg-red-500"}`} />
+                  {employee.isActive ? "Active" : "Inactive"}
+                </span>
+              </div>
             </div>
-            <div className="min-w-0 flex-1">
-              <h1 className="truncate text-xl font-black text-mme-purple sm:text-2xl">{employee.fullName}</h1>
-              <p className="truncate text-sm text-mme-purple/55">{employee.email}</p>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-black ${
-                employee.role === "Admin" ? "bg-mme-purple/10 text-mme-purple" : "bg-mme-blush text-mme-plum"
-              }`}>
-                {employee.role === "Admin" ? <Shield size={11} /> : <UsersRound size={11} />}
-                {employee.role}
-              </span>
-              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-black ${
-                employee.isActive ? "bg-green-50 text-green-700" : "bg-red-50 text-red-500"
-              }`}>
-                {employee.isActive ? "Active" : "Inactive"}
-              </span>
-            </div>
+
+            {/* At-a-glance, all-time numbers — no filters, no clicks needed */}
+            {allTimeBucket && (
+              <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-mme-pink/40 pt-4">
+                <StatChip
+                  icon={CalendarClock}
+                  label="Meetings Done (All Time)"
+                  count={allTimeBucket.previous.filter((e) => e.type === "meeting").length}
+                  tone="bg-mme-blush text-mme-plum"
+                />
+                <StatChip
+                  icon={Phone}
+                  label="Calls Done (All Time)"
+                  count={allTimeBucket.previous.filter((e) => e.type === "call").length}
+                  tone="bg-mme-blush text-mme-plum"
+                />
+                <StatChip
+                  icon={CalendarClock}
+                  label="Upcoming (All Time)"
+                  count={allTimeBucket.upcoming.length}
+                  tone="bg-mme-purple/10 text-mme-purple"
+                />
+                <StatChip
+                  icon={AlertTriangle}
+                  label="Missed"
+                  count={missedCount}
+                  tone={missedCount > 0 ? "bg-red-50 text-red-600" : "bg-green-50 text-green-700"}
+                />
+              </div>
+            )}
           </div>
 
-          {/* Missing / Late Meetings & Calls — dedicated page */}
-          <button
-            onClick={() => navigate(`/admin-employee-management/${employee.id}/missed`)}
-            className="mb-6 flex w-full items-center justify-between rounded-3xl border border-mme-pink/60 bg-white px-6 py-4 shadow-[0_8px_30px_rgba(91,55,101,0.07)] transition hover:border-mme-pink hover:shadow-md"
-          >
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-50 text-red-500">
-                <AlertTriangle size={17} />
+          {/* Missed / all-clear banner — the single most important thing on this page */}
+          {missedCount > 0 ? (
+            <button
+              onClick={() => navigate(`/admin-employee-management/${employee.id}/missed`)}
+              className="group animate-fadeInUp mb-6 w-full rounded-3xl border-2 border-red-200 bg-gradient-to-r from-red-50 to-orange-50 p-5 text-left shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-red-300 hover:shadow-lg sm:p-6"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <span className="animate-pulseSoft flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-red-500 text-white">
+                    <AlertTriangle size={22} />
+                  </span>
+                  <div>
+                    <p className="text-base font-black text-red-700 sm:text-lg">
+                      {missedCount} missed {missedCount === 1 ? "item needs" : "items need"} attention
+                    </p>
+                    <p className="text-xs font-bold text-red-500/70 sm:text-sm">
+                      Meetings or calls that passed their scheduled time without being fulfilled.
+                    </p>
+                  </div>
+                </div>
+                <span className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-red-600 px-4 py-2.5 text-xs font-black text-white transition-all duration-300 group-hover:gap-2.5 group-hover:bg-red-700">
+                  Review Now <ChevronRight size={14} />
+                </span>
               </div>
-              <div className="text-left">
-                <span className="block font-black text-mme-purple">Missing / Late Meetings &amp; Calls</span>
-                <span className="block text-xs font-bold text-mme-purple/45">Schedules that passed without being fulfilled</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {missedCount > 0 && (
-                <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-black text-red-600">{missedCount}</span>
-              )}
-              <span className="text-xs font-black text-mme-purple/50">Open {"\u203a"}</span>
-            </div>
-          </button>
-
-          {/* Date range filter for this employee's routine */}
-          <div className="mb-6 rounded-3xl border border-mme-pink/60 bg-white p-5 shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
-            <div className="flex flex-wrap items-end gap-4">
+            </button>
+          ) : (
+            <div className="animate-fadeInUp mb-6 flex items-center gap-4 rounded-3xl border border-green-200 bg-green-50 p-5 shadow-sm">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-green-500 text-white">
+                <CheckCircle2 size={20} />
+              </span>
               <div>
-                <label className="mb-1.5 block text-xs font-black uppercase tracking-[0.16em] text-mme-plum">Date From</label>
+                <p className="font-black text-green-700">All caught up!</p>
+                <p className="text-xs font-bold text-green-600/70">No missed meetings or calls for this employee.</p>
+              </div>
+            </div>
+          )}
+
+          {/* Filters */}
+          <div className="animate-fadeInUp mb-6 rounded-3xl border border-mme-pink/60 bg-white p-5 shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
+            <div className="mb-4 flex items-center gap-2">
+              <Filter size={15} className="text-mme-plum" />
+              <span className="text-xs font-black uppercase tracking-[0.16em] text-mme-plum">Filter Activity</span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {[
+                { label: "All Time", active: isAllTimeActive, onClick: clearDateFilters },
+                { label: "Today", active: isTodayActive, onClick: () => applyRelativeDay(0) },
+                { label: "Yesterday", active: isYesterdayActive, onClick: () => applyRelativeDay(-1) },
+                { label: "Tomorrow", active: isTomorrowActive, onClick: () => applyRelativeDay(1) },
+                { label: "This Week", active: isThisWeekActive, onClick: applyThisWeek },
+              ].map((preset) => (
+                <button
+                  key={preset.label}
+                  onClick={preset.onClick}
+                  className={`rounded-xl border px-4 py-2 text-xs font-black transition-all duration-200 ${
+                    preset.active
+                      ? "border-mme-purple bg-mme-purple text-white shadow-sm"
+                      : "border-mme-pink/70 bg-white text-mme-purple hover:-translate-y-0.5 hover:bg-mme-blush/40"
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
+
+              {(dateFrom || dateTo) && (
+                <button
+                  onClick={clearDateFilters}
+                  className="animate-fadeIn inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-500 transition hover:bg-red-100"
+                >
+                  <X size={13} /> Clear Dates
+                </button>
+              )}
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-end gap-4 border-t border-mme-pink/40 pt-4">
+              <div>
+                <label className="mb-1.5 block text-[11px] font-black uppercase tracking-[0.14em] text-mme-purple/45">
+                  Custom From
+                </label>
                 <input
                   type="date"
                   value={dateFrom}
                   onChange={(e) => setDateFrom(e.target.value)}
-                  className="rounded-xl border border-mme-pink/70 bg-[#fff9fc] px-3.5 py-2.5 text-sm text-mme-purple outline-none focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/20"
+                  className="rounded-xl border border-mme-pink/70 bg-[#fff9fc] px-3.5 py-2.5 text-sm text-mme-purple outline-none transition focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/20"
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-black uppercase tracking-[0.16em] text-mme-plum">Date To</label>
+                <label className="mb-1.5 block text-[11px] font-black uppercase tracking-[0.14em] text-mme-purple/45">
+                  Custom To
+                </label>
                 <input
                   type="date"
                   value={dateTo}
                   onChange={(e) => setDateTo(e.target.value)}
-                  className="rounded-xl border border-mme-pink/70 bg-[#fff9fc] px-3.5 py-2.5 text-sm text-mme-purple outline-none focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/20"
+                  className="rounded-xl border border-mme-pink/70 bg-[#fff9fc] px-3.5 py-2.5 text-sm text-mme-purple outline-none transition focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/20"
                 />
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => applyRelativeDay(-1)}
-                  className={`rounded-xl border px-4 py-2.5 text-xs font-black transition ${
-                    isYesterdayActive
-                      ? "border-mme-purple bg-mme-purple text-white"
-                      : "border-mme-pink/70 bg-white text-mme-purple hover:bg-mme-blush/40"
-                  }`}
-                >
-                  Yesterday
-                </button>
-                <button
-                  onClick={() => applyRelativeDay(1)}
-                  className={`rounded-xl border px-4 py-2.5 text-xs font-black transition ${
-                    isTomorrowActive
-                      ? "border-mme-purple bg-mme-purple text-white"
-                      : "border-mme-pink/70 bg-white text-mme-purple hover:bg-mme-blush/40"
-                  }`}
-                >
-                  Tomorrow
-                </button>
+
+              <div className="ml-auto">
+                <label className="mb-1.5 block text-[11px] font-black uppercase tracking-[0.14em] text-mme-purple/45">
+                  Type
+                </label>
+                <div className="relative inline-flex rounded-xl border border-mme-pink/70 bg-[#fff9fc] p-1">
+                  <div
+                    className="absolute inset-y-1 rounded-lg bg-mme-purple shadow transition-all duration-300 ease-out"
+                    style={{
+                      width: `calc(${100 / TYPE_OPTIONS.length}% - 4px)`,
+                      left: `calc(${activeTypeIndex * (100 / TYPE_OPTIONS.length)}% + 2px)`,
+                    }}
+                  />
+                  {TYPE_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.key}
+                      onClick={() => setTypeFilter(opt.key)}
+                      className={`relative z-10 flex items-center gap-1.5 whitespace-nowrap rounded-lg px-4 py-2 text-xs font-black transition-colors duration-300 ${
+                        typeFilter === opt.key ? "text-white" : "text-mme-purple hover:text-mme-plum"
+                      }`}
+                    >
+                      {opt.icon ? <opt.icon size={13} /> : null} {opt.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setTypeFilter("all")}
-                  className={`rounded-xl border px-4 py-2.5 text-xs font-black transition ${
-                    typeFilter === "all"
-                      ? "border-mme-purple bg-mme-purple text-white"
-                      : "border-mme-pink/70 bg-white text-mme-purple hover:bg-mme-blush/40"
-                  }`}
-                >
-                  All
-                </button>
-                <button
-                  onClick={() => setTypeFilter("meeting")}
-                  className={`inline-flex items-center gap-1.5 rounded-xl border px-4 py-2.5 text-xs font-black transition ${
-                    typeFilter === "meeting"
-                      ? "border-mme-purple bg-mme-purple text-white"
-                      : "border-mme-pink/70 bg-white text-mme-purple hover:bg-mme-blush/40"
-                  }`}
-                >
-                  <CalendarClock size={13} /> Meeting
-                </button>
-                <button
-                  onClick={() => setTypeFilter("call")}
-                  className={`inline-flex items-center gap-1.5 rounded-xl border px-4 py-2.5 text-xs font-black transition ${
-                    typeFilter === "call"
-                      ? "border-mme-purple bg-mme-purple text-white"
-                      : "border-mme-pink/70 bg-white text-mme-purple hover:bg-mme-blush/40"
-                  }`}
-                >
-                  <Phone size={13} /> Call
-                </button>
-              </div>
-              {(dateFrom || dateTo) && (
-                <button
-                  onClick={clearFilters}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-mme-pink/70 bg-white px-4 py-2.5 text-xs font-black text-mme-purple transition hover:bg-mme-blush/40"
-                >
-                  <X size={13} /> Clear
-                </button>
-              )}
             </div>
+
             {(dateFrom || dateTo) && (
-              <p className="mt-3 text-xs font-bold text-mme-purple/50">
-                Within this range: past dates show completed meetings/calls, future dates show upcoming ones {"\u2014"} a range spanning today shows both.
+              <p className="animate-fadeIn mt-4 rounded-xl bg-mme-blush/40 px-3.5 py-2.5 text-xs font-bold text-mme-purple/60">
+                Within this range: past dates show completed meetings/calls, future dates show upcoming ones — a
+                range spanning today shows both.
               </p>
             )}
           </div>
 
-          {/* Stats */}
-          <div className="mb-6 flex flex-wrap items-center gap-2 rounded-3xl border border-mme-pink/60 bg-white p-5 shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
+          {/* Filtered stats for the selected range */}
+          <div className="animate-fadeInUp mb-6 flex flex-wrap items-center gap-2 rounded-3xl border border-mme-pink/60 bg-white p-5 shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
+            <span className="mr-1 text-xs font-black uppercase tracking-[0.14em] text-mme-purple/40">
+              In selected range:
+            </span>
             <StatChip
               icon={CalendarClock}
               label="Meetings Done"
@@ -302,10 +426,13 @@ export default function AdminEmployeeDetailPage() {
           </div>
 
           {/* Previous + Upcoming routine */}
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div key={listKey} className="animate-fadeIn grid gap-6 lg:grid-cols-2">
             <div className="rounded-3xl border border-mme-pink/60 bg-white shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
-              <div className="border-b border-mme-pink/50 px-6 py-4">
-                <span className="font-black text-mme-purple">Previous {"\u2014"} Completed ({filteredPrevious.length})</span>
+              <div className="flex items-center justify-between border-b border-mme-pink/50 px-6 py-4">
+                <span className="font-black text-mme-purple">Completed</span>
+                <span className="rounded-full bg-mme-blush px-2.5 py-1 text-xs font-black text-mme-plum">
+                  {filteredPrevious.length}
+                </span>
               </div>
               <div className="p-6">
                 {filteredPrevious.length ? (
@@ -314,6 +441,7 @@ export default function AdminEmployeeDetailPage() {
                       <RoutineEntryRow
                         key={`p-${i}`}
                         entry={entry}
+                        index={i}
                         backTo={`/admin-employee-management/${employee.id}`}
                         backLabel={`Back to ${employee.fullName}'s record`}
                       />
@@ -326,8 +454,11 @@ export default function AdminEmployeeDetailPage() {
             </div>
 
             <div className="rounded-3xl border border-mme-pink/60 bg-white shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
-              <div className="border-b border-mme-pink/50 px-6 py-4">
-                <span className="font-black text-mme-purple">Upcoming ({filteredUpcoming.length})</span>
+              <div className="flex items-center justify-between border-b border-mme-pink/50 px-6 py-4">
+                <span className="font-black text-mme-purple">Upcoming</span>
+                <span className="rounded-full bg-mme-purple/10 px-2.5 py-1 text-xs font-black text-mme-purple">
+                  {filteredUpcoming.length}
+                </span>
               </div>
               <div className="p-6">
                 {filteredUpcoming.length ? (
@@ -336,6 +467,7 @@ export default function AdminEmployeeDetailPage() {
                       <RoutineEntryRow
                         key={`u-${i}`}
                         entry={entry}
+                        index={i}
                         backTo={`/admin-employee-management/${employee.id}`}
                         backLabel={`Back to ${employee.fullName}'s record`}
                       />
@@ -351,13 +483,15 @@ export default function AdminEmployeeDetailPage() {
       )}
 
       {notice && (
-        <div className={`fixed bottom-5 right-5 z-50 flex max-w-sm items-start gap-3 rounded-2xl border px-5 py-4 shadow-2xl ${
-          notice.type === "error"
-            ? "border-red-200 bg-red-50 text-red-700"
-            : "border-mme-pink bg-white text-mme-purple"
-        }`}>
+        <div
+          className={`animate-fadeInUp fixed bottom-5 right-5 z-50 flex max-w-sm items-start gap-3 rounded-2xl border px-5 py-4 shadow-2xl ${
+            notice.type === "error"
+              ? "border-red-200 bg-red-50 text-red-700"
+              : "border-mme-pink bg-white text-mme-purple"
+          }`}
+        >
           <p className="text-sm font-bold leading-6">{notice.message}</p>
-          <button onClick={() => setNotice(null)} className="ml-auto opacity-50 hover:opacity-100">
+          <button onClick={() => setNotice(null)} className="ml-auto opacity-50 transition hover:opacity-100">
             <X size={14} />
           </button>
         </div>
