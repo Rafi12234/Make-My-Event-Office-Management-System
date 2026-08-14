@@ -157,6 +157,45 @@ export default function AdminEmployeeDetailPage() {
     return typeFilter === "all" ? bucket.upcoming : bucket.upcoming.filter((e) => e.type === typeFilter);
   }, [bucket, typeFilter]);
 
+  // "Assigned" = every meeting/call scheduled to fall within the selected
+  // range, split further into what's already Completed vs. still-pending
+  // "upcoming" scheduled items whose time has already passed = Missed.
+  const rangeMeetingsAssigned = useMemo(() => filteredUpcoming.filter((e) => e.type === "meeting").length, [filteredUpcoming]);
+  const rangeCallsAssigned = useMemo(() => filteredUpcoming.filter((e) => e.type === "call").length, [filteredUpcoming]);
+  const rangeMeetingsDone = useMemo(() => filteredPrevious.filter((e) => e.type === "meeting").length, [filteredPrevious]);
+  const rangeCallsDone = useMemo(() => filteredPrevious.filter((e) => e.type === "call").length, [filteredPrevious]);
+  const rangeMeetingsMissed = useMemo(
+    () => filteredUpcoming.filter((e) => e.type === "meeting" && isOverdueDatetime(e.datetime)).length,
+    [filteredUpcoming],
+  );
+  const rangeCallsMissed = useMemo(
+    () => filteredUpcoming.filter((e) => e.type === "call" && isOverdueDatetime(e.datetime)).length,
+    [filteredUpcoming],
+  );
+  const rangeTotalAssigned = rangeMeetingsAssigned + rangeCallsAssigned;
+  const rangeTotalDone = rangeMeetingsDone + rangeCallsDone;
+  const rangeTotalMissed = rangeMeetingsMissed + rangeCallsMissed;
+
+  const rangeLabel = isAllTimeActive
+    ? "All Time"
+    : isTodayActive
+      ? "Today"
+      : isYesterdayActive
+        ? "Yesterday"
+        : isTomorrowActive
+          ? "Tomorrow"
+          : isThisWeekActive
+            ? "This Week"
+            : dateFrom && dateTo
+              ? dateFrom === dateTo
+                ? dateFrom
+                : `${dateFrom} → ${dateTo}`
+              : dateFrom
+                ? `From ${dateFrom}`
+                : dateTo
+                  ? `Until ${dateTo}`
+                  : "All Time";
+
   const activeTypeIndex = TYPE_OPTIONS.findIndex((o) => o.key === typeFilter);
   const listKey = `${dateFrom}|${dateTo}|${typeFilter}`;
 
@@ -394,35 +433,54 @@ export default function AdminEmployeeDetailPage() {
             )}
           </div>
 
-          {/* Filtered stats for the selected range */}
-          <div className="animate-fadeInUp mb-6 flex flex-wrap items-center gap-2 rounded-3xl border border-mme-pink/60 bg-white p-5 shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
-            <span className="mr-1 text-xs font-black uppercase tracking-[0.14em] text-mme-purple/40">
-              In selected range:
-            </span>
-            <StatChip
-              icon={CalendarClock}
-              label="Meetings Done"
-              count={bucket.previous.filter((e) => e.type === "meeting").length}
-              tone="bg-mme-blush text-mme-plum"
-            />
-            <StatChip
-              icon={Phone}
-              label="Calls Done"
-              count={bucket.previous.filter((e) => e.type === "call").length}
-              tone="bg-mme-blush text-mme-plum"
-            />
-            <StatChip
-              icon={CalendarClock}
-              label="Upcoming Meetings"
-              count={bucket.upcoming.filter((e) => e.type === "meeting").length}
-              tone="bg-mme-purple/10 text-mme-purple"
-            />
-            <StatChip
-              icon={Phone}
-              label="Upcoming Calls"
-              count={bucket.upcoming.filter((e) => e.type === "call").length}
-              tone="bg-mme-purple/10 text-mme-purple"
-            />
+          {/* Assigned vs. Completed vs. Missed — instantly visible for whatever date/range is selected */}
+          <div className="animate-fadeInUp mb-6">
+            <div className="mb-3 flex items-center gap-2">
+              <span className="text-xs font-black uppercase tracking-[0.14em] text-mme-purple/40">
+                Showing:
+              </span>
+              <span className="rounded-full bg-mme-purple/10 px-3 py-1 text-xs font-black text-mme-purple">
+                {rangeLabel}
+              </span>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="rounded-3xl border border-mme-pink/60 bg-white p-5 shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
+                <p className="text-[11px] font-black uppercase tracking-[0.14em] text-mme-purple/45">Assigned</p>
+                <p className="mt-1 text-3xl font-black text-mme-purple">{rangeTotalAssigned}</p>
+                <p className="mt-1 text-xs font-bold text-mme-purple/55">
+                  {rangeMeetingsAssigned} meetings · {rangeCallsAssigned} calls
+                </p>
+              </div>
+
+              <div className="rounded-3xl border border-green-200 bg-green-50 p-5 shadow-sm">
+                <p className="text-[11px] font-black uppercase tracking-[0.14em] text-green-700/80">Completed</p>
+                <p className="mt-1 text-3xl font-black text-green-700">{rangeTotalDone}</p>
+                <p className="mt-1 text-xs font-bold text-green-600/80">
+                  {rangeMeetingsDone} meetings · {rangeCallsDone} calls
+                </p>
+              </div>
+
+              <div
+                className={`rounded-3xl border p-5 shadow-sm ${
+                  rangeTotalMissed > 0 ? "border-red-200 bg-red-50" : "border-mme-pink/60 bg-white"
+                }`}
+              >
+                <p
+                  className={`text-[11px] font-black uppercase tracking-[0.14em] ${
+                    rangeTotalMissed > 0 ? "text-red-600/80" : "text-mme-purple/45"
+                  }`}
+                >
+                  Missed
+                </p>
+                <p className={`mt-1 text-3xl font-black ${rangeTotalMissed > 0 ? "text-red-600" : "text-mme-purple"}`}>
+                  {rangeTotalMissed}
+                </p>
+                <p className={`mt-1 text-xs font-bold ${rangeTotalMissed > 0 ? "text-red-500/80" : "text-mme-purple/55"}`}>
+                  {rangeMeetingsMissed} meetings · {rangeCallsMissed} calls
+                </p>
+              </div>
+            </div>
           </div>
 
           {/* Previous + Upcoming routine */}
