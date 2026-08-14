@@ -35,6 +35,7 @@ export default function AdminEmployeeDetailPage() {
 
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
 
   useEffect(() => {
     fetchAdminMe()
@@ -102,6 +103,16 @@ export default function AdminEmployeeDetailPage() {
   const tomorrowValue = relativeDateValue(1);
   const isYesterdayActive = dateFrom === yesterdayValue && dateTo === yesterdayValue;
   const isTomorrowActive = dateFrom === tomorrowValue && dateTo === tomorrowValue;
+
+  const filteredPrevious = useMemo(() => {
+    if (!bucket) return [];
+    return typeFilter === "all" ? bucket.previous : bucket.previous.filter((e) => e.type === typeFilter);
+  }, [bucket, typeFilter]);
+
+  const filteredUpcoming = useMemo(() => {
+    if (!bucket) return [];
+    return typeFilter === "all" ? bucket.upcoming : bucket.upcoming.filter((e) => e.type === typeFilter);
+  }, [bucket, typeFilter]);
 
   if (checkingSession || !admin) return null;
 
@@ -214,6 +225,38 @@ export default function AdminEmployeeDetailPage() {
                   Tomorrow
                 </button>
               </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setTypeFilter("all")}
+                  className={`rounded-xl border px-4 py-2.5 text-xs font-black transition ${
+                    typeFilter === "all"
+                      ? "border-mme-purple bg-mme-purple text-white"
+                      : "border-mme-pink/70 bg-white text-mme-purple hover:bg-mme-blush/40"
+                  }`}
+                >
+                  All
+                </button>
+                <button
+                  onClick={() => setTypeFilter("meeting")}
+                  className={`inline-flex items-center gap-1.5 rounded-xl border px-4 py-2.5 text-xs font-black transition ${
+                    typeFilter === "meeting"
+                      ? "border-mme-purple bg-mme-purple text-white"
+                      : "border-mme-pink/70 bg-white text-mme-purple hover:bg-mme-blush/40"
+                  }`}
+                >
+                  <CalendarClock size={13} /> Meeting
+                </button>
+                <button
+                  onClick={() => setTypeFilter("call")}
+                  className={`inline-flex items-center gap-1.5 rounded-xl border px-4 py-2.5 text-xs font-black transition ${
+                    typeFilter === "call"
+                      ? "border-mme-purple bg-mme-purple text-white"
+                      : "border-mme-pink/70 bg-white text-mme-purple hover:bg-mme-blush/40"
+                  }`}
+                >
+                  <Phone size={13} /> Call
+                </button>
+              </div>
               {(dateFrom || dateTo) && (
                 <button
                   onClick={clearFilters}
@@ -262,12 +305,12 @@ export default function AdminEmployeeDetailPage() {
           <div className="grid gap-6 lg:grid-cols-2">
             <div className="rounded-3xl border border-mme-pink/60 bg-white shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
               <div className="border-b border-mme-pink/50 px-6 py-4">
-                <span className="font-black text-mme-purple">Previous {"\u2014"} Completed ({bucket.previous.length})</span>
+                <span className="font-black text-mme-purple">Previous {"\u2014"} Completed ({filteredPrevious.length})</span>
               </div>
               <div className="p-6">
-                {bucket.previous.length ? (
+                {filteredPrevious.length ? (
                   <ul className="space-y-1.5">
-                    {bucket.previous.map((entry, i) => (
+                    {filteredPrevious.map((entry, i) => (
                       <RoutineEntryRow
                         key={`p-${i}`}
                         entry={entry}
@@ -284,12 +327,12 @@ export default function AdminEmployeeDetailPage() {
 
             <div className="rounded-3xl border border-mme-pink/60 bg-white shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
               <div className="border-b border-mme-pink/50 px-6 py-4">
-                <span className="font-black text-mme-purple">Upcoming ({bucket.upcoming.length})</span>
+                <span className="font-black text-mme-purple">Upcoming ({filteredUpcoming.length})</span>
               </div>
               <div className="p-6">
-                {bucket.upcoming.length ? (
+                {filteredUpcoming.length ? (
                   <ul className="space-y-1.5">
-                    {bucket.upcoming.map((entry, i) => (
+                    {filteredUpcoming.map((entry, i) => (
                       <RoutineEntryRow
                         key={`u-${i}`}
                         entry={entry}
