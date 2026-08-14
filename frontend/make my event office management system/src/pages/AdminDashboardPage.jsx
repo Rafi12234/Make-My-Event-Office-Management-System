@@ -195,10 +195,10 @@ export default function AdminDashboardPage() {
                     <thead>
                       <tr className="border-b border-mme-pink/50 bg-[#fff9fc] text-left text-[11px] font-black uppercase tracking-[0.1em] text-mme-plum">
                         <th className="px-4 py-3">Employee</th>
-                        <th className="px-4 py-3 text-center">Meetings Done (7d)</th>
-                        <th className="px-4 py-3 text-center">Calls Done (7d)</th>
-                        <th className="px-4 py-3 text-center">Upcoming Meetings (7d)</th>
-                        <th className="px-4 py-3 text-center">Upcoming Calls (7d)</th>
+                        <th className="px-4 py-3 text-center">Meetings Done</th>
+                        <th className="px-4 py-3 text-center">Calls Done</th>
+                        <th className="px-4 py-3 text-center">Upcoming Meetings</th>
+                        <th className="px-4 py-3 text-center">Upcoming Calls</th>
                       </tr>
                     </thead>
                     <tbody>
