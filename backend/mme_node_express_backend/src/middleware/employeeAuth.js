@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import { prisma } from "../config/prisma.js";
 
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
 // Effectively unlimited for now (~100 years) — swap back to a real duration
@@ -30,21 +31,40 @@ export function setEmployeeCookie(res, employee) {
 
 /**
  * Express middleware — protects API routes. Responds 401 JSON if the
- * request has no valid session cookie.
+ * request has no valid session cookie, or if the session's employee was
+ * deleted/deactivated after the (effectively non-expiring) JWT was issued —
+ * otherwise a stale session keeps sending a now-nonexistent employeeId into
+ * create/update calls and crashes them with a raw FK constraint error.
  */
-export function requireEmployee(req, res, next) {
+export async function requireEmployee(req, res, next) {
   const token = req.cookies?.[SESSION_COOKIE];
 
   if (!token) {
     return res.status(401).json({ message: "Login required." });
   }
 
+  let decoded;
   try {
-    req.employee = jwt.verify(token, JWT_SECRET);
-    next();
+    decoded = jwt.verify(token, JWT_SECRET);
   } catch {
     return res.status(401).json({ message: "Session expired, please log in again." });
   }
+
+  try {
+    const employee = await prisma.employee.findUnique({
+      where: { id: BigInt(decoded.id) },
+      select: { id: true, isActive: true },
+    });
+    if (!employee || employee.isActive === false) {
+      res.clearCookie(SESSION_COOKIE);
+      return res.status(401).json({ message: "Your account is no longer available. Please log in again." });
+    }
+  } catch (error) {
+    return next(error);
+  }
+
+  req.employee = decoded;
+  next();
 }
 
 /**

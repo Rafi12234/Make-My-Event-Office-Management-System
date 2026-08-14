@@ -196,6 +196,7 @@ export default function DateTimePicker({
   minDateOnly = false,
   placeholder = "Select date & time",
   subtle = false,
+  disabled = false,
   className = "",
 }) {
   const [isOpen,    setIsOpen]    = useState(false);
@@ -321,8 +322,9 @@ export default function DateTimePicker({
     <div ref={containerRef} className={`relative ${className}`}>
       <button
         type="button"
+        disabled={disabled}
         onClick={() => (isOpen ? setIsOpen(false) : openPicker())}
-        className={`flex w-full min-w-0 items-center justify-between gap-2 rounded-2xl border border-slate-200 ${subtle ? "bg-slate-50" : "bg-white"} px-4 py-3 text-left text-sm font-semibold text-slate-900 outline-none transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100`}
+        className={`flex w-full min-w-0 items-center justify-between gap-2 rounded-2xl border border-slate-200 ${subtle ? "bg-slate-50" : "bg-white"} px-4 py-3 text-left text-sm font-semibold text-slate-900 outline-none transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-slate-200 disabled:hover:bg-slate-50`}
       >
         <span className={displayText ? "" : "text-slate-400"}>{displayText || placeholder}</span>
         <CalendarClock size={16} className="shrink-0 text-slate-400" />

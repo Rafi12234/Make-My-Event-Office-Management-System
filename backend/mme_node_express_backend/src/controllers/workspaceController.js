@@ -71,7 +71,7 @@ const FRONTEND_TO_DB_TYPE = {
 // (same value_datetime storage), just with a different semantic label.
 const DATETIME_LIKE_TYPES = new Set(["datetime", "last_meeting_time", "next_meeting_time"]);
 
-const DB_TO_FRONTEND_TYPE = {
+export const DB_TO_FRONTEND_TYPE = {
   decimal: "number",
   boolean: "checkbox",
 };
@@ -96,7 +96,9 @@ async function getDefaultSheet(client) {
   });
 }
 
-function cellValue(cell, dataType) {
+// Exported so adminWorkspaceController.js's read-only admin table can reuse
+// the exact same cell-value extraction rules as the employee workspace.
+export function cellValue(cell, dataType) {
   // A cell that was saved as "Not Available" always reads back as the
   // literal text "N/A", no matter what data type the column is (integer,
   // currency, date, etc.) — none of the typed value columns apply to it.
@@ -198,6 +200,53 @@ export async function getWorkspace(req, res, next) {
   } catch (error) {
     next(error);
   }
+}
+
+// Turns one raw frontend cell value into the typed sheet_cells columns to
+// write. Shared by saveWorkspace's whole-sheet replace and the admin side's
+// single-cell PATCH endpoint, so both stay in sync with the same coercion
+// rules (N/A passthrough, employee name lookup, etc.).
+export async function buildCellValueFields(client, rawValue, dataType) {
+  let valueText = null;
+  let valueInteger = null;
+  let valueDecimal = null;
+  let valueDate = null;
+  let valueTime = null;
+  let valueDatetime = null;
+  let valueBoolean = null;
+  let valueEmployeeId = null;
+  let displayValue = rawValue === null || rawValue === undefined ? "" : String(rawValue);
+
+  if (displayValue.trim().toUpperCase() === "N/A") {
+    valueText = "N/A";
+    displayValue = "N/A";
+  } else if (dataType === "integer" && displayValue !== "") {
+    const parsed = Math.round(Number(displayValue));
+    // sheet_cells.value_integer is BIGINT in the schema.
+    valueInteger = Number.isNaN(parsed) ? null : BigInt(parsed);
+  } else if (["decimal", "currency"].includes(dataType) && displayValue !== "") {
+    const parsed = Number(displayValue);
+    valueDecimal = Number.isNaN(parsed) ? null : parsed;
+  } else if (dataType === "date") {
+    valueDate = parseDateOnly(displayValue);
+  } else if (dataType === "time") {
+    valueTime = parseTimeOnly(displayValue);
+  } else if (DATETIME_LIKE_TYPES.has(dataType)) {
+    valueDatetime = parseDateTimeLocal(displayValue);
+  } else if (dataType === "boolean") {
+    valueBoolean = rawValue === true || rawValue === "true" || rawValue === "1";
+  } else if (dataType === "employee" && displayValue) {
+    const employee = await client.employee.findFirst({
+      where: { fullName: displayValue, isActive: true },
+      orderBy: { id: "asc" },
+      select: { id: true },
+    });
+    valueEmployeeId = employee?.id || null;
+  } else {
+    valueText = displayValue;
+  }
+
+  return { valueText, valueInteger, valueDecimal, valueDate, valueTime, valueDatetime, valueBoolean, valueEmployeeId, displayValue };
 }
 
 export async function saveWorkspace(req, res, next) {
@@ -322,75 +371,18 @@ export async function saveWorkspace(req, res, next) {
             // client_meetings on every read — never persisted as manual cell data.
             if (column.dataType === "last_meeting_time" || column.dataType === "next_meeting_time") continue;
 
-            let valueText = null;
-            let valueInteger = null;
-            let valueDecimal = null;
-            let valueDate = null;
-            let valueTime = null;
-            let valueDatetime = null;
-            let valueBoolean = null;
-            let valueEmployeeId = null;
-            let displayValue = rawValue === null || rawValue === undefined ? "" : String(rawValue);
-
-            if (displayValue.trim().toUpperCase() === "N/A") {
-              // Preserve "Not Available" values verbatim regardless of the
-              // column's declared data type — no numeric/date/boolean/employee
-              // coercion is attempted, so the value can never silently become
-              // null on read; it always comes back as the literal text "N/A".
-              valueText = "N/A";
-              displayValue = "N/A";
-            } else if (column.dataType === "integer" && displayValue !== "") {
-              const parsed = Math.round(Number(displayValue));
-              // sheet_cells.value_integer is BIGINT in the schema.
-              valueInteger = Number.isNaN(parsed) ? null : BigInt(parsed);
-            } else if (["decimal", "currency"].includes(column.dataType) && displayValue !== "") {
-              const parsed = Number(displayValue);
-              valueDecimal = Number.isNaN(parsed) ? null : parsed;
-            } else if (column.dataType === "date") {
-              valueDate = parseDateOnly(displayValue);
-            } else if (column.dataType === "time") {
-              valueTime = parseTimeOnly(displayValue);
-            } else if (DATETIME_LIKE_TYPES.has(column.dataType)) {
-              valueDatetime = parseDateTimeLocal(displayValue);
-            } else if (column.dataType === "boolean") {
-              valueBoolean = rawValue === true || rawValue === "true" || rawValue === "1";
-            } else if (column.dataType === "employee" && displayValue) {
-              const employee = await tx.employee.findFirst({
-                where: { fullName: displayValue, isActive: true },
-                orderBy: { id: "asc" },
-                select: { id: true },
-              });
-              valueEmployeeId = employee?.id || null;
-            } else {
-              valueText = displayValue;
-            }
+            const fields = await buildCellValueFields(tx, rawValue, column.dataType);
 
             await tx.sheetCell.upsert({
               where: { rowId_columnId: { rowId, columnId: column.id } },
               update: {
-                valueText,
-                valueInteger,
-                valueDecimal,
-                valueDate,
-                valueTime,
-                valueDatetime,
-                valueBoolean,
-                valueEmployeeId,
-                displayValue,
+                ...fields,
                 updatedById: employeeId,
               },
               create: {
                 rowId,
                 columnId: column.id,
-                valueText,
-                valueInteger,
-                valueDecimal,
-                valueDate,
-                valueTime,
-                valueDatetime,
-                valueBoolean,
-                valueEmployeeId,
-                displayValue,
+                ...fields,
                 createdById: employeeId,
                 updatedById: employeeId,
               },

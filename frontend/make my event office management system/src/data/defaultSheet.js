@@ -1,9 +1,23 @@
 export const DEFAULT_COLUMNS = [
   {
+    id: "event_date",
+    name: "Event Date",
+    type: "text",
+    width: 165,
+    required: true,
+  },
+  {
     id: "client_name",
     name: "Client Name",
     type: "text",
     width: 210,
+    required: true,
+  },
+  {
+    id: "client_phone",
+    name: "Client Phone Number",
+    type: "phone",
+    width: 190,
     required: true,
   },
   {
@@ -21,10 +35,17 @@ export const DEFAULT_COLUMNS = [
     required: true,
   },
   {
-    id: "client_phone",
-    name: "Client Phone Number",
-    type: "phone",
-    width: 190,
+    id: "floor",
+    name: "Floor",
+    type: "text",
+    width: 150,
+    required: true,
+  },
+  {
+    id: "guest_count",
+    name: "Guest Count",
+    type: "integer",
+    width: 150,
     required: true,
   },
   {
@@ -45,28 +66,27 @@ export const DEFAULT_COLUMNS = [
     type: "next_meeting_time",
     width: 205,
   },
-  {
-    id: "floor",
-    name: "Floor",
-    type: "text",
-    width: 150,
-    required: true,
-  },
-  {
-    id: "guest_count",
-    name: "Guest Count",
-    type: "integer",
-    width: 150,
-    required: true,
-  },
-  {
-    id: "event_date",
-    name: "Event Date",
-    type: "text",
-    width: 165,
-    required: true,
-  },
 ];
+
+// Fixed display order for the known default columns (by id). Any column not
+// in this list (e.g. a custom column added via "Add column") is left where
+// it already was, appended after the known ones.
+const DEFAULT_COLUMN_ORDER = DEFAULT_COLUMNS.map((column) => column.id);
+
+// Re-sorts a workspace's already-saved columns into the fixed order above,
+// so existing sheets (whose column order was persisted before this order was
+// introduced) display correctly without needing a backend/data migration.
+export function sortColumnsByDefaultOrder(columns) {
+  const orderIndex = new Map(DEFAULT_COLUMN_ORDER.map((id, index) => [id, index]));
+  return columns
+    .map((column, index) => ({ column, index }))
+    .sort((a, b) => {
+      const ai = orderIndex.has(a.column.id) ? orderIndex.get(a.column.id) : DEFAULT_COLUMN_ORDER.length + a.index;
+      const bi = orderIndex.has(b.column.id) ? orderIndex.get(b.column.id) : DEFAULT_COLUMN_ORDER.length + b.index;
+      return ai - bi;
+    })
+    .map((entry) => entry.column);
+}
 
 // Short labels shown in the sheet's column header (UI-only). The full
 // Short labels shown in the sheet's column header (UI-only). The full
@@ -81,9 +101,9 @@ export const Showed_Column_Name = {
   "Venue": "Venue",
   "Shift": "Shift",
   "Client Phone Number": "Phone",
-  "Last Meeting Time": "LMT",
+  "Last Meeting Time": "LAT",
   "Meeting Call Short Note": "Details",
-  "Next Meeting Time": "NMT",
+  "Next Meeting Time": "NAT",
   "Floor": "Floor",
   "Guest Count": "Guest",
   "Event Date": "Date",

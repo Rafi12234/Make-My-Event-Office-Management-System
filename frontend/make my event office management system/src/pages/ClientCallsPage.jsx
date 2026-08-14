@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import mmeLogo from "../assets/mme-logo-cropped.png";
 import BackButton from "../components/BackButton";
@@ -8,12 +8,14 @@ import {
   CalendarClock,
   CheckCircle2,
   Loader2,
+  Pencil,
   Phone,
   Save,
   Trash2,
   UserRound,
   UserCog,
   Plus,
+  X,
   MessageSquare,
 } from "lucide-react";
 import { loadCurrentEmployee } from "../services/authStorage";
@@ -87,6 +89,11 @@ function defaultNextCallAssigneeId(call, employeeId) {
 }
 
 function CallCard({ call, rowKey, employeeId, employeeDirectory, onChanged, onDeleted }) {
+  // A call only "counts" once it has a discussion note on record — until
+  // then the card stays fully unlocked (no Edit gate) so the employee can
+  // freely fill it in and hit Save for the first time.
+  const hasContent = Boolean(call.callDiscussion && call.callDiscussion.trim());
+  const [isEditing, setIsEditing] = useState(!hasContent);
   const [callDiscussion, setCallDiscussion] = useState(
     call.callDiscussion || ""
   );
@@ -101,52 +108,41 @@ function CallCard({ call, rowKey, employeeId, employeeDirectory, onChanged, onDe
   const [error, setError] = useState("");
 
   const isNextCallAssigneeDirty = nextCallAssignedEmployeeId !== defaultNextCallAssigneeId(call, employeeId);
-  // Datetime fields save themselves the instant their picker is confirmed
-  // (see persistCall below), so the general dirty flag only needs to track
-  // the discussion textarea and the next-call assignee dropdown — the two
-  // fields that have no built-in confirm control of their own.
-  const isDirty = callDiscussion !== (call.callDiscussion || "") || isNextCallAssigneeDirty;
+  // Nothing auto-saves anymore — every field (discussion, next-call time,
+  // next-call assignee) only takes effect once the unified Save button is
+  // clicked, so the dirty flag tracks all three.
+  const isDirty =
+    callDiscussion !== (call.callDiscussion || "") ||
+    nextCallDatetime !== toDatetimeLocalValue(call.nextCallDatetime) ||
+    isNextCallAssigneeDirty;
 
   // Based on the persisted schedule (not the unsaved edit) — flags a next
   // call whose scheduled moment has already come and gone.
   const isNextCallOverdue = Boolean(call.nextCallDatetime) &&
     isPastDatetimeValue(toDatetimeLocalValue(call.nextCallDatetime));
 
-  // Persists whichever fields are passed in, falling back to current state
-  // for the rest — lets each control (picker/dropdown/textarea) save itself
-  // the instant it's confirmed, instead of requiring a separate outside save.
-  async function persistCall(overrides = {}) {
-    const nextTime = "nextCallDatetime" in overrides ? overrides.nextCallDatetime : nextCallDatetime;
-    const nextAssignee = "nextCallAssignedEmployeeId" in overrides ? overrides.nextCallAssignedEmployeeId : nextCallAssignedEmployeeId;
-
-    setIsSaving(true);
-    try {
-      await updateCall(rowKey, call.id, {
-        callDiscussion: callDiscussion || null,
-        nextCallDatetime: nextTime || null,
-        nextCallAssignedEmployeeId: nextTime ? (nextAssignee || null) : null,
-        employeeId,
-      });
-      onChanged();
-    } catch (err) {
-      setError(err.message || "Failed to save call.");
-    } finally {
-      setIsSaving(false);
-    }
-  }
+  // Locked (read-only) once the call has real content and isn't currently
+  // being edited — the employee must click "Edit" to change anything.
+  const fieldsLocked = hasContent && !isEditing;
 
   function handleNextCallDatetimeChange(newValue) {
     setNextCallDatetime(newValue);
     setError("");
     if (newValue && isNextCallDateTooEarly(newValue)) {
       setError("Next meeting call date cannot be before today. Any time of day is fine.");
-      return;
     }
-    persistCall({ nextCallDatetime: newValue });
   }
 
   async function handleSave() {
     setError("");
+    if (!callDiscussion.trim()) {
+      setError("Add a discussion note before saving.");
+      return;
+    }
+    if (nextCallDatetime && isNextCallDateTooEarly(nextCallDatetime)) {
+      setError("Next meeting call date cannot be before today. Any time of day is fine.");
+      return;
+    }
     setIsSaving(true);
     try {
       await updateCall(rowKey, call.id, {
@@ -155,12 +151,26 @@ function CallCard({ call, rowKey, employeeId, employeeDirectory, onChanged, onDe
         nextCallAssignedEmployeeId: nextCallDatetime ? (nextCallAssignedEmployeeId || null) : null,
         employeeId,
       });
+      setIsEditing(false);
       onChanged();
     } catch (err) {
       setError(err.message || "Failed to save call.");
     } finally {
       setIsSaving(false);
     }
+  }
+
+  function handleEdit() {
+    setError("");
+    setIsEditing(true);
+  }
+
+  function handleCancel() {
+    setError("");
+    setCallDiscussion(call.callDiscussion || "");
+    setNextCallDatetime(toDatetimeLocalValue(call.nextCallDatetime));
+    setNextCallAssignedEmployeeId(defaultNextCallAssigneeId(call, employeeId));
+    setIsEditing(false);
   }
 
   async function handleDelete() {
@@ -204,20 +214,41 @@ function CallCard({ call, rowKey, employeeId, employeeDirectory, onChanged, onDe
         </div>
 
         <div className="flex items-center gap-2">
-          {isDirty && (
+          {hasContent && !isEditing && (
             <button
-              onClick={handleSave}
-              disabled={isSaving}
-              className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white shadow-md shadow-slate-900/20 transition-all duration-200 hover:bg-slate-700 disabled:opacity-60"
-              style={{ animation: "slideUp 0.2s ease" }}
+              onClick={handleEdit}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 shadow-sm transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
             >
-              {isSaving ? (
-                <Loader2 size={13} className="animate-spin" />
-              ) : (
-                <Save size={13} />
-              )}
-              Save Changes
+              <Pencil size={13} />
+              Edit
             </button>
+          )}
+          {isEditing && (
+            <>
+              <button
+                onClick={handleSave}
+                disabled={isSaving || !isDirty}
+                className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white shadow-md shadow-slate-900/20 transition-all duration-200 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                style={{ animation: "slideUp 0.2s ease" }}
+              >
+                {isSaving ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <Save size={13} />
+                )}
+                Save
+              </button>
+              {hasContent && (
+                <button
+                  onClick={handleCancel}
+                  disabled={isSaving}
+                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 shadow-sm transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  <X size={13} />
+                  Cancel
+                </button>
+              )}
+            </>
           )}
           <button
             onClick={handleDelete}
@@ -293,8 +324,13 @@ function CallCard({ call, rowKey, employeeId, employeeDirectory, onChanged, onDe
             rows={5}
             value={callDiscussion}
             onChange={(e) => setCallDiscussion(e.target.value)}
+            readOnly={fieldsLocked}
             placeholder="What was discussed in this call?"
-            className="w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-sm leading-relaxed text-slate-700 outline-none transition-all duration-200 placeholder:text-slate-300 hover:border-slate-300 hover:bg-slate-50 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
+            className={`w-full resize-none rounded-2xl border border-slate-200 px-4 py-3.5 text-sm leading-relaxed text-slate-700 outline-none transition-all duration-200 placeholder:text-slate-300 ${
+              fieldsLocked
+                ? "cursor-default bg-slate-50"
+                : "bg-white hover:border-slate-300 hover:bg-slate-50 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
+            }`}
           />
 
           {callDiscussion && (
@@ -315,6 +351,7 @@ function CallCard({ call, rowKey, employeeId, employeeDirectory, onChanged, onDe
                 min={todayMinValue()}
                 minDateOnly
                 subtle
+                disabled={fieldsLocked}
                 placeholder="Select next call date & time"
                 className="w-full"
               />
@@ -327,7 +364,8 @@ function CallCard({ call, rowKey, employeeId, employeeDirectory, onChanged, onDe
             <select
               value={nextCallAssignedEmployeeId}
               onChange={(e) => setNextCallAssignedEmployeeId(e.target.value)}
-              className="w-full max-w-xs rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all duration-200 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
+              disabled={fieldsLocked}
+              className="w-full max-w-xs rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all duration-200 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100 disabled:cursor-not-allowed disabled:opacity-70"
             >
               <option value="">Unassigned</option>
               {employeeDirectory.map((emp) => (
@@ -368,6 +406,11 @@ export default function ClientCallsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState("");
+  // Tracks call ids created during this visit that haven't yet been given a
+  // discussion note — if the employee navigates away without saving one,
+  // these get quietly deleted so an empty card never counts as a real call.
+  const pendingEmptyCallIdsRef = useRef(new Set());
+  const callsRef = useRef([]);
 
   const refresh = useCallback(async () => {
     setError("");
@@ -381,6 +424,10 @@ export default function ClientCallsPage() {
       setIsLoading(false);
     }
   }, [rowKey]);
+
+  useEffect(() => {
+    callsRef.current = calls;
+  }, [calls]);
 
   useEffect(() => {
     if (!employee) {
@@ -399,16 +446,35 @@ export default function ClientCallsPage() {
     return () => window.clearTimeout(timer);
   }, [employee, navigate, refresh]);
 
+  // Cleans up any still-empty call created during this visit when leaving
+  // this client (navigating away or unmounting) — satisfies "goes back or
+  // to another page ... will not be stored as any call".
+  useEffect(() => {
+    pendingEmptyCallIdsRef.current = new Set();
+    return () => {
+      const ids = Array.from(pendingEmptyCallIdsRef.current);
+      for (const id of ids) {
+        const current = callsRef.current.find((c) => c.id === id);
+        if (current && !current.callDiscussion?.trim()) {
+          deleteCall(rowKey, id).catch(() => {});
+        }
+      }
+    };
+  }, [rowKey]);
+
+  const hasEmptyCall = calls.some((c) => !c.callDiscussion?.trim());
+
   async function handleCreateCall() {
     setIsCreating(true);
     setError("");
     try {
       // The server stamps the call time itself (current moment) — no
       // datetime is sent from here.
-      await createCall(rowKey, {
+      const created = await createCall(rowKey, {
         callDiscussion: null,
         employeeId: employee?.id,
       });
+      pendingEmptyCallIdsRef.current.add(created.id);
       await refresh();
     } catch (err) {
       setError(err.message || "Failed to create call.");
@@ -484,8 +550,9 @@ export default function ClientCallsPage() {
             <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-6">
               <button
                 onClick={handleCreateCall}
-                disabled={isCreating}
-                className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-black text-white shadow-md shadow-slate-900/20 transition-all duration-200 hover:bg-slate-700 hover:shadow-lg hover:shadow-slate-900/25 disabled:opacity-60"
+                disabled={isCreating || hasEmptyCall}
+                title={hasEmptyCall ? "Finish and save the existing new call first" : undefined}
+                className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-black text-white shadow-md shadow-slate-900/20 transition-all duration-200 hover:bg-slate-700 hover:shadow-lg hover:shadow-slate-900/25 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isCreating ? (
                   <Loader2 size={16} className="animate-spin" />
@@ -494,6 +561,11 @@ export default function ClientCallsPage() {
                 )}
                 Add New Call
               </button>
+              {hasEmptyCall && (
+                <p className="text-xs font-semibold text-slate-400">
+                  Add a discussion note and save the new call before starting another.
+                </p>
+              )}
             </div>
           </div>
 
@@ -533,8 +605,8 @@ export default function ClientCallsPage() {
               </div>
               <button
                 onClick={handleCreateCall}
-                disabled={isCreating}
-                className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-black text-white transition-all duration-200 hover:bg-slate-700 disabled:opacity-60"
+                disabled={isCreating || hasEmptyCall}
+                className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-black text-white transition-all duration-200 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isCreating ? (
                   <Loader2 size={15} className="animate-spin" />

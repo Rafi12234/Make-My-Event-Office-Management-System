@@ -22,11 +22,11 @@ export async function computeMeetingCallTimes(rowKeys, { employeeId } = {}) {
   const [meetings, calls, nextCalls, nextMeetings] = await Promise.all([
     prisma.clientMeeting.findMany({
       where: { linkedRowKey: { in: rowKeys }, meetingDatetime: { not: null }, ...createdScope },
-      select: { linkedRowKey: true, meetingDatetime: true },
+      select: { linkedRowKey: true, meetingDatetime: true, _count: { select: { items: true } } },
     }),
     prisma.clientCall.findMany({
       where: { linkedRowKey: { in: rowKeys }, callDatetime: { not: null }, ...createdScope },
-      select: { linkedRowKey: true, callDatetime: true },
+      select: { linkedRowKey: true, callDatetime: true, callDiscussion: true },
     }),
     prisma.clientNextCall.findMany({
       where: { linkedRowKey: { in: rowKeys }, ...upcomingScope },
@@ -53,6 +53,11 @@ export async function computeMeetingCallTimes(rowKeys, { employeeId } = {}) {
   };
 
   for (const meeting of meetings) {
+    // A meeting only "counts" once it has at least one item on record — a
+    // freshly-created, not-yet-saved meeting card must never show up as the
+    // client's last meeting (this also avoids a race with the frontend's
+    // discard-if-unsaved cleanup, which deletes it a moment later anyway).
+    if (meeting._count.items === 0) continue;
     const entry = ensureEntry(meeting.linkedRowKey);
     if (meeting.meetingDatetime <= now) {
       if (!entry.lastMeeting || meeting.meetingDatetime > entry.lastMeeting) entry.lastMeeting = meeting.meetingDatetime;
@@ -62,6 +67,9 @@ export async function computeMeetingCallTimes(rowKeys, { employeeId } = {}) {
   }
 
   for (const call of calls) {
+    // Same idea as meetings above — a call only "counts" once it has real
+    // discussion text on record, matching the frontend's own hasContent check.
+    if (!call.callDiscussion || !call.callDiscussion.trim()) continue;
     const entry = ensureEntry(call.linkedRowKey);
     if (call.callDatetime <= now) {
       if (!entry.lastCall || call.callDatetime > entry.lastCall) entry.lastCall = call.callDatetime;

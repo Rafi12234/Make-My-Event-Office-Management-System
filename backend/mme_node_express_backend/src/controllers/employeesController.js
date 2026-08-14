@@ -8,7 +8,7 @@ const PASSWORD_MIN_LENGTH = 6;
 export async function listEmployeeDirectory(req, res, next) {
   try {
     const employees = await prisma.employee.findMany({
-      where: { isActive: true },
+      where: { isActive: true, NOT: { role: { name: "Admin" } } },
       select: { id: true, fullName: true, email: true, lastUsedAt: true },
       orderBy: { fullName: "asc" },
     });

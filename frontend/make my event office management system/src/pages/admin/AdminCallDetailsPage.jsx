@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 import { AlertTriangle, LogOut, Phone, Shield } from "lucide-react";
 import BackButton from "../../components/BackButton";
 import { adminLogout, fetchAdminMe } from "../../services/adminService";
@@ -68,6 +68,9 @@ function CallCard({ call }) {
 export default function AdminCallDetailsPage() {
   const navigate = useNavigate();
   const { rowKey } = useParams();
+  const location = useLocation();
+  const backTo = location.state?.from || "/admin/activity";
+  const backLabel = location.state?.fromLabel || "Back to activity";
   const [admin, setAdmin] = useState(null);
   const [checkingSession, setCheckingSession] = useState(true);
   const [data, setData] = useState(null);
@@ -123,7 +126,7 @@ export default function AdminCallDetailsPage() {
 
       <main className="mx-auto max-w-350 px-4 py-8 sm:px-6">
         <div className="mb-5">
-          <BackButton to="/admin/activity" title="Back to activity" />
+          <BackButton to={backTo} title={backLabel} />
         </div>
 
         <div className="mb-7">

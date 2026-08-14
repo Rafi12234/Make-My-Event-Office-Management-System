@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { useNavigate, useParams } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 import {
   CalendarClock,
   CheckCircle2,
@@ -190,6 +190,9 @@ function MeetingCard({ meeting, onViewImage }) {
 export default function AdminMeetingDetailsPage() {
   const navigate = useNavigate();
   const { rowKey } = useParams();
+  const location = useLocation();
+  const backTo = location.state?.from || "/admin/activity";
+  const backLabel = location.state?.fromLabel || "Back to activity";
   const [admin, setAdmin] = useState(null);
   const [checkingSession, setCheckingSession] = useState(true);
   const [data, setData] = useState(null);
@@ -246,7 +249,7 @@ export default function AdminMeetingDetailsPage() {
 
       <main className="mx-auto max-w-350 px-4 py-8 sm:px-6">
         <div className="mb-5">
-          <BackButton to="/admin/activity" title="Back to activity" />
+          <BackButton to={backTo} title={backLabel} />
         </div>
 
         <div className="mb-7">

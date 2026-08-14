@@ -2,7 +2,6 @@
 import { Link, useNavigate, useParams } from "react-router";
 import mmeLogo from "../assets/mme-logo-cropped.png";
 import {
-  ArrowLeft,
   AlertTriangle,
   CalendarClock,
   CalendarDays,
@@ -12,6 +11,10 @@ import {
   Phone,
   UserRound,
   X,
+  Sparkles,
+  Clock,
+  MapPin,
+  ArrowRight,
 } from "lucide-react";
 import ConfirmDialog from "../components/ConfirmDialog";
 import BackButton from "../components/BackButton";
@@ -70,12 +73,6 @@ function formatColValue(type, value) {
   return s;
 }
 
-// ─── Client day card ─────────────────────────────────────────────
-// Shows everything known about one client for this day: every
-// Management Sheet column (same values ManagementPage shows), plus
-// their full meeting history (ClientMeetingsPage) and call history
-// (ClientCallsPage), fetched the same way those pages fetch them.
-
 function formatDisplayDatetime(value) {
   if (!value) return "Not scheduled yet";
   const date = new Date(String(value).replace(" ", "T"));
@@ -100,11 +97,14 @@ function isOverdueDatetime(value) {
 }
 
 // ─── Image lightbox ──────────────────────────────────────────────
-// Full-screen viewer with prev/next + keyboard navigation, matching
-// the ClientMeetingsPage gallery experience.
 
 function ImageLightbox({ images, initialIndex, onClose }) {
   const [index, setIndex] = useState(initialIndex);
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    setTimeout(() => setIsVisible(true), 10);
+  }, []);
 
   useEffect(() => {
     function handleKeyDown(event) {
@@ -121,24 +121,23 @@ function ImageLightbox({ images, initialIndex, onClose }) {
 
   return (
     <div
-      className="fixed inset-0 z-70 flex items-center justify-center bg-black/90 p-4"
+      className={`fixed inset-0 z-70 flex items-center justify-center p-4 transition-all duration-300 ${
+        isVisible ? "bg-black/95 backdrop-blur-sm" : "bg-black/0"
+      }`}
       onClick={onClose}
     >
       <button
         onClick={onClose}
-        className="absolute right-4 top-4 rounded-xl bg-white/10 p-2.5 text-white hover:bg-white/20"
+        className="absolute right-5 top-5 flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10 text-white ring-1 ring-white/20 backdrop-blur-md transition-all duration-200 hover:bg-white/20 hover:scale-110 hover:ring-white/40"
         title="Close"
       >
-        <X size={22} />
+        <X size={20} />
       </button>
 
       {images.length > 1 && (
         <button
-          onClick={(event) => {
-            event.stopPropagation();
-            setIndex((i) => (i - 1 + images.length) % images.length);
-          }}
-          className="absolute left-4 top-1/2 -translate-y-1/2 rounded-xl bg-white/10 p-2.5 text-white hover:bg-white/20"
+          onClick={(e) => { e.stopPropagation(); setIndex((i) => (i - 1 + images.length) % images.length); }}
+          className="absolute left-5 top-1/2 -translate-y-1/2 flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 text-white ring-1 ring-white/20 backdrop-blur-md transition-all duration-200 hover:bg-white/20 hover:scale-110"
           title="Previous image"
         >
           <ChevronLeft size={24} />
@@ -148,17 +147,16 @@ function ImageLightbox({ images, initialIndex, onClose }) {
       <img
         src={resolveImageUrl(image.url)}
         alt={image.originalFileName || "Meeting image"}
-        className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
+        className={`max-h-[90vh] max-w-[90vw] rounded-2xl object-contain shadow-2xl ring-1 ring-white/10 transition-all duration-500 ${
+          isVisible ? "scale-100 opacity-100" : "scale-95 opacity-0"
+        }`}
+        onClick={(e) => e.stopPropagation()}
       />
 
       {images.length > 1 && (
         <button
-          onClick={(event) => {
-            event.stopPropagation();
-            setIndex((i) => (i + 1) % images.length);
-          }}
-          className="absolute right-4 top-1/2 -translate-y-1/2 rounded-xl bg-white/10 p-2.5 text-white hover:bg-white/20"
+          onClick={(e) => { e.stopPropagation(); setIndex((i) => (i + 1) % images.length); }}
+          className="absolute right-5 top-1/2 -translate-y-1/2 flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 text-white ring-1 ring-white/20 backdrop-blur-md transition-all duration-200 hover:bg-white/20 hover:scale-110"
           title="Next image"
         >
           <ChevronRight size={24} />
@@ -166,17 +164,23 @@ function ImageLightbox({ images, initialIndex, onClose }) {
       )}
 
       {images.length > 1 && (
-        <p className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-bold text-white">
-          {index + 1} / {images.length}
-        </p>
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 rounded-2xl bg-white/10 px-4 py-2 backdrop-blur-md ring-1 ring-white/20">
+          {images.map((_, i) => (
+            <button
+              key={i}
+              onClick={(e) => { e.stopPropagation(); setIndex(i); }}
+              className={`h-1.5 rounded-full transition-all duration-300 ${
+                i === index ? "w-6 bg-white" : "w-1.5 bg-white/40 hover:bg-white/70"
+              }`}
+            />
+          ))}
+        </div>
       )}
     </div>
   );
 }
 
 // ─── Meeting image gallery ────────────────────────────────────────
-// One independent gallery per meeting: clicking a thumbnail opens the
-// lightbox scoped to that meeting's own images only.
 
 function MeetingImageGallery({ images }) {
   const [viewerIndex, setViewerIndex] = useState(null);
@@ -185,21 +189,26 @@ function MeetingImageGallery({ images }) {
 
   return (
     <>
-      <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
+      <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4">
         {images.map((img, imageIndex) => (
           <button
             key={img.id}
             type="button"
             onClick={() => setViewerIndex(imageIndex)}
-            className="group relative aspect-square cursor-pointer overflow-hidden rounded-xl border border-[#d6d6d6]/60 bg-[#f4f4f4]"
+            className="group relative aspect-square cursor-pointer overflow-hidden rounded-2xl border border-black/8 bg-zinc-100 shadow-sm transition-all duration-300 hover:scale-105 hover:shadow-lg hover:ring-2 hover:ring-black/20"
             title="View full image"
           >
             <img
               src={resolveImageUrl(img.url)}
               alt={img.originalFileName || "Meeting image"}
-              className="h-full w-full object-cover transition duration-200 group-hover:scale-105"
+              className="h-full w-full object-cover transition duration-300 group-hover:scale-110 group-hover:brightness-90"
               loading="lazy"
             />
+            <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-all duration-200 group-hover:bg-black/20">
+              <div className="scale-0 rounded-xl bg-white/90 p-1.5 transition-all duration-200 group-hover:scale-100">
+                <Sparkles size={14} className="text-black" />
+              </div>
+            </div>
           </button>
         ))}
       </div>
@@ -215,36 +224,57 @@ function MeetingImageGallery({ images }) {
   );
 }
 
-function ClientDayCard({ group, columns, extras, navigate, selectedDate }) {
+// ─── Animated counter badge ───────────────────────────────────────
+
+function CountBadge({ count, color = "black" }) {
+  return (
+    <span
+      className={`inline-flex h-6 min-w-6 items-center justify-center rounded-full px-2 text-[10px] font-black tabular-nums transition-all duration-300 ${
+        color === "black" ? "bg-black text-white" : "bg-zinc-100 text-black"
+      }`}
+    >
+      {count}
+    </span>
+  );
+}
+
+// ─── ClientDayCard ────────────────────────────────────────────────
+
+function ClientDayCard({ group, columns, extras, navigate, selectedDate, employeeId, index }) {
   const { rowKey, clientName, rowData } = group;
+  const [isExpanded, setIsExpanded] = useState(true);
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => setIsMounted(true), index * 80);
+    return () => clearTimeout(t);
+  }, [index]);
 
   const isLoading = extras?.isLoading ?? true;
-  const calls     = extras?.calls || [];
-  const meetings  = extras?.meetings || [];
-  const error     = extras?.error || "";
-  // Matches on either the call's own date OR its scheduled follow-up date,
-  // so viewing the day the next call is due also surfaces that same call.
+  const error = extras?.error || "";
+
+  const myCalls = (extras?.calls || []).filter((c) => c.createdById === employeeId);
+  const myMeetings = (extras?.meetings || []).filter((m) => m.createdById === employeeId);
+  const myNextCalls = (extras?.calls || []).filter((c) => c.nextCallAssignedEmployeeId === employeeId);
+  const myNextMeetings = (extras?.meetings || []).filter((m) => m.nextMeetingAssignedEmployeeId === employeeId);
+
   const callsOnDate = selectedDate
-    ? calls.filter(
-        (c) => extractIsoDate(c.callDatetime) === selectedDate || extractIsoDate(c.nextCallDatetime) === selectedDate,
-      )
-    : calls;
+    ? myCalls.filter((c) => extractIsoDate(c.callDatetime) === selectedDate || extractIsoDate(c.nextCallDatetime) === selectedDate)
+    : myCalls;
   const meetingsOnDate = selectedDate
-    ? meetings.filter((m) => extractIsoDate(m.meetingDatetime) === selectedDate)
-    : meetings;
+    ? myMeetings.filter((m) => extractIsoDate(m.meetingDatetime) === selectedDate)
+    : myMeetings;
   const nextCallsOnDate = selectedDate
-    ? calls.filter((c) => c.nextCallDatetime && extractIsoDate(c.nextCallDatetime) === selectedDate)
-    : calls.filter((c) => c.nextCallDatetime);
+    ? myNextCalls.filter((c) => c.nextCallDatetime && extractIsoDate(c.nextCallDatetime) === selectedDate)
+    : myNextCalls.filter((c) => c.nextCallDatetime);
   const nextMeetingsOnDate = selectedDate
-    ? meetings.filter((m) => m.nextMeetingDatetime && extractIsoDate(m.nextMeetingDatetime) === selectedDate)
-    : meetings.filter((m) => m.nextMeetingDatetime);
+    ? myNextMeetings.filter((m) => m.nextMeetingDatetime && extractIsoDate(m.nextMeetingDatetime) === selectedDate)
+    : myNextMeetings.filter((m) => m.nextMeetingDatetime);
 
   const skipNames = new Set(["Client Name"]);
-  // "Last/Next Meeting Time" columns track whichever of a meeting or a call
-  // happened/comes next — split into Meeting- and/or Call-labeled rows,
-  // shown only for the kinds of events this client actually has this day.
   const hasMeetingEvent = meetingsOnDate.length > 0 || nextMeetingsOnDate.length > 0;
-  const hasCallEvent    = callsOnDate.length > 0 || nextCallsOnDate.length > 0;
+  const hasCallEvent = callsOnDate.length > 0 || nextCallsOnDate.length > 0;
+
   const detailFields = [];
   for (const col of columns || []) {
     if (skipNames.has(col.name) || col.type === "meeting_manager") continue;
@@ -257,171 +287,310 @@ function ClientDayCard({ group, columns, extras, navigate, selectedDate }) {
   }
   const visibleDetailFields = detailFields.filter((col) => col.value != null && String(col.value).trim() !== "");
 
+  const totalEvents = meetingsOnDate.length + callsOnDate.length + nextMeetingsOnDate.length + nextCallsOnDate.length;
+
   return (
-    <div className="overflow-hidden rounded-3xl border border-[#d6d6d6]/60 bg-white shadow-sm">
+    <div
+      className={`group overflow-hidden rounded-3xl border border-zinc-200/80 bg-white shadow-md transition-all duration-500 hover:shadow-xl hover:shadow-black/8 hover:-translate-y-0.5 ${
+        isMounted ? "translate-y-0 opacity-100" : "translate-y-6 opacity-0"
+      }`}
+    >
+      {/* Gradient top bar */}
+      <div className="h-1 w-full bg-gradient-to-r from-zinc-800 via-zinc-600 to-zinc-400" />
+
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#d6d6d6]/40 bg-[#f9f9f9] px-6 py-4">
-        <div>
-          <p className="text-[10px] font-black uppercase tracking-widest text-[#333333]">Client</p>
-          <p className="text-xl font-black leading-tight text-black">{clientName || "Unnamed client"}</p>
+      <div className="relative flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100 bg-gradient-to-br from-zinc-50 to-white px-6 py-5">
+        {/* Subtle background pattern */}
+        <div className="absolute inset-0 opacity-[0.015]" style={{
+          backgroundImage: "radial-gradient(circle at 1px 1px, black 1px, transparent 0)",
+          backgroundSize: "24px 24px"
+        }} />
+
+        <div className="relative flex items-center gap-4">
+          {/* Avatar circle */}
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-zinc-800 to-zinc-600 shadow-lg shadow-black/20 ring-4 ring-white">
+            <span className="text-lg font-black text-white">
+              {(clientName || "?")[0].toUpperCase()}
+            </span>
+          </div>
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-400">Client</p>
+            <p className="text-xl font-black leading-tight text-black">{clientName || "Unnamed client"}</p>
+          </div>
+        </div>
+
+        <div className="relative flex items-center gap-2">
+          {totalEvents > 0 && (
+            <div className="flex items-center gap-1.5 rounded-2xl bg-black px-3.5 py-1.5 shadow-lg shadow-black/25">
+              <Sparkles size={11} className="text-white/70" />
+              <span className="text-xs font-black text-white">{totalEvents} event{totalEvents !== 1 ? "s" : ""}</span>
+            </div>
+          )}
+          <button
+            onClick={() => setIsExpanded((v) => !v)}
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-500 shadow-sm transition-all duration-200 hover:bg-zinc-50 hover:text-black hover:border-zinc-300"
+            title={isExpanded ? "Collapse" : "Expand"}
+          >
+            <ChevronRight
+              size={16}
+              className={`transition-transform duration-300 ${isExpanded ? "rotate-90" : ""}`}
+            />
+          </button>
         </div>
       </div>
 
-      {/* Full management sheet columns */}
-      {visibleDetailFields.length > 0 && (
-        <div className="grid gap-4 border-b border-[#d6d6d6]/30 px-6 py-5 sm:grid-cols-2">
-          {visibleDetailFields.map((col) => {
-            const formatted = formatColValue(col.type, col.value);
-            if (!formatted) return null;
-            const isLong = formatted.length > 50;
-            return (
-              <div key={col.key} className={isLong ? "sm:col-span-2" : ""}>
-                <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-black/40">{col.name}</p>
-                <p className={`font-semibold text-black/85 ${isLong ? "text-sm leading-6" : "text-sm"}`}>{formatted}</p>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {/* Collapsible content */}
+      <div className={`transition-all duration-500 ease-in-out ${isExpanded ? "max-h-[9999px] opacity-100" : "max-h-0 opacity-0 overflow-hidden"}`}>
 
-      {error && (
-        <div className="border-b border-[#d6d6d6]/30 bg-red-50 px-6 py-3 text-xs font-bold text-red-500">{error}</div>
-      )}
-
-      {/* Meeting + Call details */}
-      <div className="grid sm:grid-cols-2">
-        {/* Meetings */}
-        <div className="border-b border-[#d6d6d6]/30 px-6 py-5 sm:border-r sm:border-b-0">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <h3 className="flex items-center gap-2 text-sm font-black uppercase tracking-widest text-black">
-              <CalendarClock size={16} /> Meeting Details
-            </h3>
-            <button
-              onClick={() => navigate(`/management/meetings/${rowKey}`)}
-              className="text-sm font-black text-[#333333] transition hover:text-black"
-            >
-              Manage Meetings details →
-            </button>
-          </div>
-          {isLoading ? (
-            <p className="text-sm font-bold text-black/40">Loading…</p>
-          ) : meetingsOnDate.length === 0 ? (
-            <p className="text-sm font-bold text-black/40">No meetings on this date.</p>
-          ) : (
-            <div className="space-y-3">
-              {meetingsOnDate.map((m) => (
-                <div key={m.id} className="rounded-xl border border-[#d6d6d6]/50 p-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-base font-black text-black">{formatDisplayDatetime(m.meetingDatetime)}</p>
-                    {m.isCompleted && (
-                      <span className="rounded-md bg-black px-2.5 py-1 text-xs font-black uppercase tracking-wide text-white">
-                        Completed
-                      </span>
-                    )}
+        {/* Management sheet columns */}
+        {visibleDetailFields.length > 0 && (
+          <div className="border-b border-zinc-100 bg-zinc-50/50 px-6 py-5">
+            <p className="mb-4 text-[9px] font-black uppercase tracking-[0.2em] text-zinc-400">Client Details</p>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {visibleDetailFields.map((col, i) => {
+                const formatted = formatColValue(col.type, col.value);
+                if (!formatted) return null;
+                const isLong = formatted.length > 50;
+                return (
+                  <div
+                    key={col.key}
+                    className={`rounded-2xl border border-zinc-200/80 bg-white p-4 shadow-sm transition-all duration-200 hover:border-zinc-300 hover:shadow-md ${isLong ? "sm:col-span-2 lg:col-span-3" : ""}`}
+                    style={{ animationDelay: `${i * 30}ms` }}
+                  >
+                    <p className="mb-1.5 text-[9px] font-black uppercase tracking-[0.18em] text-zinc-400">{col.name}</p>
+                    <p className={`font-bold text-black/85 ${isLong ? "text-sm leading-6" : "text-sm"}`}>{formatted}</p>
                   </div>
-                  {m.requirements?.length > 0 && (
-                    <ul className="mt-3 space-y-1.5">
-                      {m.requirements.map((req, i) => (
-                        <li key={req.key || i} className="text-sm leading-6 text-black/65">
-                          <span className="font-bold text-black/80">{req.label}: </span>
-                          {req.details}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  <MeetingImageGallery images={m.images} />
-                </div>
-              ))}
+                );
+              })}
             </div>
-          )}
-
-          {nextMeetingsOnDate.length > 0 && (
-            <div className="mt-5 border-t border-[#d6d6d6]/30 pt-5">
-              <h4 className="mb-3 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-black/60">
-                <CalendarClock size={14} /> Next Meeting Scheduled
-              </h4>
-              <div className="space-y-3">
-                {nextMeetingsOnDate.map((m) => {
-                  const missed = isOverdueDatetime(m.nextMeetingDatetime);
-                  return (
-                    <div key={`next-meeting-${m.id}`} className={`rounded-xl border p-4 ${missed ? "border-red-200 bg-red-50" : "border-[#d6d6d6]/50"}`}>
-                      <p className={`flex items-center gap-1.5 text-base font-black ${missed ? "text-red-600" : "text-black"}`}>
-                        {missed && <AlertTriangle size={14} />}
-                        {formatDisplayDatetime(m.nextMeetingDatetime)}{missed ? " · Missed" : ""}
-                      </p>
-                      {m.nextMeetingAssignedEmployeeName && (
-                        <p className="mt-1.5 text-sm font-bold text-black/60">
-                          Assigned to {m.nextMeetingAssignedEmployeeName}
-                        </p>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Calls */}
-        <div className="px-6 py-5">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <h3 className="flex items-center gap-2 text-sm font-black uppercase tracking-widest text-black">
-              <Phone size={16} /> Call Details
-            </h3>
-            <button
-              onClick={() => navigate(`/management/calls/${rowKey}`)}
-              className="text-sm font-black text-[#333333] transition hover:text-black"
-            >
-              Manage Call details →
-            </button>
           </div>
-          {isLoading ? (
-            <p className="text-sm font-bold text-black/40">Loading…</p>
-          ) : callsOnDate.length === 0 ? (
-            <p className="text-sm font-bold text-black/40">No calls on this date.</p>
-          ) : (
-            <div className="space-y-3">
-              {callsOnDate.map((c) => (
-                <div key={c.id} className="rounded-xl border border-[#d6d6d6]/50 p-4">
-                  <p className="text-base font-black text-black">{formatDisplayDatetime(c.callDatetime)}</p>
-                  {c.callDiscussion && (
-                    <p className="mt-2 text-sm leading-6 text-black/65">{c.callDiscussion}</p>
-                  )}
-                  {c.nextCallDatetime && (
-                    <p className="mt-2 text-sm font-bold text-black/75">
-                      Next call: {formatDisplayDatetime(c.nextCallDatetime)}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
+        )}
 
-          {nextCallsOnDate.length > 0 && (
-            <div className="mt-5 border-t border-[#d6d6d6]/30 pt-5">
-              <h4 className="mb-3 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-black/60">
-                <CalendarClock size={14} /> Next Call Scheduled
-              </h4>
+        {error && (
+          <div className="flex items-center gap-3 border-b border-red-100 bg-red-50 px-6 py-3.5">
+            <AlertTriangle size={15} className="shrink-0 text-red-500" />
+            <p className="text-xs font-bold text-red-600">{error}</p>
+          </div>
+        )}
+
+        {/* Meeting + Call columns */}
+        <div className="grid divide-y divide-zinc-100 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+
+          {/* ── Meetings ── */}
+          <div className="px-6 py-6">
+            <div className="mb-5 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-zinc-800 to-zinc-600 shadow-md shadow-black/20">
+                  <CalendarClock size={14} className="text-white" />
+                </div>
+                <h3 className="text-sm font-black uppercase tracking-widest text-black">Meetings</h3>
+                {meetingsOnDate.length > 0 && <CountBadge count={meetingsOnDate.length} />}
+              </div>
+              <button
+                onClick={() => navigate(`/management/meetings/${rowKey}`)}
+                className="group/btn flex items-center gap-1.5 rounded-xl border border-black bg-black px-3 py-1.5 text-xs font-black text-white shadow-sm transition-all duration-200 hover:border-zinc-600 hover:bg-zinc-600 active:bg-zinc-700 hover:shadow-md"
+              >
+                Manage
+                <ArrowRight size={12} className="transition-transform duration-200 group-hover/btn:translate-x-0.5" />
+              </button>
+            </div>
+
+            {isLoading ? (
+              <div className="flex items-center gap-3 rounded-2xl border border-zinc-100 bg-zinc-50 px-4 py-3.5">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-700" />
+                <p className="text-sm font-bold text-zinc-400">Loading meetings…</p>
+              </div>
+            ) : meetingsOnDate.length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-zinc-50/50 py-8 text-center">
+                <CalendarClock size={28} className="text-zinc-300" />
+                <p className="mt-2 text-sm font-bold text-zinc-400">No meetings today</p>
+              </div>
+            ) : (
               <div className="space-y-3">
-                {nextCallsOnDate.map((c) => {
-                  const missed = isOverdueDatetime(c.nextCallDatetime);
-                  return (
-                    <div key={`next-${c.id}`} className={`rounded-xl border p-4 ${missed ? "border-red-200 bg-red-50" : "border-[#d6d6d6]/50"}`}>
-                      <p className={`flex items-center gap-1.5 text-base font-black ${missed ? "text-red-600" : "text-black"}`}>
-                        {missed && <AlertTriangle size={14} />}
-                        {formatDisplayDatetime(c.nextCallDatetime)}{missed ? " · Missed" : ""}
-                      </p>
-                      {c.nextCallAssignedEmployeeName && (
-                        <p className="mt-1.5 text-sm font-bold text-black/60">
-                          Assigned to {c.nextCallAssignedEmployeeName}
+                {meetingsOnDate.map((m, mi) => (
+                  <div
+                    key={m.id}
+                    className="group/card overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-sm transition-all duration-200 hover:border-zinc-300 hover:shadow-md"
+                    style={{ animationDelay: `${mi * 60}ms` }}
+                  >
+                    <div className="h-0.5 w-full bg-gradient-to-r from-zinc-700 to-zinc-400" />
+                    <div className="p-4">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <Clock size={13} className="shrink-0 text-zinc-400" />
+                          <p className="text-sm font-black text-black">{formatDisplayDatetime(m.meetingDatetime)}</p>
+                        </div>
+                        {m.isCompleted && (
+                          <span className="flex shrink-0 items-center gap-1 rounded-lg bg-emerald-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-200">
+                            <Check size={10} />
+                            Done
+                          </span>
+                        )}
+                      </div>
+                      {m.requirements?.length > 0 && (
+                        <ul className="mt-3 space-y-2">
+                          {m.requirements.map((req, i) => (
+                            <li key={req.key || i} className="flex gap-2 text-sm leading-6 text-zinc-600">
+                              <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-400" />
+                              <span><span className="font-bold text-zinc-800">{req.label}: </span>{req.details}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      <MeetingImageGallery images={m.images} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {nextMeetingsOnDate.length > 0 && (
+              <div className="mt-5">
+                <div className="mb-3 flex items-center gap-2">
+                  <div className="flex-1 border-t border-dashed border-zinc-200" />
+                  <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-zinc-400">
+                    <CalendarClock size={11} />
+                    Upcoming
+                  </span>
+                  <div className="flex-1 border-t border-dashed border-zinc-200" />
+                </div>
+                <div className="space-y-2">
+                  {nextMeetingsOnDate.map((m) => {
+                    const missed = isOverdueDatetime(m.nextMeetingDatetime);
+                    return (
+                      <div
+                        key={`next-meeting-${m.id}`}
+                        className={`overflow-hidden rounded-2xl border p-4 transition-all duration-200 ${
+                          missed
+                            ? "border-red-200 bg-gradient-to-br from-red-50 to-red-50/50 shadow-sm shadow-red-100"
+                            : "border-amber-200 bg-gradient-to-br from-amber-50 to-amber-50/50 shadow-sm shadow-amber-100"
+                        }`}
+                      >
+                        <p className={`flex items-center gap-2 text-sm font-black ${missed ? "text-red-700" : "text-amber-700"}`}>
+                          {missed
+                            ? <AlertTriangle size={14} className="shrink-0" />
+                            : <CalendarClock size={14} className="shrink-0" />}
+                          {formatDisplayDatetime(m.nextMeetingDatetime)}
+                          {missed && <span className="rounded-md bg-red-100 px-2 py-0.5 text-[10px] text-red-600">Missed</span>}
+                        </p>
+                        {m.nextMeetingAssignedEmployeeName && (
+                          <p className={`mt-1.5 flex items-center gap-1.5 text-xs font-bold ${missed ? "text-red-500" : "text-amber-600"}`}>
+                            <UserRound size={11} />
+                            {m.nextMeetingAssignedEmployeeName}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Calls ── */}
+          <div className="px-6 py-6">
+            <div className="mb-5 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-zinc-600 to-zinc-400 shadow-md shadow-black/15">
+                  <Phone size={14} className="text-white" />
+                </div>
+                <h3 className="text-sm font-black uppercase tracking-widest text-black">Calls</h3>
+                {callsOnDate.length > 0 && <CountBadge count={callsOnDate.length} color="gray" />}
+              </div>
+              <button
+                onClick={() => navigate(`/management/calls/${rowKey}`)}
+                className="group/btn flex items-center gap-1.5 rounded-xl border border-black bg-black px-3 py-1.5 text-xs font-black text-white shadow-sm transition-all duration-200 hover:border-zinc-600 hover:bg-zinc-600 active:bg-zinc-700 hover:shadow-md"
+              >
+                Manage
+                <ArrowRight size={12} className="transition-transform duration-200 group-hover/btn:translate-x-0.5" />
+              </button>
+            </div>
+
+            {isLoading ? (
+              <div className="flex items-center gap-3 rounded-2xl border border-zinc-100 bg-zinc-50 px-4 py-3.5">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-700" />
+                <p className="text-sm font-bold text-zinc-400">Loading calls…</p>
+              </div>
+            ) : callsOnDate.length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-zinc-50/50 py-8 text-center">
+                <Phone size={28} className="text-zinc-300" />
+                <p className="mt-2 text-sm font-bold text-zinc-400">No calls today</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {callsOnDate.map((c, ci) => (
+                  <div
+                    key={c.id}
+                    className="overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-sm transition-all duration-200 hover:border-zinc-300 hover:shadow-md"
+                    style={{ animationDelay: `${ci * 60}ms` }}
+                  >
+                    <div className="h-0.5 w-full bg-gradient-to-r from-zinc-500 to-zinc-300" />
+                    <div className="p-4">
+                      <div className="flex items-center gap-2">
+                        <Clock size={13} className="shrink-0 text-zinc-400" />
+                        <p className="text-sm font-black text-black">{formatDisplayDatetime(c.callDatetime)}</p>
+                      </div>
+                      {c.callDiscussion && (
+                        <p className="mt-2.5 rounded-xl bg-zinc-50 px-3 py-2.5 text-sm leading-6 text-zinc-600 ring-1 ring-zinc-100">
+                          {c.callDiscussion}
                         </p>
                       )}
+                      {c.nextCallDatetime && (
+                        <div className="mt-2.5 flex items-center gap-1.5 rounded-xl bg-zinc-50 px-3 py-2 ring-1 ring-zinc-100">
+                          <CalendarClock size={12} className="shrink-0 text-zinc-400" />
+                          <p className="text-xs font-bold text-zinc-600">
+                            Next: {formatDisplayDatetime(c.nextCallDatetime)}
+                          </p>
+                        </div>
+                      )}
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
               </div>
-            </div>
-          )}
+            )}
+
+            {nextCallsOnDate.length > 0 && (
+              <div className="mt-5">
+                <div className="mb-3 flex items-center gap-2">
+                  <div className="flex-1 border-t border-dashed border-zinc-200" />
+                  <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-zinc-400">
+                    <CalendarClock size={11} />
+                    Upcoming
+                  </span>
+                  <div className="flex-1 border-t border-dashed border-zinc-200" />
+                </div>
+                <div className="space-y-2">
+                  {nextCallsOnDate.map((c) => {
+                    const missed = isOverdueDatetime(c.nextCallDatetime);
+                    return (
+                      <div
+                        key={`next-${c.id}`}
+                        className={`overflow-hidden rounded-2xl border p-4 transition-all duration-200 ${
+                          missed
+                            ? "border-red-200 bg-gradient-to-br from-red-50 to-red-50/50 shadow-sm shadow-red-100"
+                            : "border-blue-200 bg-gradient-to-br from-blue-50 to-blue-50/50 shadow-sm shadow-blue-100"
+                        }`}
+                      >
+                        <p className={`flex items-center gap-2 text-sm font-black ${missed ? "text-red-700" : "text-blue-700"}`}>
+                          {missed
+                            ? <AlertTriangle size={14} className="shrink-0" />
+                            : <Phone size={14} className="shrink-0" />}
+                          {formatDisplayDatetime(c.nextCallDatetime)}
+                          {missed && <span className="rounded-md bg-red-100 px-2 py-0.5 text-[10px] text-red-600">Missed</span>}
+                        </p>
+                        {c.nextCallAssignedEmployeeName && (
+                          <p className={`mt-1.5 flex items-center gap-1.5 text-xs font-bold ${missed ? "text-red-500" : "text-blue-600"}`}>
+                            <UserRound size={11} />
+                            {c.nextCallAssignedEmployeeName}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -431,25 +600,28 @@ function ClientDayCard({ group, columns, extras, navigate, selectedDate }) {
 // ─── CalendarDayPage ───────────────────────────────────────────────
 
 export default function CalendarDayPage() {
-  const { date }  = useParams();          // "YYYY-MM-DD"
-  const navigate  = useNavigate();
+  const { date } = useParams();
+  const navigate = useNavigate();
 
   const [yearN, monthN] = (date || "").split("-").map(Number);
 
-  const [events,           setEvents]           = useState([]);
+  const [events, setEvents] = useState([]);
   const [worksheetColumns, setWorksheetColumns] = useState([]);
-  const [isLoading,        setIsLoading]        = useState(true);
-  const [employee,         setEmployee]         = useState(() => loadCurrentEmployee());
-  const [notice,           setNotice]           = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [employee, setEmployee] = useState(() => loadCurrentEmployee());
+  const [notice, setNotice] = useState(null);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [pageVisible, setPageVisible] = useState(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => setPageVisible(true), 50);
+    return () => clearTimeout(t);
+  }, []);
 
   const dayEvents = events.filter((ev) => ev.date === date);
-  const TODAY     = todayISO();
-  const isToday   = date === TODAY;
+  const TODAY = todayISO();
+  const isToday = date === TODAY;
 
-  // Group every client-linked event (worksheet, client_meeting, client_call)
-  // by rowKey so each client shows up as a single card with full details,
-  // no matter how many events they have on this day.
   const clientGroups = useMemo(() => {
     const map = new Map();
     for (const ev of dayEvents) {
@@ -471,8 +643,7 @@ export default function CalendarDayPage() {
 
   const clientRowKeysKey = clientGroups.map((g) => g.rowKey).join(",");
 
-  // ── Client calls / meetings ─────────────────────────────────────
-  const [clientExtras, setClientExtras] = useState({}); // rowKey -> { isLoading, calls, meetings, error }
+  const [clientExtras, setClientExtras] = useState({});
 
   useEffect(() => {
     if (!clientRowKeysKey) return;
@@ -510,7 +681,6 @@ export default function CalendarDayPage() {
     return () => { cancelled = true; };
   }, [clientRowKeysKey]);
 
-  // ── Fetch ──────────────────────────────────────────────────────
   const fetchEvents = useCallback(async () => {
     if (!yearN || !monthN) return;
     setIsLoading(true);
@@ -535,15 +705,8 @@ export default function CalendarDayPage() {
 
   function showMsg(type, message) { setNotice({ type, message }); }
 
-  // ── Employee ────────────────────────────────────────────────────
-
-  // No employee session (e.g. reached via browser back/forward navigation
-  // after logging out elsewhere in the SPA) — always send the user to the
-  // dedicated /login page rather than showing any inline login UI here.
   useEffect(() => {
-    if (!employee) {
-      navigate("/login", { replace: true });
-    }
+    if (!employee) navigate("/login", { replace: true });
   }, [employee, navigate]);
 
   function confirmLogout() {
@@ -553,9 +716,14 @@ export default function CalendarDayPage() {
     navigate("/", { replace: true });
   }
 
-  // ── Render ──────────────────────────────────────────────────────
+  // Parse date parts for the hero display
+  const dateObj = date ? new Date(`${date}T00:00:00`) : null;
+  const dayOfWeek = dateObj?.toLocaleDateString("en-US", { weekday: "long" }) || "";
+  const dayNum = dateObj?.getDate() || "";
+  const monthYear = dateObj?.toLocaleDateString("en-US", { month: "long", year: "numeric" }) || "";
+
   return (
-    <div className="min-h-screen bg-[#ffffff] text-black">
+    <div className={`min-h-screen bg-[#f8f8f8] text-black transition-opacity duration-700 ${pageVisible ? "opacity-100" : "opacity-0"}`}>
       {showLogoutConfirm && (
         <ConfirmDialog
           title="Log out?"
@@ -568,152 +736,208 @@ export default function CalendarDayPage() {
       )}
 
       {/* ── Header ─────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-40 border-b border-[#d6d6d6]/50 bg-white/95 backdrop-blur-xl">
-        <div className="flex min-h-18 items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
+      <header className="sticky top-0 z-40 border-b border-zinc-200/80 bg-white/90 shadow-sm shadow-black/5 backdrop-blur-2xl">
+        <div className="flex min-h-[72px] items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
-            <img src={mmeLogo} alt="Make My Event" className="h-16 w-auto shrink-0 object-contain sm:h-18" />
-            <div className="min-w-0 border-l border-[#d6d6d6]/60 pl-3">
-              <p className="truncate text-[10px] font-bold uppercase tracking-[0.18em] text-[#333333] sm:text-xs">
-                Day View
-              </p>
+            <div className="relative">
+              <img src={mmeLogo} alt="Make My Event" className="h-14 w-auto shrink-0 object-contain sm:h-16" />
+            </div>
+            <div className="min-w-0 border-l border-zinc-200 pl-3">
+              <p className="text-[9px] font-black uppercase tracking-[0.22em] text-zinc-400">Day View</p>
+              <p className="truncate text-sm font-black text-black">{isToday ? "Today" : formatDisplayDate(date)}</p>
             </div>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
-            {employee ? (
+            {employee && (
               <button
                 onClick={() => setShowLogoutConfirm(true)}
-                className="flex items-center gap-2 rounded-2xl border border-[#d6d6d6]/70 bg-white px-3 py-2.5 text-left transition hover:bg-[#f4f4f4]/30 sm:px-4"
+                className="group flex items-center gap-2.5 rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 shadow-sm transition-all duration-200 hover:border-zinc-300 hover:bg-zinc-50 hover:shadow-md sm:px-4"
               >
-                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#f4f4f4] text-black">
-                  <UserRound size={16} />
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-zinc-800 to-zinc-600 shadow-md shadow-black/20 transition-transform duration-200 group-hover:scale-105">
+                  <UserRound size={15} className="text-white" />
                 </div>
                 <div className="hidden sm:block">
                   <p className="max-w-36 truncate text-xs font-black text-black">{employee.fullName}</p>
-                  <p className="text-[10px] text-black/50">Switch employee</p>
+                  <p className="text-[10px] font-medium text-zinc-400">Switch employee</p>
                 </div>
               </button>
-            ) : null}
+            )}
           </div>
         </div>
       </header>
 
       {/* ── Main ───────────────────────────────────────────────── */}
-      <main className="mx-auto max-w-7xl px-4 py-7 sm:px-6 lg:px-8">
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
 
-        <div className="mb-4">
+        <div className="mb-6">
           <BackButton onClick={() => navigate("/calendar")} title="Back to calendar" />
         </div>
 
-        {/* Date hero + prev / next navigation */}
-        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => navigate(`/calendar/day/${shiftDate(date, -1)}`)}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#d6d6d6]/70 bg-white transition hover:bg-[#f4f4f4]/30"
-              title="Previous day"
-            >
-              <ChevronLeft size={18} />
-            </button>
+        {/* ── Date hero ──────────────────────────────────────── */}
+        <div className="relative mb-8 overflow-hidden rounded-3xl border border-zinc-200/80 bg-white p-6 shadow-md shadow-black/5 sm:p-8">
+          {/* Decorative bg element */}
+          <div className="absolute -right-8 -top-8 h-40 w-40 rounded-full bg-zinc-100 opacity-60" />
+          <div className="absolute -bottom-6 -left-6 h-28 w-28 rounded-full bg-zinc-50 opacity-80" />
 
-            <div>
-              <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-[#333333]">
-                <CalendarDays size={13} />
-                {isToday ? "Today" : "Day view"}
+          <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+            {/* Date display + nav */}
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => navigate(`/calendar/day/${shiftDate(date, -1)}`)}
+                className="group flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white shadow-sm transition-all duration-200 hover:border-zinc-900 hover:bg-zinc-900 hover:text-white hover:shadow-lg hover:shadow-black/15"
+                title="Previous day"
+              >
+                <ChevronLeft size={18} className="transition-transform duration-200 group-hover:-translate-x-0.5" />
+              </button>
+
+              <div className="flex items-center gap-4">
+                {/* Big day number */}
+                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-zinc-900 to-zinc-700 shadow-xl shadow-black/25">
+                  <span className="text-2xl font-black text-white">{dayNum}</span>
+                </div>
+
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[9px] font-black uppercase tracking-[0.22em] text-zinc-400">
+                      {isToday ? "✦ Today" : dayOfWeek}
+                    </span>
+                    {isToday && (
+                      <span className="rounded-lg bg-black px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-white">
+                        Today
+                      </span>
+                    )}
+                  </div>
+                  <h1 className="mt-0.5 text-2xl font-black tracking-tight sm:text-3xl">{dayOfWeek}</h1>
+                  <p className="text-sm font-medium text-zinc-500">{monthYear}</p>
+                </div>
               </div>
-              <h1 className="mt-1 text-2xl font-black sm:text-3xl">{formatDisplayDate(date)}</h1>
-              <p className="mt-1 text-sm text-black/55">
-                {isLoading
-                  ? "Loading…"
-                  : dayEvents.length === 0
-                  ? "No events on this day"
-                  : `${dayEvents.length} event${dayEvents.length !== 1 ? "s" : ""} — ${clientGroups.length} client${clientGroups.length !== 1 ? "s" : ""}`}
-              </p>
+
+              <button
+                onClick={() => navigate(`/calendar/day/${shiftDate(date, 1)}`)}
+                className="group flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white shadow-sm transition-all duration-200 hover:border-zinc-900 hover:bg-zinc-900 hover:text-white hover:shadow-lg hover:shadow-black/15"
+                title="Next day"
+              >
+                <ChevronRight size={18} className="transition-transform duration-200 group-hover:translate-x-0.5" />
+              </button>
             </div>
 
-            <button
-              onClick={() => navigate(`/calendar/day/${shiftDate(date, 1)}`)}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#d6d6d6]/70 bg-white transition hover:bg-[#f4f4f4]/30"
-              title="Next day"
-            >
-              <ChevronRight size={18} />
-            </button>
-          </div>
+            {/* Right side: stats + month view btn */}
+            <div className="flex flex-wrap items-center gap-3 sm:flex-col sm:items-end">
+              <Link
+                to="/calendar"
+                className="group flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-black text-black shadow-sm transition-all duration-200 hover:border-zinc-900 hover:bg-zinc-900 hover:text-white hover:shadow-lg hover:shadow-black/15"
+              >
+                <CalendarDays size={15} className="transition-transform duration-200 group-hover:scale-110" />
+                Month View
+              </Link>
 
-          <Link
-            to="/calendar"
-            className="inline-flex items-center gap-2 self-start rounded-xl border border-[#d6d6d6]/70 bg-white px-4 py-2.5 text-sm font-black text-black transition hover:bg-[#f4f4f4]/30 sm:self-auto"
-          >
-            <CalendarDays size={16} /> Month View
-          </Link>
+              {!isLoading && (
+                <div className="flex items-center gap-2">
+                  <div className="rounded-xl bg-zinc-50 px-3 py-1.5 ring-1 ring-zinc-200">
+                    <p className="text-xs font-black text-zinc-600">
+                      {dayEvents.length === 0
+                        ? "No events"
+                        : `${dayEvents.length} event${dayEvents.length !== 1 ? "s" : ""} · ${clientGroups.length} client${clientGroups.length !== 1 ? "s" : ""}`}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
+        {/* ── Loading spinner ──────────────────────────────────── */}
         {isLoading ? (
-          <div className="flex min-h-80 items-center justify-center">
+          <div className="flex min-h-80 flex-col items-center justify-center gap-6 rounded-3xl border border-zinc-200/80 bg-white shadow-sm">
+            <div className="relative">
+              <div className="h-14 w-14 animate-spin rounded-full border-4 border-zinc-100 border-t-zinc-900" />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <CalendarDays size={20} className="text-zinc-400" />
+              </div>
+            </div>
             <div className="text-center">
-              <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-[#d6d6d6] border-t-black" />
-              <p className="mt-4 font-black text-black/50">Loading events…</p>
+              <p className="font-black text-zinc-800">Loading events</p>
+              <p className="mt-1 text-sm font-medium text-zinc-400">Fetching your schedule…</p>
             </div>
           </div>
         ) : (
           <div>
 
-            {/* ── Client details ───────────────────────────────── */}
-            <div>
-              <div className="mb-4 flex items-center gap-2.5">
-                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-[#f4f4f4] text-[10px] font-black text-black">S</span>
-                <h2 className="text-sm font-black uppercase tracking-[0.15em] text-black">
-                  Client Details
-                </h2>
-                {clientGroups.length > 0 && (
-                  <span className="rounded-full bg-black/10 px-2.5 py-0.5 text-xs font-black text-black">
-                    {clientGroups.length}
-                  </span>
-                )}
+            {/* ── Section header ───────────────────────────────── */}
+            <div className="mb-5 flex items-center gap-3">
+              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-zinc-900 shadow-lg shadow-black/20">
+                <UserRound size={14} className="text-white" />
               </div>
-
-              {clientGroups.length === 0 ? (
-                <div className="flex min-h-52 flex-col items-center justify-center rounded-3xl border border-dashed border-[#d6d6d6]/60 bg-white/60 p-8 text-center">
-                  <CalendarDays className="text-[#a9a9a9]/40" size={38} />
-                  <p className="mt-3 font-black text-black/45">No client events on this day</p>
-                  <p className="mt-1.5 max-w-xs text-sm text-black/30">
-                    Meetings and calls scheduled for a client on this date will appear here automatically.
-                  </p>
-                  <Link to="/management" className="mt-4 text-sm font-black text-[#333333] transition hover:text-black">
-                    Open Management Sheet →
-                  </Link>
-                </div>
-              ) : (
-                <div className="space-y-5">
-                  {clientGroups.map((group) => (
-                    <ClientDayCard
-                      key={group.rowKey}
-                      group={group}
-                      columns={worksheetColumns}
-                      extras={clientExtras[group.rowKey]}
-                      navigate={navigate}
-                      selectedDate={date}
-                    />
-                  ))}
-                </div>
+              <h2 className="text-sm font-black uppercase tracking-[0.15em] text-black">Client Details</h2>
+              {clientGroups.length > 0 && (
+                <CountBadge count={clientGroups.length} />
               )}
+              <div className="flex-1 border-t border-dashed border-zinc-200" />
             </div>
 
+            {/* ── Empty state ──────────────────────────────────── */}
+            {clientGroups.length === 0 ? (
+              <div className="flex min-h-64 flex-col items-center justify-center gap-4 rounded-3xl border border-dashed border-zinc-200 bg-white p-10 text-center shadow-sm">
+                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-100">
+                  <CalendarDays size={32} className="text-zinc-300" />
+                </div>
+                <div>
+                  <p className="text-lg font-black text-zinc-700">No client events today</p>
+                  <p className="mt-1.5 max-w-xs text-sm font-medium text-zinc-400">
+                    Meetings and calls scheduled for a client on this date will appear here automatically.
+                  </p>
+                </div>
+                <Link
+                  to="/management"
+                  className="group mt-1 flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-5 py-2.5 text-sm font-black text-black shadow-sm transition-all duration-200 hover:border-zinc-900 hover:bg-zinc-900 hover:text-white hover:shadow-lg hover:shadow-black/15"
+                >
+                  Open Management Sheet
+                  <ArrowRight size={14} className="transition-transform duration-200 group-hover:translate-x-0.5" />
+                </Link>
+              </div>
+            ) : (
+              <div className="space-y-5">
+                {clientGroups.map((group, i) => (
+                  <ClientDayCard
+                    key={group.rowKey}
+                    group={group}
+                    columns={worksheetColumns}
+                    extras={clientExtras[group.rowKey]}
+                    navigate={navigate}
+                    selectedDate={date}
+                    employeeId={employee?.id}
+                    index={i}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )}
       </main>
 
-      {/* ── Toast ──────────────────────────────────────────────── */}
+      {/* ── Toast notification ─────────────────────────────────── */}
       {notice && (
-        <div className={`fixed bottom-5 right-5 z-50 flex max-w-md items-start gap-3 rounded-2xl border px-5 py-4 shadow-2xl ${
-          notice.type === "error" ? "border-red-200 bg-red-50 text-red-700" : "border-[#d6d6d6] bg-white text-black"
-        }`}>
-          {notice.type === "error"
-            ? <X className="mt-0.5 shrink-0" size={18} />
-            : <Check className="mt-0.5 shrink-0 text-[#333333]" size={18} />}
-          <p className="text-sm font-bold leading-6">{notice.message}</p>
-          <button onClick={() => setNotice(null)} className="ml-2 opacity-50 hover:opacity-100">
-            <X size={15} />
+        <div
+          className={`fixed bottom-6 right-6 z-50 flex max-w-sm items-start gap-3 overflow-hidden rounded-2xl border px-5 py-4 shadow-2xl shadow-black/15 backdrop-blur-md transition-all duration-500 animate-in slide-in-from-bottom-4 ${
+            notice.type === "error"
+              ? "border-red-200 bg-red-50 text-red-700"
+              : "border-zinc-200 bg-white text-black"
+          }`}
+        >
+          {/* Colored left bar */}
+          <div className={`absolute left-0 top-0 h-full w-1 ${notice.type === "error" ? "bg-red-400" : "bg-zinc-800"}`} />
+          <div className={`ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${
+            notice.type === "error" ? "bg-red-100 text-red-600" : "bg-zinc-100 text-zinc-700"
+          }`}>
+            {notice.type === "error" ? <X size={15} /> : <Check size={15} />}
+          </div>
+          <p className="flex-1 text-sm font-bold leading-6">{notice.message}</p>
+          <button
+            onClick={() => setNotice(null)}
+            className="mt-0.5 shrink-0 rounded-lg p-1 opacity-40 transition-all hover:opacity-100 hover:bg-black/5"
+          >
+            <X size={14} />
           </button>
         </div>
       )}

@@ -1,16 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router";
 import {
-  ArrowUpRight,
   CalendarCheck2,
   CalendarClock,
-  ChevronDown,
-  ChevronUp,
   Gauge,
   LayoutGrid,
   PhoneCall,
   PhoneIncoming,
-  Sparkles,
   Users,
   UsersRound,
   X,
@@ -18,8 +14,6 @@ import {
 import AdminLayout from "../components/AdminLayout";
 import { adminLogout, fetchAdminMe } from "../services/adminService";
 import { fetchAdminDashboard } from "../services/adminDashboardService";
-
-const CLIENTS_PREVIEW_COUNT = 10;
 
 // Deterministic fallback palette so an employee without a saved colorHex
 // still gets a distinct-looking avatar (mirrors the backend's calendar
@@ -111,33 +105,6 @@ function EmployeeRow({ employee, index }) {
   );
 }
 
-// ─── Client Row ───────────────────────────────────────────────────────────
-function ClientRow({ client, rank, index }) {
-  return (
-    <tr
-      className="animate-[fadeIn_0.4s_ease-out_both] border-b border-mme-pink/40 last:border-b-0 hover:bg-[#fff9fc]"
-      style={{ animationDelay: `${Math.min(index, 24) * 30}ms` }}
-    >
-      <td className="px-4 py-3">
-        <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-mme-blush px-1.5 text-[11px] font-black text-mme-purple">
-          {rank}
-        </span>
-      </td>
-      <td className="px-4 py-3 font-black text-mme-purple">{client.clientName}</td>
-      <td className="px-4 py-3 text-sm font-bold text-mme-purple/70">{client.venue || "—"}</td>
-      <td className="px-4 py-3 text-sm font-bold text-mme-purple/70">{client.phone || "—"}</td>
-      <td className="px-4 py-3 text-right">
-        <Link
-          to={`/admin-dashboard/clients/${client.rowKey}`}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-mme-pink/70 bg-white px-3 py-1.5 text-xs font-black text-mme-purple transition hover:bg-mme-purple hover:text-white"
-        >
-          Show Details <ArrowUpRight size={13} />
-        </Link>
-      </td>
-    </tr>
-  );
-}
-
 // ─── Page ─────────────────────────────────────────────────────────────────
 export default function AdminDashboardPage() {
   const navigate = useNavigate();
@@ -145,7 +112,6 @@ export default function AdminDashboardPage() {
   const [checkingSession, setCheckingSession] = useState(true);
   const [dashboard, setDashboard] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [showAllClients, setShowAllClients] = useState(false);
   const [notice, setNotice] = useState(null);
 
   useEffect(() => {
@@ -176,11 +142,6 @@ export default function AdminDashboardPage() {
     await adminLogout();
     navigate("/admin/login", { replace: true });
   }
-
-  const visibleClients = useMemo(() => {
-    if (!dashboard) return [];
-    return showAllClients ? dashboard.clients : dashboard.clients.slice(0, CLIENTS_PREVIEW_COUNT);
-  }, [dashboard, showAllClients]);
 
   if (checkingSession || !admin) return null;
 
@@ -250,67 +211,6 @@ export default function AdminDashboardPage() {
               ) : (
                 <p className="rounded-2xl border border-dashed border-mme-pink/60 bg-white px-6 py-10 text-center text-sm font-bold text-mme-purple/50">
                   No employees found.
-                </p>
-              )}
-            </section>
-
-            {/* Clients Section */}
-            <section>
-              <div className="mb-4 flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-mme-blush text-mme-purple">
-                  <Sparkles size={17} />
-                </div>
-                <h2 className="font-black text-mme-purple">
-                  {showAllClients ? "All Clients" : "All Clients"}
-                </h2>
-                <span className="rounded-full bg-mme-blush px-3 py-1 text-xs font-black text-mme-purple">
-                  {showAllClients ? dashboard.clients.length : Math.min(CLIENTS_PREVIEW_COUNT, dashboard.clients.length)} of {dashboard.clients.length}
-                </span>
-              </div>
-
-              {dashboard.clients.length ? (
-                <>
-                  <div className="overflow-x-auto rounded-3xl border border-mme-pink/60 bg-white shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
-                    <table className="w-full min-w-[640px] border-collapse text-sm">
-                      <thead>
-                        <tr className="border-b border-mme-pink/50 bg-[#fff9fc] text-left text-[11px] font-black uppercase tracking-[0.1em] text-mme-plum">
-                          <th className="px-4 py-3">#</th>
-                          <th className="px-4 py-3">Client Name</th>
-                          <th className="px-4 py-3">Venue</th>
-                          <th className="px-4 py-3">Phone</th>
-                          <th className="px-4 py-3 text-right">Details</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {visibleClients.map((client, index) => (
-                          <ClientRow key={client.rowKey} client={client} rank={index + 1} index={index} />
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {dashboard.clients.length > CLIENTS_PREVIEW_COUNT && (
-                    <div className="mt-6 flex justify-center">
-                      <button
-                        onClick={() => setShowAllClients((v) => !v)}
-                        className="inline-flex items-center gap-2 rounded-2xl border border-mme-pink/70 bg-white px-5 py-2.5 text-sm font-black text-mme-purple shadow-[0_8px_30px_rgba(91,55,101,0.07)] transition hover:bg-mme-blush/40"
-                      >
-                        {showAllClients ? (
-                          <>
-                            <ChevronUp size={16} /> Show Less
-                          </>
-                        ) : (
-                          <>
-                            <ChevronDown size={16} /> See More ({dashboard.clients.length - CLIENTS_PREVIEW_COUNT} more)
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <p className="rounded-2xl border border-dashed border-mme-pink/60 bg-white px-6 py-10 text-center text-sm font-bold text-mme-purple/50">
-                  No clients found yet.
                 </p>
               )}
             </section>

@@ -86,6 +86,7 @@ export async function listCalls(req, res, next) {
         clientName,
         calls: calls.map((call) => ({
           id: call.id,
+          createdById: call.createdById ?? null,
           callDatetime: formatDateTime(call.callDatetime),
           callDiscussion: call.callDiscussion,
           nextCallDatetime: formatDateTime(call.nextCall?.nextCallDatetime),
