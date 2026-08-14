@@ -22,7 +22,13 @@ const adapter = new PrismaMariaDb({
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD || "",
   database: process.env.DB_NAME,
-  connectionLimit: 10,
+  // Hosting account cap is max_user_connections=20 (confirmed via phpMyAdmin
+  // `SHOW VARIABLES LIKE 'max_user_connections'`). Passenger can briefly run
+  // more than one worker process for this app (e.g. during a restart), so
+  // each process's pool must stay well under 20 to avoid exhausting the
+  // account-wide connection cap, which previously caused intermittent
+  // "pool timeout ... active=0 idle=0" errors and 503s.
+  connectionLimit: 5,
   // MySQL 8's default `caching_sha2_password` auth plugin needs an RSA key
   // exchange over unencrypted connections; without this flag every connect
   // attempt fails silently and the pool just times out (looks like
