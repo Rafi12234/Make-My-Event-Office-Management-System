@@ -66,6 +66,7 @@ export function buildEmployeeActivity(employees, meetings, calls, dateFrom, date
       if (passesDateFilter(dateOnly, dateFrom, dateTo)) {
         byName.get(meeting.createdByName).previous.push({
           type: "meeting", rowKey: meeting.rowKey, clientName: meeting.clientName, datetime: meeting.meetingDatetime,
+          items: meeting.items || [],
         });
       }
     }
@@ -86,6 +87,7 @@ export function buildEmployeeActivity(employees, meetings, calls, dateFrom, date
       if (passesDateFilter(dateOnly, dateFrom, dateTo)) {
         byName.get(call.createdByName).previous.push({
           type: "call", rowKey: call.rowKey, clientName: call.clientName, datetime: call.callDatetime,
+          discussion: call.discussion || "",
         });
       }
     }

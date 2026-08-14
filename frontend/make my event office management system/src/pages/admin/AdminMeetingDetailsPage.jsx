@@ -149,7 +149,7 @@ function MeetingCard({ meeting, onViewImage }) {
         {meeting.images?.length > 0 && (
           <div>
             <p className="mb-2 text-xs font-black uppercase tracking-wide text-mme-purple/45">Images</p>
-            <div className="grid grid-cols-4 gap-2.5 sm:grid-cols-6 md:grid-cols-8">
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
               {meeting.images.map((img, imageIndex) => (
                 <div
                   key={img.id}
@@ -282,7 +282,7 @@ export default function AdminMeetingDetailsPage() {
             <p className="mt-4 font-black text-mme-purple">No meetings logged for this client yet</p>
           </div>
         ) : (
-          <div className="space-y-5">
+          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             {data.meetings.map((meeting) => (
               <MeetingCard
                 key={meeting.id}

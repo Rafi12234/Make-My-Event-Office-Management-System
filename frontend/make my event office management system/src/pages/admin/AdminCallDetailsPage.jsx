@@ -154,7 +154,7 @@ export default function AdminCallDetailsPage() {
             <p className="mt-4 font-black text-mme-purple">No calls logged for this client yet</p>
           </div>
         ) : (
-          <div className="space-y-5">
+          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             {data.calls.map((call) => (
               <CallCard key={call.id} call={call} />
             ))}
