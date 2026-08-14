@@ -274,27 +274,22 @@ app.use(errorHandler);
 |--------------------------------------------------------------------------
 */
 
-async function startServer() {
-  try {
-    await verifyDatabaseConnection();
-
-    app.listen(port, () => {
-      console.log(
-        "MySQL database connected successfully.",
-      );
-
-      console.log(
-        `Make My Event application running on port ${port}`,
-      );
-    });
-  } catch (error) {
-    console.error(
-      "Could not connect to MySQL:",
-      error.message,
+function startServer() {
+  app.listen(port, () => {
+    console.log(
+      `Make My Event application running on port ${port}`,
     );
+  });
 
-    process.exitCode = 1;
-  }
+  // Checked in the background so a DB outage doesn't prevent the
+  // frontend/static files from being served at all.
+  verifyDatabaseConnection()
+    .then(() => {
+      console.log("MySQL database connected successfully.");
+    })
+    .catch((error) => {
+      console.error("Could not connect to MySQL:", error.message);
+    });
 }
 
 startServer();
