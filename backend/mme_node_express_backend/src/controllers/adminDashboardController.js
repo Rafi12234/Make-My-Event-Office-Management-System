@@ -56,6 +56,9 @@ async function resolveClientDetails(sheetId, rowKeys) {
 export async function getAdminDashboard(req, res, next) {
   try {
     const now = nowInBusinessTimezone();
+    const oneWeekMs = 7 * 24 * 60 * 60 * 1000;
+    const weekAgo = new Date(now.getTime() - oneWeekMs);
+    const weekAhead = new Date(now.getTime() + oneWeekMs);
     const sheetId = await getDefaultSheetId();
 
     const [
@@ -74,27 +77,27 @@ export async function getAdminDashboard(req, res, next) {
         include: { role: true },
         orderBy: { fullName: "asc" },
       }),
-      // "Done" = the scheduled moment has already passed (meetingDatetime
-      // is null for a freshly-added, not-yet-scheduled meeting — Prisma's
-      // `lte` comparison naturally excludes those nulls).
+      // "Done" = the scheduled moment has already passed, within the last 7
+      // days — the overview highlights recent activity, not all-time totals.
       prisma.clientMeeting.groupBy({
         by: ["createdById"],
-        where: { meetingDatetime: { lte: now } },
+        where: { meetingDatetime: { gte: weekAgo, lte: now } },
         _count: { _all: true },
       }),
       prisma.clientCall.groupBy({
         by: ["createdById"],
-        where: { callDatetime: { lte: now } },
+        where: { callDatetime: { gte: weekAgo, lte: now } },
         _count: { _all: true },
       }),
+      // "Upcoming" is likewise capped to the next 7 days.
       prisma.clientNextMeeting.groupBy({
         by: ["assignedEmployeeId"],
-        where: { nextMeetingDatetime: { gte: now } },
+        where: { nextMeetingDatetime: { gte: now, lte: weekAhead } },
         _count: { _all: true },
       }),
       prisma.clientNextCall.groupBy({
         by: ["assignedEmployeeId"],
-        where: { nextCallDatetime: { gte: now } },
+        where: { nextCallDatetime: { gte: now, lte: weekAhead } },
         _count: { _all: true },
       }),
       prisma.clientMeeting.groupBy({

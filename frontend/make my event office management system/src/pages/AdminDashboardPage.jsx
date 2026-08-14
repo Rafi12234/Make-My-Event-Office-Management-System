@@ -170,10 +170,10 @@ export default function AdminDashboardPage() {
             <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
               <StatCard index={0} icon={<Users size={17} />} label="Employees" value={totals.employees} />
               <StatCard index={1} icon={<UsersRound size={17} />} label="Active" value={totals.activeEmployees} />
-              <StatCard index={2} icon={<CalendarCheck2 size={17} />} label="Meetings Done" value={totals.meetingsDone} />
-              <StatCard index={3} icon={<PhoneCall size={17} />} label="Calls Done" value={totals.callsDone} />
-              <StatCard index={4} icon={<CalendarClock size={17} />} label="Upcoming Meetings" value={totals.upcomingMeetings} />
-              <StatCard index={5} icon={<PhoneIncoming size={17} />} label="Upcoming Calls" value={totals.upcomingCalls} />
+              <StatCard index={2} icon={<CalendarCheck2 size={17} />} label="Last 7 days Meetings Done" value={totals.meetingsDone} />
+              <StatCard index={3} icon={<PhoneCall size={17} />} label="Last 7 days Calls Done" value={totals.callsDone} />
+              <StatCard index={4} icon={<CalendarClock size={17} />} label="Upcoming 7 Days Total Meetings" value={totals.upcomingMeetings} />
+              <StatCard index={5} icon={<PhoneIncoming size={17} />} label="Upcoming 7 Days Total Calls" value={totals.upcomingCalls} />
               <StatCard index={6} icon={<LayoutGrid size={17} />} label="Total Clients" value={totals.clients} />
             </div>
 
@@ -195,10 +195,10 @@ export default function AdminDashboardPage() {
                     <thead>
                       <tr className="border-b border-mme-pink/50 bg-[#fff9fc] text-left text-[11px] font-black uppercase tracking-[0.1em] text-mme-plum">
                         <th className="px-4 py-3">Employee</th>
-                        <th className="px-4 py-3 text-center">Meetings Done</th>
-                        <th className="px-4 py-3 text-center">Calls Done</th>
-                        <th className="px-4 py-3 text-center">Upcoming Meetings</th>
-                        <th className="px-4 py-3 text-center">Upcoming Calls</th>
+                        <th className="px-4 py-3 text-center">Meetings Done (7d)</th>
+                        <th className="px-4 py-3 text-center">Calls Done (7d)</th>
+                        <th className="px-4 py-3 text-center">Upcoming Meetings (7d)</th>
+                        <th className="px-4 py-3 text-center">Upcoming Calls (7d)</th>
                       </tr>
                     </thead>
                     <tbody>
