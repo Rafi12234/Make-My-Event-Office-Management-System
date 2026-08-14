@@ -8,6 +8,20 @@ import { fetchAllCalls, fetchAllMeetings } from "../../services/adminActivitySer
 import { buildEmployeeActivity, initials, isOverdueDatetime } from "../../utils/employeeActivity";
 import { RoutineEntryRow, StatChip } from "../../components/EmployeeActivityWidgets";
 
+function toDateInputValue(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function relativeDateValue(dayOffset) {
+  const d = new Date();
+  d.setDate(d.getDate() + dayOffset);
+  return toDateInputValue(d);
+}
+
+
 export default function AdminEmployeeDetailPage() {
   const navigate = useNavigate();
   const { employeeId } = useParams();
@@ -77,6 +91,17 @@ export default function AdminEmployeeDetailPage() {
     setDateFrom("");
     setDateTo("");
   }
+
+  function applyRelativeDay(dayOffset) {
+    const value = relativeDateValue(dayOffset);
+    setDateFrom(value);
+    setDateTo(value);
+  }
+
+  const yesterdayValue = relativeDateValue(-1);
+  const tomorrowValue = relativeDateValue(1);
+  const isYesterdayActive = dateFrom === yesterdayValue && dateTo === yesterdayValue;
+  const isTomorrowActive = dateFrom === tomorrowValue && dateTo === tomorrowValue;
 
   if (checkingSession || !admin) return null;
 
@@ -166,6 +191,28 @@ export default function AdminEmployeeDetailPage() {
                   onChange={(e) => setDateTo(e.target.value)}
                   className="rounded-xl border border-mme-pink/70 bg-[#fff9fc] px-3.5 py-2.5 text-sm text-mme-purple outline-none focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/20"
                 />
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => applyRelativeDay(-1)}
+                  className={`rounded-xl border px-4 py-2.5 text-xs font-black transition ${
+                    isYesterdayActive
+                      ? "border-mme-purple bg-mme-purple text-white"
+                      : "border-mme-pink/70 bg-white text-mme-purple hover:bg-mme-blush/40"
+                  }`}
+                >
+                  Yesterday
+                </button>
+                <button
+                  onClick={() => applyRelativeDay(1)}
+                  className={`rounded-xl border px-4 py-2.5 text-xs font-black transition ${
+                    isTomorrowActive
+                      ? "border-mme-purple bg-mme-purple text-white"
+                      : "border-mme-pink/70 bg-white text-mme-purple hover:bg-mme-blush/40"
+                  }`}
+                >
+                  Tomorrow
+                </button>
               </div>
               {(dateFrom || dateTo) && (
                 <button
