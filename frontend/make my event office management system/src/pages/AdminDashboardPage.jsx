@@ -19,7 +19,7 @@ import { fetchAdminDashboard } from "../services/adminDashboardService";
 // still gets a distinct-looking avatar (mirrors the backend's calendar
 // color assignment convention).
 const AVATAR_PALETTE = [
-  "#2563eb", "#dc2626", "#16a34a", "#9333ea", "#d97706",
+  "#2563eb", "#dc2626",  "#16a34a", "#9333ea", "#d97706",
   "#db2777", "#0e7490", "#4d7c0f", "#334155", "#c2410c",
 ];
 
