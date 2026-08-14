@@ -7,7 +7,6 @@ import cookieParser from "cookie-parser";
 import path from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import net from "node:net";
 
 import { verifyDatabaseConnection } from "./config/prisma.js";
 import employeeRoutes from "./routes/employees.js";
@@ -127,98 +126,6 @@ app.get("/api/health", async (req, res, next) => {
     });
   } catch (error) {
     return next(error);
-  }
-});
-
-/*
-|--------------------------------------------------------------------------
-| TEMPORARY: raw TCP diagnostic (bypasses Prisma entirely)
-|--------------------------------------------------------------------------
-|
-| Remove this route once the MySQL connectivity issue is resolved.
-|
-*/
-
-app.get("/api/debug/tcp-check", (req, res) => {
-  const host = process.env.DB_HOST;
-  const port = Number(process.env.DB_PORT || 3306);
-  const startedAt = Date.now();
-  const socket = net.createConnection({ host, port });
-  let settled = false;
-
-  const finish = (result) => {
-    if (settled) return;
-    settled = true;
-    socket.destroy();
-    res.status(200).json({
-      host,
-      port,
-      elapsedMs: Date.now() - startedAt,
-      ...result,
-    });
-  };
-
-  socket.setTimeout(5000);
-
-  socket.once("connect", () => {
-    socket.once("data", (chunk) => {
-      finish({
-        tcpConnected: true,
-        receivedMysqlGreeting: true,
-        firstBytesHex: chunk.subarray(0, 16).toString("hex"),
-      });
-    });
-
-    // TCP connected but MySQL never sent its handshake greeting.
-    setTimeout(() => {
-      finish({ tcpConnected: true, receivedMysqlGreeting: false });
-    }, 4000);
-  });
-
-  socket.once("timeout", () => {
-    finish({ tcpConnected: false, error: "timeout" });
-  });
-
-  socket.once("error", (err) => {
-    finish({ tcpConnected: false, error: err.code || err.message });
-  });
-});
-
-app.get("/api/debug/mariadb-check", async (req, res) => {
-  const startedAt = Date.now();
-  try {
-    const mariadb = await import("mariadb");
-    const conn = await mariadb.createConnection({
-      host: process.env.DB_HOST,
-      port: Number(process.env.DB_PORT || 3306),
-      user: process.env.DB_USER,
-      password: process.env.DB_PASSWORD || "",
-      database: process.env.DB_NAME,
-      ssl: false,
-      connectTimeout: 5000,
-    });
-
-    const connectedAt = Date.now();
-
-    const rows = await conn.query("SELECT 1 AS ok");
-    const queriedAt = Date.now();
-
-    await conn.end();
-
-    return res.status(200).json({
-      success: true,
-      connectMs: connectedAt - startedAt,
-      queryMs: queriedAt - connectedAt,
-      totalMs: Date.now() - startedAt,
-      rows,
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      totalMs: Date.now() - startedAt,
-      code: error.code,
-      message: error.message,
-    });
   }
 });
 
