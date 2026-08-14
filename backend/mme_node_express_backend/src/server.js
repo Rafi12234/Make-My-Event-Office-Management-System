@@ -184,6 +184,44 @@ app.get("/api/debug/tcp-check", (req, res) => {
   });
 });
 
+app.get("/api/debug/mariadb-check", async (req, res) => {
+  const startedAt = Date.now();
+  try {
+    const mariadb = await import("mariadb");
+    const conn = await mariadb.createConnection({
+      host: process.env.DB_HOST,
+      port: Number(process.env.DB_PORT || 3306),
+      user: process.env.DB_USER,
+      password: process.env.DB_PASSWORD || "",
+      database: process.env.DB_NAME,
+      ssl: false,
+      connectTimeout: 5000,
+    });
+
+    const connectedAt = Date.now();
+
+    const rows = await conn.query("SELECT 1 AS ok");
+    const queriedAt = Date.now();
+
+    await conn.end();
+
+    return res.status(200).json({
+      success: true,
+      connectMs: connectedAt - startedAt,
+      queryMs: queriedAt - connectedAt,
+      totalMs: Date.now() - startedAt,
+      rows,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      totalMs: Date.now() - startedAt,
+      code: error.code,
+      message: error.message,
+    });
+  }
+});
+
 /*
 |--------------------------------------------------------------------------
 | API routes
