@@ -8,7 +8,7 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { verifyDatabaseConnection } from "./config/prisma.js";
+import { prisma, verifyDatabaseConnection } from "./config/prisma.js";
 import employeeRoutes from "./routes/employees.js";
 import workspaceRoutes from "./routes/workspace.js";
 import calendarRoutes from "./routes/calendar.js";
@@ -275,7 +275,7 @@ app.use(errorHandler);
 */
 
 function startServer() {
-  app.listen(port, () => {
+  const httpServer = app.listen(port, () => {
     console.log(
       `Make My Event application running on port ${port}`,
     );
@@ -290,6 +290,51 @@ function startServer() {
     .catch((error) => {
       console.error("Could not connect to MySQL:", error.message);
     });
+
+  return httpServer;
 }
 
-startServer();
+const httpServer = startServer();
+
+/*
+|--------------------------------------------------------------------------
+| Graceful shutdown
+|--------------------------------------------------------------------------
+|
+| Passenger sends SIGTERM on every restart/deploy. Without releasing the
+| Prisma pool's MySQL connections here first, each restart leaves them
+| open on the DB side until wait_timeout expires, eventually exhausting
+| the account's max_user_connections cap (the cause of a past incident).
+|
+*/
+
+let shuttingDown = false;
+
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+
+  console.log(`${signal} received, shutting down gracefully...`);
+  httpServer.close();
+
+  try {
+    await prisma.$disconnect();
+    console.log("Prisma disconnected.");
+  } catch (error) {
+    console.error("Error disconnecting Prisma:", error.message);
+  }
+
+  process.exit(0);
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
+
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled promise rejection:", reason);
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught exception:", error);
+  shutdown("uncaughtException");
+});
