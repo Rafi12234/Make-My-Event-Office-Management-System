@@ -16,8 +16,8 @@ import {
 } from "lucide-react";
 import { adminLogout, fetchAdminMe, fetchAllEmployees } from "../../services/adminService";
 import { fetchAllCalls, fetchAllMeetings } from "../../services/adminActivityService";
-import { buildEmployeeActivity, initials, isOverdueDatetime } from "../../utils/employeeActivity";
-import { RoutineEntryRow, StatChip } from "../../components/EmployeeActivityWidgets";
+import { buildEmployeeActivity, formatLateDuration, initials, isOverdueDatetime } from "../../utils/employeeActivity";
+import { MissedEntryRow, RoutineEntryRow, StatChip } from "../../components/EmployeeActivityWidgets";
 
 function toDateInputValue(date) {
   const y = date.getFullYear();
@@ -175,6 +175,18 @@ export default function AdminEmployeeDetailPage() {
   const rangeTotalAssigned = rangeMeetingsAssigned + rangeCallsAssigned;
   const rangeTotalDone = rangeMeetingsDone + rangeCallsDone;
   const rangeTotalMissed = rangeMeetingsMissed + rangeCallsMissed;
+
+  // "Upcoming" must only ever mean genuinely-future items — an assigned item
+  // whose scheduled time has already passed (relative to now, not the
+  // selected range) is Missed instead, regardless of which range is picked.
+  const filteredUpcomingMissed = useMemo(
+    () => filteredUpcoming.filter((e) => isOverdueDatetime(e.datetime)),
+    [filteredUpcoming],
+  );
+  const filteredUpcomingFuture = useMemo(
+    () => filteredUpcoming.filter((e) => !isOverdueDatetime(e.datetime)),
+    [filteredUpcoming],
+  );
 
   const rangeLabel = isAllTimeActive
     ? "All Time"
@@ -483,8 +495,8 @@ export default function AdminEmployeeDetailPage() {
             </div>
           </div>
 
-          {/* Previous + Upcoming routine */}
-          <div key={listKey} className="animate-fadeIn grid gap-6 lg:grid-cols-2">
+          {/* Completed / Missed / Upcoming routine — "Upcoming" only ever holds genuinely-future items */}
+          <div key={listKey} className="animate-fadeIn grid gap-6 lg:grid-cols-3">
             <div className="rounded-3xl border border-mme-pink/60 bg-white shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
               <div className="flex items-center justify-between border-b border-mme-pink/50 px-6 py-4">
                 <span className="font-black text-mme-purple">Completed</span>
@@ -513,15 +525,42 @@ export default function AdminEmployeeDetailPage() {
 
             <div className="rounded-3xl border border-mme-pink/60 bg-white shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
               <div className="flex items-center justify-between border-b border-mme-pink/50 px-6 py-4">
-                <span className="font-black text-mme-purple">Upcoming</span>
-                <span className="rounded-full bg-mme-purple/10 px-2.5 py-1 text-xs font-black text-mme-purple">
-                  {filteredUpcoming.length}
+                <span className="font-black text-red-600">Missed</span>
+                <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-black text-red-600">
+                  {filteredUpcomingMissed.length}
                 </span>
               </div>
               <div className="p-6">
-                {filteredUpcoming.length ? (
+                {filteredUpcomingMissed.length ? (
                   <ul className="space-y-1.5">
-                    {filteredUpcoming.map((entry, i) => (
+                    {filteredUpcomingMissed.map((entry, i) => (
+                      <MissedEntryRow
+                        key={`m-${i}`}
+                        entry={entry}
+                        lateLabel={formatLateDuration(entry.datetime)}
+                        index={i}
+                        backTo={`/admin-employee-management/${employee.id}`}
+                        backLabel={`Back to ${employee.fullName}'s record`}
+                      />
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm italic text-mme-purple/40">No missed meetings/calls in this range.</p>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-mme-pink/60 bg-white shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
+              <div className="flex items-center justify-between border-b border-mme-pink/50 px-6 py-4">
+                <span className="font-black text-mme-purple">Upcoming</span>
+                <span className="rounded-full bg-mme-purple/10 px-2.5 py-1 text-xs font-black text-mme-purple">
+                  {filteredUpcomingFuture.length}
+                </span>
+              </div>
+              <div className="p-6">
+                {filteredUpcomingFuture.length ? (
+                  <ul className="space-y-1.5">
+                    {filteredUpcomingFuture.map((entry, i) => (
                       <RoutineEntryRow
                         key={`u-${i}`}
                         entry={entry}
