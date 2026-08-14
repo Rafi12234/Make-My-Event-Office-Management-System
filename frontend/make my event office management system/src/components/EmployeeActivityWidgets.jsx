@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { AlertTriangle, CalendarClock, ChevronDown, Info, Phone } from "lucide-react";
 import { formatDisplay } from "../utils/employeeActivity";
@@ -6,9 +6,23 @@ import { CLIENT_REQUIREMENT_OPTIONS } from "../data/defaultSheet";
 
 // Shared by AdminPage.jsx (overview) and AdminEmployeeDetailPage.jsx.
 
-// A discussion this long won't fit on one line, so the row shows an
-// ellipsis + "Read More" instead of always rendering the full text.
-const DISCUSSION_PREVIEW_LIMIT = 90;
+// Detects whether a single-line-truncated element is actually cut off in the
+// DOM (its content is wider than the box) — card width varies across pages
+// (2-col vs 3-col grids), so a fixed character count can't reliably predict
+// this; only a real overflow measurement can.
+function useIsLineTruncated(text, expanded) {
+  const ref = useRef(null);
+  const [isTruncated, setIsTruncated] = useState(false);
+
+  useEffect(() => {
+    if (expanded) return;
+    const el = ref.current;
+    if (!el) return;
+    setIsTruncated(el.scrollWidth > el.clientWidth);
+  }, [text, expanded]);
+
+  return [ref, isTruncated];
+}
 
 function itemLabel(item) {
   if (item.itemKey === "other") return item.customLabel || "Other";
@@ -36,12 +50,13 @@ export function StatChip({ icon: Icon, label, count, tone }) {
 // page just to see what was discussed.
 function CallDiscussionPreview({ discussion }) {
   const [expanded, setExpanded] = useState(false);
+  const [textRef, isTruncated] = useIsLineTruncated(discussion, expanded);
   if (!discussion) return null;
-  const isLong = discussion.length > DISCUSSION_PREVIEW_LIMIT;
 
   return (
     <div className="mt-2 border-t border-mme-pink/30 pt-2">
       <p
+        ref={textRef}
         className={
           expanded
             ? "animate-fadeIn whitespace-pre-wrap text-xs font-semibold text-mme-purple/90"
@@ -50,7 +65,7 @@ function CallDiscussionPreview({ discussion }) {
       >
         {discussion}
       </p>
-      {isLong && (
+      {isTruncated && (
         <button
           onClick={() => setExpanded((v) => !v)}
           className="mt-1 inline-flex items-center gap-1 text-[11px] font-black text-mme-plum transition hover:gap-1.5 hover:underline"
