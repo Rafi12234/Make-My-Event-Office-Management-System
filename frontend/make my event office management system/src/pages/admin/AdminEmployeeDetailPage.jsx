@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   CalendarClock,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   Filter,
   Mail,
@@ -63,6 +64,7 @@ export default function AdminEmployeeDetailPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [activeSlide, setActiveSlide] = useState(0);
 
   useEffect(() => {
     fetchAdminMe()
@@ -495,85 +497,151 @@ export default function AdminEmployeeDetailPage() {
             </div>
           </div>
 
-          {/* Completed / Missed / Upcoming routine — "Upcoming" only ever holds genuinely-future items */}
-          <div key={listKey} className="animate-fadeIn grid gap-6 lg:grid-cols-3">
-            <div className="rounded-3xl border border-mme-pink/60 bg-white shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
-              <div className="flex items-center justify-between border-b border-mme-pink/50 px-6 py-4">
-                <span className="font-black text-mme-purple">Completed</span>
-                <span className="rounded-full bg-mme-blush px-2.5 py-1 text-xs font-black text-mme-plum">
-                  {filteredPrevious.length}
-                </span>
-              </div>
-              <div className="p-6">
-                {filteredPrevious.length ? (
-                  <ul className="space-y-1.5">
-                    {filteredPrevious.map((entry, i) => (
-                      <RoutineEntryRow
-                        key={`p-${i}`}
-                        entry={entry}
-                        index={i}
-                        backTo={`/admin-employee-management/${employee.id}`}
-                        backLabel={`Back to ${employee.fullName}'s record`}
-                      />
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm italic text-mme-purple/40">No completed meetings/calls in this range.</p>
-                )}
-              </div>
+          {/* Completed / Missed / Upcoming routine — slider with count-badged tabs; "Upcoming" only ever holds genuinely-future items */}
+          <div key={listKey} className="animate-fadeIn">
+            <div className="mb-4 flex items-center gap-1.5 rounded-2xl border border-mme-pink/60 bg-white p-1.5 shadow-sm">
+              {[
+                { label: "Completed", count: filteredPrevious.length, activeClass: "bg-mme-purple/10 text-mme-purple" },
+                { label: "Missed", count: filteredUpcomingMissed.length, activeClass: "bg-red-100 text-red-600" },
+                { label: "Upcoming", count: filteredUpcomingFuture.length, activeClass: "bg-mme-purple/10 text-mme-purple" },
+              ].map((tab, i) => (
+                <button
+                  key={tab.label}
+                  type="button"
+                  onClick={() => setActiveSlide(i)}
+                  className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-black transition-all duration-200 ${
+                    activeSlide === i ? tab.activeClass : "text-mme-purple/70 hover:text-mme-purple"
+                  }`}
+                >
+                  {tab.label}
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs font-black ${
+                      activeSlide === i ? "bg-white/70" : "bg-mme-blush text-mme-purple"
+                    }`}
+                  >
+                    {tab.count}
+                  </span>
+                </button>
+              ))}
             </div>
 
-            <div className="rounded-3xl border border-mme-pink/60 bg-white shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
-              <div className="flex items-center justify-between border-b border-mme-pink/50 px-6 py-4">
-                <span className="font-black text-red-600">Missed</span>
-                <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-black text-red-600">
-                  {filteredUpcomingMissed.length}
-                </span>
+            <div className="relative overflow-hidden rounded-3xl border border-mme-pink/60 bg-white shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
+              <div
+                className="flex transition-transform duration-300 ease-in-out"
+                style={{ transform: `translateX(-${activeSlide * 100}%)` }}
+              >
+                <div className="w-full shrink-0 grow-0 basis-full">
+                  <div className="flex items-center justify-between border-b border-mme-pink/50 px-6 py-4">
+                    <span className="font-black text-mme-purple">Completed</span>
+                    <span className="rounded-full bg-mme-blush px-2.5 py-1 text-xs font-black text-mme-plum">
+                      {filteredPrevious.length}
+                    </span>
+                  </div>
+                  <div className="p-6">
+                    {filteredPrevious.length ? (
+                      <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                        {filteredPrevious.map((entry, i) => (
+                          <RoutineEntryRow
+                            key={`p-${i}`}
+                            entry={entry}
+                            index={i}
+                            backTo={`/admin-employee-management/${employee.id}`}
+                            backLabel={`Back to ${employee.fullName}'s record`}
+                          />
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm italic text-mme-purple/40">No completed meetings/calls in this range.</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="w-full shrink-0 grow-0 basis-full">
+                  <div className="flex items-center justify-between border-b border-mme-pink/50 px-6 py-4">
+                    <span className="font-black text-red-600">Missed</span>
+                    <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-black text-red-600">
+                      {filteredUpcomingMissed.length}
+                    </span>
+                  </div>
+                  <div className="p-6">
+                    {filteredUpcomingMissed.length ? (
+                      <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                        {filteredUpcomingMissed.map((entry, i) => (
+                          <MissedEntryRow
+                            key={`m-${i}`}
+                            entry={entry}
+                            lateLabel={formatLateDuration(entry.datetime)}
+                            index={i}
+                            backTo={`/admin-employee-management/${employee.id}`}
+                            backLabel={`Back to ${employee.fullName}'s record`}
+                          />
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm italic text-mme-purple/40">No missed meetings/calls in this range.</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="w-full shrink-0 grow-0 basis-full">
+                  <div className="flex items-center justify-between border-b border-mme-pink/50 px-6 py-4">
+                    <span className="font-black text-mme-purple">Upcoming</span>
+                    <span className="rounded-full bg-mme-purple/10 px-2.5 py-1 text-xs font-black text-mme-purple">
+                      {filteredUpcomingFuture.length}
+                    </span>
+                  </div>
+                  <div className="p-6">
+                    {filteredUpcomingFuture.length ? (
+                      <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                        {filteredUpcomingFuture.map((entry, i) => (
+                          <RoutineEntryRow
+                            key={`u-${i}`}
+                            entry={entry}
+                            index={i}
+                            backTo={`/admin-employee-management/${employee.id}`}
+                            backLabel={`Back to ${employee.fullName}'s record`}
+                          />
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm italic text-mme-purple/40">No upcoming meetings/calls in this range.</p>
+                    )}
+                  </div>
+                </div>
               </div>
-              <div className="p-6">
-                {filteredUpcomingMissed.length ? (
-                  <ul className="space-y-1.5">
-                    {filteredUpcomingMissed.map((entry, i) => (
-                      <MissedEntryRow
-                        key={`m-${i}`}
-                        entry={entry}
-                        lateLabel={formatLateDuration(entry.datetime)}
-                        index={i}
-                        backTo={`/admin-employee-management/${employee.id}`}
-                        backLabel={`Back to ${employee.fullName}'s record`}
-                      />
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm italic text-mme-purple/40">No missed meetings/calls in this range.</p>
-                )}
-              </div>
+
+              {/* Prev/next arrows */}
+              <button
+                type="button"
+                onClick={() => setActiveSlide((s) => (s - 1 + 3) % 3)}
+                className="absolute left-3 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-mme-pink/60 bg-white/90 text-mme-purple shadow-md backdrop-blur transition hover:bg-white"
+                title="Previous"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveSlide((s) => (s + 1) % 3)}
+                className="absolute right-3 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-mme-pink/60 bg-white/90 text-mme-purple shadow-md backdrop-blur transition hover:bg-white"
+                title="Next"
+              >
+                <ChevronRight size={16} />
+              </button>
             </div>
 
-            <div className="rounded-3xl border border-mme-pink/60 bg-white shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
-              <div className="flex items-center justify-between border-b border-mme-pink/50 px-6 py-4">
-                <span className="font-black text-mme-purple">Upcoming</span>
-                <span className="rounded-full bg-mme-purple/10 px-2.5 py-1 text-xs font-black text-mme-purple">
-                  {filteredUpcomingFuture.length}
-                </span>
-              </div>
-              <div className="p-6">
-                {filteredUpcomingFuture.length ? (
-                  <ul className="space-y-1.5">
-                    {filteredUpcomingFuture.map((entry, i) => (
-                      <RoutineEntryRow
-                        key={`u-${i}`}
-                        entry={entry}
-                        index={i}
-                        backTo={`/admin-employee-management/${employee.id}`}
-                        backLabel={`Back to ${employee.fullName}'s record`}
-                      />
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-sm italic text-mme-purple/40">No upcoming meetings/calls in this range.</p>
-                )}
-              </div>
+            {/* Dots */}
+            <div className="mt-4 flex items-center justify-center gap-2">
+              {["Completed", "Missed", "Upcoming"].map((label, i) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => setActiveSlide(i)}
+                  title={label}
+                  className={`h-2 rounded-full transition-all duration-300 ${
+                    activeSlide === i ? "w-6 bg-mme-purple" : "w-2 bg-mme-pink/60 hover:bg-mme-purple/40"
+                  }`}
+                />
+              ))}
             </div>
           </div>
         </>
