@@ -30,7 +30,7 @@ function CallCard({ call }) {
           </span>
           <div>
             <p className="font-black text-mme-purple">{formatDisplayDatetime(call.callDatetime)}</p>
-            <p className="text-xs text-mme-purple/55">
+            <p className="text-xs font-semibold text-mme-purple/75">
               Logged by {call.createdByName || "—"}
               {call.assignedByEmployeeName ? ` \u00b7 Assigned by ${call.assignedByEmployeeName}` : ""}
             </p>
@@ -46,18 +46,18 @@ function CallCard({ call }) {
       <div className="space-y-4 p-6">
         {call.callDiscussion && (
           <div>
-            <p className="mb-1.5 text-xs font-black uppercase tracking-wide text-mme-purple/45">Discussion</p>
-            <p className="text-sm text-mme-purple/75">{call.callDiscussion}</p>
+            <p className="mb-1.5 text-xs font-black uppercase tracking-wide text-mme-purple/60">Discussion</p>
+            <p className="text-sm font-semibold text-mme-purple/90">{call.callDiscussion}</p>
           </div>
         )}
 
-        <div className={`flex flex-wrap items-center gap-x-4 gap-y-1 border-t pt-3 text-xs ${overdue ? "border-red-200" : "border-mme-pink/20"}`}>
-          <span className={overdue ? "text-red-600" : "text-mme-purple/55"}>
+        <div className={`flex flex-wrap items-center gap-x-4 gap-y-1 border-t pt-3 text-xs font-semibold ${overdue ? "border-red-200" : "border-mme-pink/20"}`}>
+          <span className={overdue ? "text-red-600" : "text-mme-purple/75"}>
             Next call: <span className={`font-bold ${overdue ? "text-red-600" : "text-mme-purple"}`}>{formatDisplayDatetime(call.nextCallDatetime)}</span>
             {overdue ? " (Missed)" : ""}
           </span>
           {call.nextCallAssignedEmployeeName && (
-            <span className="text-mme-purple/55">Assigned to <span className="font-bold text-mme-purple">{call.nextCallAssignedEmployeeName}</span></span>
+            <span className="text-mme-purple/75">Assigned to <span className="font-bold text-mme-purple">{call.nextCallAssignedEmployeeName}</span></span>
           )}
         </div>
       </div>
@@ -154,7 +154,7 @@ export default function AdminCallDetailsPage() {
             <p className="mt-4 font-black text-mme-purple">No calls logged for this client yet</p>
           </div>
         ) : (
-          <div className="space-y-5">
+          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             {data.calls.map((call) => (
               <CallCard key={call.id} call={call} />
             ))}

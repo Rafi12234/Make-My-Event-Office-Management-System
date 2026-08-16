@@ -19,7 +19,7 @@ import { fetchAdminDashboard } from "../services/adminDashboardService";
 // still gets a distinct-looking avatar (mirrors the backend's calendar
 // color assignment convention).
 const AVATAR_PALETTE = [
-  "#2563eb", "#dc2626", "#16a34a", "#9333ea", "#d97706",
+  "#2563eb", "#dc2626",  "#16a34a", "#9333ea", "#d97706",
   "#db2777", "#0e7490", "#4d7c0f", "#334155", "#c2410c",
 ];
 
@@ -170,10 +170,10 @@ export default function AdminDashboardPage() {
             <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
               <StatCard index={0} icon={<Users size={17} />} label="Employees" value={totals.employees} />
               <StatCard index={1} icon={<UsersRound size={17} />} label="Active" value={totals.activeEmployees} />
-              <StatCard index={2} icon={<CalendarCheck2 size={17} />} label="Meetings Done" value={totals.meetingsDone} />
-              <StatCard index={3} icon={<PhoneCall size={17} />} label="Calls Done" value={totals.callsDone} />
-              <StatCard index={4} icon={<CalendarClock size={17} />} label="Upcoming Meetings" value={totals.upcomingMeetings} />
-              <StatCard index={5} icon={<PhoneIncoming size={17} />} label="Upcoming Calls" value={totals.upcomingCalls} />
+              <StatCard index={2} icon={<CalendarCheck2 size={17} />} label="Last 7 days Meetings Done" value={totals.meetingsDone} />
+              <StatCard index={3} icon={<PhoneCall size={17} />} label="Last 7 days Calls Done" value={totals.callsDone} />
+              <StatCard index={4} icon={<CalendarClock size={17} />} label="Upcoming 7 Days Total Meetings" value={totals.upcomingMeetings} />
+              <StatCard index={5} icon={<PhoneIncoming size={17} />} label="Upcoming 7 Days Total Calls" value={totals.upcomingCalls} />
               <StatCard index={6} icon={<LayoutGrid size={17} />} label="Total Clients" value={totals.clients} />
             </div>
 

@@ -56,14 +56,21 @@ async function resolveClientDetails(sheetId, rowKeys) {
 export async function getAdminDashboard(req, res, next) {
   try {
     const now = nowInBusinessTimezone();
+    const oneWeekMs = 7 * 24 * 60 * 60 * 1000;
+    const weekAgo = new Date(now.getTime() - oneWeekMs);
+    const weekAhead = new Date(now.getTime() + oneWeekMs);
     const sheetId = await getDefaultSheetId();
 
     const [
       employees,
-      meetingsDoneGroups,
-      callsDoneGroups,
-      upcomingMeetingsGroups,
-      upcomingCallsGroups,
+      meetingsDoneWeekGroups,
+      callsDoneWeekGroups,
+      upcomingMeetingsWeekGroups,
+      upcomingCallsWeekGroups,
+      meetingsDoneAllGroups,
+      callsDoneAllGroups,
+      upcomingMeetingsAllGroups,
+      upcomingCallsAllGroups,
       meetingsByRow,
       callsByRow,
       activeRows,
@@ -74,6 +81,28 @@ export async function getAdminDashboard(req, res, next) {
         include: { role: true },
         orderBy: { fullName: "asc" },
       }),
+      // Last-7-days counts — used only for the top summary cards.
+      prisma.clientMeeting.groupBy({
+        by: ["createdById"],
+        where: { meetingDatetime: { gte: weekAgo, lte: now } },
+        _count: { _all: true },
+      }),
+      prisma.clientCall.groupBy({
+        by: ["createdById"],
+        where: { callDatetime: { gte: weekAgo, lte: now } },
+        _count: { _all: true },
+      }),
+      prisma.clientNextMeeting.groupBy({
+        by: ["assignedEmployeeId"],
+        where: { nextMeetingDatetime: { gte: now, lte: weekAhead } },
+        _count: { _all: true },
+      }),
+      prisma.clientNextCall.groupBy({
+        by: ["assignedEmployeeId"],
+        where: { nextCallDatetime: { gte: now, lte: weekAhead } },
+        _count: { _all: true },
+      }),
+      // All-time counts — used for the per-employee "All Employees" table.
       // "Done" = the scheduled moment has already passed (meetingDatetime
       // is null for a freshly-added, not-yet-scheduled meeting — Prisma's
       // `lte` comparison naturally excludes those nulls).
@@ -115,10 +144,12 @@ export async function getAdminDashboard(req, res, next) {
         : [],
     ]);
 
-    const meetingsDoneById     = new Map(meetingsDoneGroups.map((g) => [String(g.createdById), g._count._all]));
-    const callsDoneById        = new Map(callsDoneGroups.map((g) => [String(g.createdById), g._count._all]));
-    const upcomingMeetingsById = new Map(upcomingMeetingsGroups.map((g) => [String(g.assignedEmployeeId), g._count._all]));
-    const upcomingCallsById    = new Map(upcomingCallsGroups.map((g) => [String(g.assignedEmployeeId), g._count._all]));
+    const sumCounts = (groups) => groups.reduce((sum, g) => sum + g._count._all, 0);
+
+    const meetingsDoneAllById     = new Map(meetingsDoneAllGroups.map((g) => [String(g.createdById), g._count._all]));
+    const callsDoneAllById        = new Map(callsDoneAllGroups.map((g) => [String(g.createdById), g._count._all]));
+    const upcomingMeetingsAllById = new Map(upcomingMeetingsAllGroups.map((g) => [String(g.assignedEmployeeId), g._count._all]));
+    const upcomingCallsAllById    = new Map(upcomingCallsAllGroups.map((g) => [String(g.assignedEmployeeId), g._count._all]));
 
     const employeeStats = employees.map((employee) => {
       const key = String(employee.id);
@@ -129,10 +160,10 @@ export async function getAdminDashboard(req, res, next) {
         role: employee.role?.name || null,
         isActive: Boolean(employee.isActive),
         colorHex: employee.colorHex || null,
-        meetingsDone: meetingsDoneById.get(key) || 0,
-        callsDone: callsDoneById.get(key) || 0,
-        upcomingMeetings: upcomingMeetingsById.get(key) || 0,
-        upcomingCalls: upcomingCallsById.get(key) || 0,
+        meetingsDone: meetingsDoneAllById.get(key) || 0,
+        callsDone: callsDoneAllById.get(key) || 0,
+        upcomingMeetings: upcomingMeetingsAllById.get(key) || 0,
+        upcomingCalls: upcomingCallsAllById.get(key) || 0,
       };
     });
 
@@ -175,10 +206,10 @@ export async function getAdminDashboard(req, res, next) {
     const totals = {
       employees: employees.length,
       activeEmployees: employees.filter((e) => e.isActive).length,
-      meetingsDone: employeeStats.reduce((sum, e) => sum + e.meetingsDone, 0),
-      callsDone: employeeStats.reduce((sum, e) => sum + e.callsDone, 0),
-      upcomingMeetings: employeeStats.reduce((sum, e) => sum + e.upcomingMeetings, 0),
-      upcomingCalls: employeeStats.reduce((sum, e) => sum + e.upcomingCalls, 0),
+      meetingsDone: sumCounts(meetingsDoneWeekGroups),
+      callsDone: sumCounts(callsDoneWeekGroups),
+      upcomingMeetings: sumCounts(upcomingMeetingsWeekGroups),
+      upcomingCalls: sumCounts(upcomingCallsWeekGroups),
       clients: clients.length,
     };
 

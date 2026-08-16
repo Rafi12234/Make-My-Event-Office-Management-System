@@ -14,6 +14,12 @@ import {
 import BackButton from "../../components/BackButton";
 import { adminLogout, fetchAdminMe } from "../../services/adminService";
 import { fetchClientMeetingsForAdmin, resolveImageUrl } from "../../services/adminActivityService";
+import { CLIENT_REQUIREMENT_OPTIONS } from "../../data/defaultSheet";
+
+function itemLabel(item) {
+  if (item.itemKey === "other") return item.customLabel || "Other";
+  return CLIENT_REQUIREMENT_OPTIONS.find((opt) => opt.key === item.itemKey)?.label || item.itemKey;
+}
 
 function formatDisplayDatetime(value) {
   if (!value) return "Not scheduled yet";
@@ -104,7 +110,7 @@ function MeetingCard({ meeting, onViewImage }) {
           </span>
           <div>
             <p className="font-black text-mme-purple">{formatDisplayDatetime(meeting.meetingDatetime)}</p>
-            <p className="text-xs text-mme-purple/55">
+            <p className="text-xs font-semibold text-mme-purple/75">
               Logged by {meeting.createdByName || "—"}
               {meeting.assignedByEmployeeName ? ` \u00b7 Assigned by ${meeting.assignedByEmployeeName}` : ""}
             </p>
@@ -120,10 +126,10 @@ function MeetingCard({ meeting, onViewImage }) {
       <div className="space-y-4 p-6">
         {meeting.requirements?.length > 0 && (
           <div>
-            <p className="mb-2 text-xs font-black uppercase tracking-wide text-mme-purple/45">Requirements</p>
+            <p className="mb-2 text-xs font-black uppercase tracking-wide text-mme-purple/60">Requirements</p>
             <ul className="space-y-1.5">
               {meeting.requirements.map((req, i) => (
-                <li key={req.key || i} className="text-sm text-mme-purple/75">
+                <li key={req.key || i} className="text-sm font-semibold text-mme-purple/90">
                   <span className="font-bold text-mme-purple">{req.label}: </span>{req.details}
                 </li>
               ))}
@@ -133,23 +139,31 @@ function MeetingCard({ meeting, onViewImage }) {
 
         {meeting.items?.length > 0 && (
           <div>
-            <p className="mb-2 text-xs font-black uppercase tracking-wide text-mme-purple/45">Items</p>
-            <ul className="space-y-1.5">
-              {meeting.items.map((item) => (
-                <li key={item.id} className="text-sm text-mme-purple/75">
-                  <span className="font-bold text-mme-purple">{item.customLabel || item.itemKey}</span>
-                  {item.quantity ? ` \u00d7 ${item.quantity}` : ""}
-                  {item.description ? ` \u2014 ${item.description}` : ""}
-                </li>
-              ))}
-            </ul>
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="text-mme-purple/65">
+                  <th className="pb-1.5 pr-3 text-xs font-black uppercase tracking-wide">Item</th>
+                  <th className="pb-1.5 pr-3 text-xs font-black uppercase tracking-wide">Qty</th>
+                  <th className="pb-1.5 text-xs font-black uppercase tracking-wide">Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                {meeting.items.map((item) => (
+                  <tr key={item.id} className="border-t border-mme-pink/20 align-top">
+                    <td className="py-1.5 pr-3 font-bold text-mme-purple">{itemLabel(item)}</td>
+                    <td className="py-1.5 pr-3 font-semibold text-mme-purple/90">{item.quantity ?? 1}</td>
+                    <td className="py-1.5 font-semibold text-mme-purple/90">{item.description || "\u2014"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
 
         {meeting.images?.length > 0 && (
           <div>
-            <p className="mb-2 text-xs font-black uppercase tracking-wide text-mme-purple/45">Images</p>
-            <div className="grid grid-cols-4 gap-2.5 sm:grid-cols-6 md:grid-cols-8">
+            <p className="mb-2 text-xs font-black uppercase tracking-wide text-mme-purple/60">Images</p>
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
               {meeting.images.map((img, imageIndex) => (
                 <div
                   key={img.id}
@@ -176,7 +190,7 @@ function MeetingCard({ meeting, onViewImage }) {
           </div>
         )}
 
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-mme-pink/20 pt-3 text-xs text-mme-purple/55">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-mme-pink/20 pt-3 text-xs font-semibold text-mme-purple/75">
           <span>Next meeting: <span className="font-bold text-mme-purple">{formatDisplayDatetime(meeting.nextMeetingDatetime)}</span></span>
           {meeting.nextMeetingAssignedEmployeeName && (
             <span>Assigned to <span className="font-bold text-mme-purple">{meeting.nextMeetingAssignedEmployeeName}</span></span>
@@ -282,7 +296,7 @@ export default function AdminMeetingDetailsPage() {
             <p className="mt-4 font-black text-mme-purple">No meetings logged for this client yet</p>
           </div>
         ) : (
-          <div className="space-y-5">
+          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             {data.meetings.map((meeting) => (
               <MeetingCard
                 key={meeting.id}

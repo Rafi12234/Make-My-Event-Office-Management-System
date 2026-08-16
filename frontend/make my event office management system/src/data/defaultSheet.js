@@ -2,7 +2,7 @@ export const DEFAULT_COLUMNS = [
   {
     id: "event_date",
     name: "Event Date",
-    type: "text",
+    type: "date",
     width: 165,
     required: true,
   },

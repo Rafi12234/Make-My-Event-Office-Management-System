@@ -253,6 +253,15 @@ export default function AdminCalendarDayPage() {
       }
       map.get(key).events.push(ev);
     }
+    // Latest first within each person's section, not the raw (oldest-first) query order.
+    for (const group of map.values()) {
+      group.events.sort((a, b) => {
+        if (!a.time && !b.time) return 0;
+        if (!a.time) return 1;
+        if (!b.time) return -1;
+        return b.time.localeCompare(a.time);
+      });
+    }
     return [...map.values()];
   }, [dayEvents]);
 

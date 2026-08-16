@@ -77,6 +77,10 @@ export async function listAllMeetings(req, res, next) {
             assignedEmployee: { select: { fullName: true } },
           },
         },
+        items: {
+          select: { id: true, itemKey: true, customLabel: true, description: true, quantity: true },
+          orderBy: { id: "asc" },
+        },
         _count: { select: { items: true } },
       },
       orderBy: [{ meetingDatetime: { sort: "desc", nulls: "last" } }, { id: "desc" }],
@@ -97,6 +101,13 @@ export async function listAllMeetings(req, res, next) {
         hasCompletedDetails: Boolean(meeting.discussionNotes?.trim()) || meeting._count.items > 0,
         createdByName: meeting.createdBy?.fullName || null,
         assignedByEmployeeName: meeting.assignedBy?.fullName || null,
+        items: meeting.items.map((item) => ({
+          id: item.id,
+          itemKey: item.itemKey,
+          customLabel: item.customLabel || "",
+          description: item.description || "",
+          quantity: item.quantity ?? 1,
+        })),
         nextMeeting: meeting.nextMeeting
           ? {
               id: meeting.nextMeeting.id,
@@ -144,6 +155,7 @@ export async function listAllCalls(req, res, next) {
         callDatetime: formatDateTime(call.callDatetime),
         // "Completed" for the admin filter = a call discussion was logged.
         hasCompletedDetails: Boolean(call.callDiscussion?.trim()),
+        discussion: call.callDiscussion || "",
         createdByName: call.createdBy?.fullName || null,
         assignedByEmployeeName: call.assignedBy?.fullName || null,
         nextCall: call.nextCall
@@ -299,7 +311,7 @@ export async function getClientMeetingsForAdmin(req, res, next) {
           orderBy: { id: "asc" },
         },
       },
-      orderBy: [{ meetingDatetime: { sort: "asc", nulls: "last" } }, { id: "asc" }],
+      orderBy: [{ meetingDatetime: { sort: "desc", nulls: "last" } }, { id: "desc" }],
     });
 
     const finalization = await prisma.clientFinalization.findUnique({
@@ -387,7 +399,7 @@ export async function getClientCallsForAdmin(req, res, next) {
           },
         },
       },
-      orderBy: [{ callDatetime: { sort: "asc", nulls: "last" } }, { id: "asc" }],
+      orderBy: [{ callDatetime: { sort: "desc", nulls: "last" } }, { id: "desc" }],
     });
 
     res.json({

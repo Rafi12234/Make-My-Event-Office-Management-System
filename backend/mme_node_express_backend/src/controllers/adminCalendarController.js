@@ -153,7 +153,7 @@ export async function getAdminCalendarMonth(req, res, next) {
 
   try {
     const employees = await prisma.employee.findMany({
-      where: { isActive: true },
+      where: { isActive: true, NOT: { role: { name: "Admin" } } },
       select: { id: true, fullName: true, colorHex: true },
       orderBy: { fullName: "asc" },
     });
