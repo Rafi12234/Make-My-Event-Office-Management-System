@@ -806,22 +806,20 @@ export default function ManagementPage() {
       );
     }
 
-    const col = (type) => workspace.columns.find((c) => c.type === type);
-
     if (filters.dateFrom || filters.dateTo) {
-      const dtCol =
-        workspace.columns.find((c) => c.type === "last_meeting_time") ||
-        workspace.columns.find((c) => c.name.toLowerCase().includes("last meeting") || c.name.toLowerCase().includes("current meeting")) ||
-        col("datetime");
+      // Filters by the "Event Date" column (a real "YYYY-MM-DD" date), not
+      // LAT/NAT (Last/Next Meeting Time) — those are live-computed and
+      // reflect meeting activity, not when the client's event itself is.
       rows = rows.filter((row) => {
-        const raw = dtCol ? String(row.values[dtCol.id] ?? "").replace(" ", "T") : "";
-        const date = raw.slice(0, 10);
+        const date = String(row.values.event_date ?? "");
         if (!date) return false;
         if (filters.dateFrom && date < filters.dateFrom) return false;
         if (filters.dateTo && date > filters.dateTo) return false;
         return true;
       });
     }
+
+    const col = (type) => workspace.columns.find((c) => c.type === type);
 
     if (filters.shifts.size > 0) {
       const c = col("shift");
@@ -1478,7 +1476,7 @@ export default function ManagementPage() {
 
                         {hoveredSection === "date" && (
                           <div className="animate-[fadeIn_0.15s_ease-out]">
-                            <p className="mb-3 text-[10px] font-black uppercase tracking-[0.18em] text-[#333333]">Date Range (Meeting)</p>
+                            <p className="mb-3 text-[10px] font-black uppercase tracking-[0.18em] text-[#333333]">Date Range (Event Date)</p>
                             <div className="flex flex-col gap-3">
                               <div>
                                 <label className="mb-1 block text-xs font-bold text-black/60">From</label>
