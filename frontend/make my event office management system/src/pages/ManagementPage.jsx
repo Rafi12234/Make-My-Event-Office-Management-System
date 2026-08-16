@@ -52,6 +52,102 @@ function isNotAvailableValue(raw) {
   return text === "" || /^n\/?a$/i.test(text);
 }
 
+// The "Event Date" column is a real "date" column now — the API already
+// sends/accepts plain "YYYY-MM-DD" for it. This only formats that for
+// display as "DD/MM/YYYY" (never MM/DD/YYYY, unlike a native date input's
+// own locale-dependent rendering).
+function isoDateToDDMMYYYY(iso) {
+  const match = String(iso ?? "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "";
+  const [, yyyy, mm, dd] = match;
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+const EVENT_DATE_WEEKDAY_PATTERN =
+  /\b(sun(day)?|mon(day)?|tue(s|sday)?|wed(nesday)?|thu(rs|rsday)?|fri(day)?|sat(urday)?)\b\.?,?/gi;
+
+const EVENT_DATE_MONTH_NAMES = {
+  jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3, apr: 4, april: 4, may: 5,
+  jun: 6, june: 6, jul: 7, july: 7, aug: 8, august: 8, sep: 9, sept: 9, september: 9,
+  oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12,
+};
+
+function isValidCalendarDate(day, month, year) {
+  if (!Number.isFinite(day) || !Number.isFinite(month) || !Number.isFinite(year)) return false;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const d = new Date(year, month - 1, day);
+  return d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day;
+}
+
+// Excel/CSV imports for "Event Date" still arrive as loosely-formatted free
+// text (weekday names, dd/mm/yyyy, mm/dd/yyyy, month names, or a native Excel
+// date cell already converted to "YYYY-MM-DDTHH:MM") — this parses any of
+// those into the "YYYY-MM-DD" shape the column now stores as a real date.
+// Mirrors backend/.../utils/normalizeEventDate.js's rules. Returns "" when
+// unparseable so the cell is left blank for manual entry via the date picker.
+function parseFreeTextDateToIso(raw) {
+  let text = String(raw ?? "").trim();
+  if (!text || /^n\/?a$/i.test(text)) return "";
+
+  const isoDatetimeMatch = text.match(/^(\d{4}-\d{2}-\d{2})(T|$)/);
+  if (isoDatetimeMatch) return isoDatetimeMatch[1];
+
+  // Strip any parenthetical/bracketed notes (weekday names, "corrected: ..."
+  // remarks, etc.) and weekday words, then search for a date pattern
+  // anywhere in what's left — so extra surrounding words never block a
+  // parse; only the date itself ends up stored.
+  text = text
+    .replace(/[([{][^)\]}]*[)\]}]/g, " ")
+    .replace(EVENT_DATE_WEEKDAY_PATTERN, " ")
+    .replace(/,/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return "";
+
+  const monthNameMatch =
+    text.match(/(\d{1,2})\s+([a-zA-Z]+)\s+(\d{4})/) ||
+    text.match(/([a-zA-Z]+)\s+(\d{1,2})\s+(\d{4})/);
+  if (monthNameMatch) {
+    const [, first, second, third] = monthNameMatch;
+    const isFirstMonthName = /^[a-zA-Z]+$/.test(first);
+    const day = Number(isFirstMonthName ? second : first);
+    const monthName = (isFirstMonthName ? first : second).toLowerCase();
+    const year = Number(third);
+    const month = EVENT_DATE_MONTH_NAMES[monthName] || EVENT_DATE_MONTH_NAMES[monthName.slice(0, 3)];
+    if (month && isValidCalendarDate(day, month, year)) return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    return "";
+  }
+
+  const numMatch = text.match(/(\d{1,4})[\/\-.](\d{1,2})[\/\-.](\d{1,4})/);
+  if (numMatch) {
+    const a = Number(numMatch[1]);
+    const b = Number(numMatch[2]);
+    const c = Number(numMatch[3]);
+    let day, month, year;
+
+    if (numMatch[1].length === 4 || a > 31) {
+      year = a;
+      if (b > 12) { day = b; month = c; } else if (c > 12) { day = c; month = b; } else { month = b; day = c; }
+    } else if (numMatch[3].length === 4 || c > 31) {
+      year = c;
+      if (a > 12) { day = a; month = b; } else if (b > 12) { day = b; month = a; } else { day = a; month = b; }
+    } else {
+      year = c < 100 ? 2000 + c : c;
+      if (a > 12) { day = a; month = b; } else if (b > 12) { day = b; month = a; } else { day = a; month = b; }
+    }
+
+    if (isValidCalendarDate(day, month, year)) return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    return "";
+  }
+
+  const parsed = new Date(text);
+  if (!Number.isNaN(parsed.getTime())) {
+    return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+  }
+
+  return "";
+}
+
 function isRowBlank(row, columns) {
   return columns.every((column) => String(row.values[column.id] ?? "").trim() === "");
 }
@@ -403,6 +499,30 @@ function HoverPreviewPanel({ preview, onMouseEnter, onMouseLeave }) {
 
 /* ─── Cell Editor ─── */
 
+// The native date picker itself always renders using the browser/OS locale
+// (e.g. MM/DD/YYYY), regardless of the input's underlying value — that can't
+// be overridden with markup or CSS. So the visible text here is drawn
+// ourselves (already stored as DD/MM/YYYY) and the native input is kept
+// fully transparent, only used to power the calendar picker itself. The
+// visible text here is drawn ourselves as "DD/MM/YYYY" (never MM/DD/YYYY,
+// unlike the native input's own locale-dependent rendering), while the
+// hidden input is bound directly to the real "YYYY-MM-DD" value.
+function EventDateCellEditor({ value, isNotAvailable, onChange, baseClass }) {
+  return (
+    <div className={`${baseClass} relative flex items-center justify-between gap-2`}>
+      <span className={value ? "" : "text-black/25"}>{value ? isoDateToDDMMYYYY(value) : (isNotAvailable ? "N/A" : "Select event date")}</span>
+      <CalendarDays size={15} className="pointer-events-none shrink-0 text-black/30" />
+      <input
+        type="date"
+        value={value ?? ""}
+        onChange={(event) => onChange(event.target.value)}
+        onClick={(event) => event.currentTarget.showPicker?.()}
+        className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+      />
+    </div>
+  );
+}
+
 function CellEditor({ column, value, onChange, employeeNames }) {
   const baseClass =
     "h-full min-h-11 w-full border-0 bg-transparent px-3 py-2.5 text-sm text-black outline-none transition-all duration-200 placeholder:text-black/25 focus:bg-[#f4f4f4]/40 focus:ring-2 focus:ring-inset focus:ring-[#333333]/30";
@@ -485,6 +605,17 @@ function CellEditor({ column, value, onChange, employeeNames }) {
           {employeeNames.map((name) => <option key={name} value={name} />)}
         </datalist>
       </>
+    );
+  }
+
+  if (column.id === "event_date") {
+    return (
+      <EventDateCellEditor
+        value={editableValue}
+        isNotAvailable={isNotAvailable}
+        onChange={onChange}
+        baseClass={baseClass}
+      />
     );
   }
 
@@ -665,7 +796,13 @@ export default function ManagementPage() {
     const query = searchText.trim().toLowerCase();
     if (query) {
       rows = rows.filter((row) =>
-        Object.values(row.values).some((value) => String(value ?? "").toLowerCase().includes(query)),
+        Object.entries(row.values).some(([columnId, value]) => {
+          if (String(value ?? "").toLowerCase().includes(query)) return true;
+          // "Event Date" is stored as "YYYY-MM-DD" but shown as "DD/MM/YYYY" —
+          // search both so typing the displayed date still finds it.
+          if (columnId === "event_date") return isoDateToDDMMYYYY(value).toLowerCase().includes(query);
+          return false;
+        }),
       );
     }
 
@@ -1086,7 +1223,13 @@ export default function ManagementPage() {
         const column = headerMap.get(normalizeHeader(header));
         if (!column) return;
         const rawValue = sourceRow[header];
-        values[column.id] = isNotAvailableValue(rawValue) ? "N/A" : String(rawValue);
+        if (isNotAvailableValue(rawValue)) {
+          values[column.id] = "N/A";
+        } else if (column.id === "event_date") {
+          values[column.id] = parseFreeTextDateToIso(rawValue);
+        } else {
+          values[column.id] = String(rawValue);
+        }
       });
 
       const signature = buildRowSignature(values, importedColumns);

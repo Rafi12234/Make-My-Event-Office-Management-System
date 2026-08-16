@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import BackButton from "../../components/BackButton";
 import AdminLayout from "../../components/AdminLayout";
@@ -65,6 +65,10 @@ export default function AdminEmployeeDetailPage() {
   const [dateTo, setDateTo] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [activeSlide, setActiveSlide] = useState(0);
+  const [sliderHeight, setSliderHeight] = useState(0);
+  const completedPanelRef = useRef(null);
+  const missedPanelRef = useRef(null);
+  const upcomingPanelRef = useRef(null);
 
   useEffect(() => {
     fetchAdminMe()
@@ -189,6 +193,22 @@ export default function AdminEmployeeDetailPage() {
     () => filteredUpcoming.filter((e) => !isOverdueDatetime(e.datetime)),
     [filteredUpcoming],
   );
+
+  // Slider slides sit side-by-side in a flex row, so without this the
+  // container's auto height would stretch every slide to match whichever one
+  // has the most entries (Completed), leaving Missed/Upcoming with a huge
+  // empty gap. Instead measure only the currently active slide's own content
+  // height and apply it explicitly, so each slide's height reflects just its
+  // own information.
+  useEffect(() => {
+    const activePanel = [completedPanelRef, missedPanelRef, upcomingPanelRef][activeSlide]?.current;
+    if (!activePanel) return undefined;
+    const updateHeight = () => setSliderHeight(activePanel.offsetHeight);
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(activePanel);
+    return () => observer.disconnect();
+  }, [activeSlide, filteredPrevious, filteredUpcomingMissed, filteredUpcomingFuture]);
 
   const rangeLabel = isAllTimeActive
     ? "All Time"
@@ -527,10 +547,10 @@ export default function AdminEmployeeDetailPage() {
 
             <div className="relative overflow-hidden rounded-3xl border border-mme-pink/60 bg-white shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
               <div
-                className="flex transition-transform duration-300 ease-in-out"
-                style={{ transform: `translateX(-${activeSlide * 100}%)` }}
+                className="flex items-start transition-[height,transform] duration-300 ease-in-out"
+                style={{ transform: `translateX(-${activeSlide * 100}%)`, height: sliderHeight || undefined }}
               >
-                <div className="w-full shrink-0 grow-0 basis-full">
+                <div ref={completedPanelRef} className="w-full shrink-0 grow-0 basis-full">
                   <div className="flex items-center justify-between border-b border-mme-pink/50 px-6 py-4">
                     <span className="font-black text-mme-purple">Completed</span>
                     <span className="rounded-full bg-mme-blush px-2.5 py-1 text-xs font-black text-mme-plum">
@@ -556,7 +576,7 @@ export default function AdminEmployeeDetailPage() {
                   </div>
                 </div>
 
-                <div className="w-full shrink-0 grow-0 basis-full">
+                <div ref={missedPanelRef} className="w-full shrink-0 grow-0 basis-full">
                   <div className="flex items-center justify-between border-b border-mme-pink/50 px-6 py-4">
                     <span className="font-black text-red-600">Missed</span>
                     <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-black text-red-600">
@@ -583,7 +603,7 @@ export default function AdminEmployeeDetailPage() {
                   </div>
                 </div>
 
-                <div className="w-full shrink-0 grow-0 basis-full">
+                <div ref={upcomingPanelRef} className="w-full shrink-0 grow-0 basis-full">
                   <div className="flex items-center justify-between border-b border-mme-pink/50 px-6 py-4">
                     <span className="font-black text-mme-purple">Upcoming</span>
                     <span className="rounded-full bg-mme-purple/10 px-2.5 py-1 text-xs font-black text-mme-purple">

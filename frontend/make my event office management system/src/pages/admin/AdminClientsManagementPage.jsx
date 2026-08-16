@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { CalendarClock, LayoutGrid, Phone, Search, X } from "lucide-react";
+import { CalendarClock, CalendarDays, LayoutGrid, Phone, Search, X } from "lucide-react";
 import AdminLayout from "../../components/AdminLayout";
 import { adminLogout, fetchAdminMe } from "../../services/adminService";
 import { fetchAdminWorkspace, updateAdminWorkspaceCell } from "../../services/adminWorkspaceService";
@@ -29,7 +29,40 @@ function isOverdueDatetime(value) {
   return !Number.isNaN(date.getTime()) && date.getTime() < Date.now();
 }
 
+// The "Event Date" column is a real "date" column now — the API already
+// sends/accepts plain "YYYY-MM-DD" for it. This only formats that for
+// display as "DD/MM/YYYY" (never MM/DD/YYYY, unlike a native date input's
+// own locale-dependent rendering).
+function isoDateToDDMMYYYY(iso) {
+  const match = String(iso ?? "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "";
+  const [, yyyy, mm, dd] = match;
+  return `${dd}/${mm}/${yyyy}`;
+}
+
 /* ─── Cell Editor (adapted from ManagementPage's, restyled for the admin theme) ─── */
+
+// The native date picker itself always renders using the browser/OS locale
+// (e.g. MM/DD/YYYY), regardless of the input's underlying value — that can't
+// be overridden with markup or CSS. So the visible text here is drawn
+// ourselves as "DD/MM/YYYY" (while the hidden input is bound directly to
+// the real "YYYY-MM-DD" value) and the native input is kept fully
+// transparent, only used to power the calendar picker itself.
+function EventDateCellEditor({ value, isNotAvailable, onChange, baseClass }) {
+  return (
+    <div className={`${baseClass} relative flex items-center justify-between gap-2`}>
+      <span className={value ? "" : "text-mme-purple/30"}>{value ? isoDateToDDMMYYYY(value) : (isNotAvailable ? "N/A" : "Select event date")}</span>
+      <CalendarDays size={14} className="pointer-events-none shrink-0 text-mme-purple/30" />
+      <input
+        type="date"
+        value={value ?? ""}
+        onChange={(event) => onChange(event.target.value)}
+        onClick={(event) => event.currentTarget.showPicker?.()}
+        className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+      />
+    </div>
+  );
+}
 
 function AdminCellEditor({ column, value, onChange, employeeNames }) {
   const baseClass =
@@ -113,6 +146,17 @@ function AdminCellEditor({ column, value, onChange, employeeNames }) {
           {employeeNames.map((name) => <option key={name} value={name} />)}
         </datalist>
       </>
+    );
+  }
+
+  if (column.id === "event_date") {
+    return (
+      <EventDateCellEditor
+        value={editableValue}
+        isNotAvailable={isNotAvailable}
+        onChange={onChange}
+        baseClass={baseClass}
+      />
     );
   }
 
@@ -499,7 +543,13 @@ export default function AdminClientsManagementPage() {
     const query = searchText.trim().toLowerCase();
     if (!query) return workspace.rows;
     return workspace.rows.filter((row) =>
-      Object.values(row.values).some((value) => String(value ?? "").toLowerCase().includes(query)),
+      Object.entries(row.values).some(([columnId, value]) => {
+        if (String(value ?? "").toLowerCase().includes(query)) return true;
+        // "Event Date" is stored as "YYYY-MM-DD" but shown as "DD/MM/YYYY" —
+        // search both so typing the displayed date still finds it.
+        if (columnId === "event_date") return isoDateToDDMMYYYY(value).toLowerCase().includes(query);
+        return false;
+      }),
     );
   }, [workspace, searchText]);
 
