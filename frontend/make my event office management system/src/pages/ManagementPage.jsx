@@ -63,6 +63,12 @@ function isoDateToDDMMYYYY(iso) {
   return `${dd}/${mm}/${yyyy}`;
 }
 
+// Local calendar date (not UTC) so "today" matches the employee's own clock.
+function getTodayIso() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
 const EVENT_DATE_WEEKDAY_PATTERN =
   /\b(sun(day)?|mon(day)?|tue(s|sday)?|wed(nesday)?|thu(rs|rsday)?|fri(day)?|sat(urday)?)\b\.?,?/gi;
 
@@ -233,6 +239,26 @@ function saveStoredFilters(employeeId, filters) {
         venues: [...filters.venues],
       }),
     );
+  } catch {
+    // Ignore storage failures (e.g. private browsing quota).
+  }
+}
+
+function getUpcomingOnlyStorageKey(employeeId) {
+  return `mme_management_upcoming_only_v1_${employeeId || "anonymous"}`;
+}
+
+function loadStoredUpcomingOnly(employeeId) {
+  try {
+    return sessionStorage.getItem(getUpcomingOnlyStorageKey(employeeId)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveStoredUpcomingOnly(employeeId, value) {
+  try {
+    sessionStorage.setItem(getUpcomingOnlyStorageKey(employeeId), value ? "1" : "0");
   } catch {
     // Ignore storage failures (e.g. private browsing quota).
   }
@@ -723,10 +749,15 @@ export default function ManagementPage() {
     },
   );
   const [sortOrder, setSortOrder] = useState(() => loadStoredSortOrder(employee?.id));
+  const [upcomingOnly, setUpcomingOnly] = useState(() => loadStoredUpcomingOnly(employee?.id));
 
   useEffect(() => {
     saveStoredFilters(employee?.id, filters);
   }, [employee, filters]);
+
+  useEffect(() => {
+    saveStoredUpcomingOnly(employee?.id, upcomingOnly);
+  }, [employee, upcomingOnly]);
 
   useEffect(() => {
     saveStoredSortOrder(employee?.id, sortOrder);
@@ -830,13 +861,23 @@ export default function ManagementPage() {
       rows = rows.filter((row) => filters.venues.has(c ? row.values[c.id] ?? "" : ""));
     }
 
+    if (upcomingOnly) {
+      // Hides clients whose event date is today or already passed — no rows
+      // are ever deleted, this only narrows what's currently displayed.
+      const today = getTodayIso();
+      rows = rows.filter((row) => {
+        const date = String(row.values.event_date ?? "");
+        return date !== "" && date > today;
+      });
+    }
+
     if (sortOrder === "newest" || sortOrder === "oldest") {
       const sign = sortOrder === "newest" ? -1 : 1;
       rows = [...rows].sort((a, b) => sign * (new Date(a.createdAt || 0) - new Date(b.createdAt || 0)));
     }
 
     return rows;
-  }, [searchText, workspace.rows, workspace.columns, filters, sortOrder]);
+  }, [searchText, workspace.rows, workspace.columns, filters, upcomingOnly, sortOrder]);
 
   const activeFilterCount = useMemo(
     () =>
@@ -1555,6 +1596,19 @@ export default function ManagementPage() {
                     </div>
                   )}
                 </div>
+
+                <button
+                  onClick={() => setUpcomingOnly((v) => !v)}
+                  title={upcomingOnly ? "Showing only upcoming events — click to show all clients again" : "Hide clients whose event date is today or already passed"}
+                  className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-black text-white shadow-md transition-all duration-200 hover:brightness-110 hover:shadow-lg active:scale-[0.97] ${
+                    upcomingOnly
+                      ? "bg-[#0b6e4f] shadow-[#0b6e4f]/30 hover:shadow-[#0b6e4f]/40"
+                      : "bg-[#c2410c] shadow-[#c2410c]/30 hover:shadow-[#c2410c]/40"
+                  }`}
+                >
+                  <CalendarClock size={17} />
+                  {upcomingOnly ? "Upcoming only" : "Show upcoming only"}
+                </button>
               </div>
 
               <div className="flex items-center gap-3">
@@ -1720,6 +1774,11 @@ export default function ManagementPage() {
                         {activeFilterCount > 0 && (
                           <button onClick={clearFilters} className="text-sm font-black text-[#333333] transition-colors duration-150 hover:text-black">
                             Clear filters ({activeFilterCount})
+                          </button>
+                        )}
+                        {upcomingOnly && (
+                          <button onClick={() => setUpcomingOnly(false)} className="text-sm font-black text-[#333333] transition-colors duration-150 hover:text-black">
+                            Show all clients
                           </button>
                         )}
                       </div>
