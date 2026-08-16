@@ -113,6 +113,15 @@ function formatDisplayDatetime(value) {
   });
 }
 
+// "Event Date" arrives as a plain "YYYY-MM-DD" — shown as "DD/MM/YYYY" to
+// match how it's displayed on the Management sheet.
+function formatEventDateDisplay(iso) {
+  const match = String(iso ?? "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "";
+  const [, yyyy, mm, dd] = match;
+  return `${dd}/${mm}/${yyyy}`;
+}
+
 function ImageLightbox({ images, initialIndex, onClose }) {
   const [index, setIndex] = useState(initialIndex);
 
@@ -1488,6 +1497,7 @@ export default function ClientMeetingsPage() {
   const backTo = location.state?.from || "/management";
   const [employee] = useState(() => loadCurrentEmployee());
   const [clientName, setClientName] = useState("");
+  const [eventDate, setEventDate] = useState("");
   const [meetings, setMeetings] = useState([]);
   const [finalization, setFinalization] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -1507,6 +1517,7 @@ export default function ClientMeetingsPage() {
     try {
       const data = await loadClientMeetings(rowKey);
       setClientName(data.clientName || "");
+      setEventDate(data.eventDate || "");
       setMeetings(data.meetings || []);
       setFinalization(data.finalization || null);
     } catch (err) {
@@ -1612,6 +1623,12 @@ export default function ClientMeetingsPage() {
                 <h1 className="text-3xl font-black text-slate-900 sm:text-4xl">
                   {clientName || "This client"}
                 </h1>
+                {eventDate && (
+                  <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-600">
+                    <CalendarClock size={13} className="text-slate-400" />
+                    Event Date: {formatEventDateDisplay(eventDate)}
+                  </p>
+                )}
                 <p className="mt-2.5 max-w-2xl text-sm leading-relaxed text-slate-500">
                   Schedule meetings, track client requirements, and upload the
                   images the client chose during each session.

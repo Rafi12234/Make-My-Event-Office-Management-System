@@ -4,7 +4,7 @@ import { mkdirSync, unlink } from "node:fs";
 import { fileURLToPath } from "node:url";
 import multer from "multer";
 import { prisma } from "../config/prisma.js";
-import { formatDateTime, parseDateTimeLocal, todayMinValue, nowInBusinessTimezone } from "../utils/dbDates.js";
+import { formatDateTime, formatDateOnly, parseDateTimeLocal, todayMinValue, nowInBusinessTimezone } from "../utils/dbDates.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -109,6 +109,23 @@ async function getClientName(sheetId, rowKey) {
 
   const cell = row?.cells?.[0];
   return cell?.valueText || cell?.displayValue || "";
+}
+
+async function getEventDate(sheetId, rowKey) {
+  if (!sheetId) return "";
+
+  const row = await prisma.sheetRow.findFirst({
+    where: { sheetId, rowKey },
+    select: {
+      cells: {
+        where: { column: { columnName: { equals: "Event Date" } } },
+        select: { valueDate: true },
+        take: 1,
+      },
+    },
+  });
+
+  return formatDateOnly(row?.cells?.[0]?.valueDate);
 }
 
 function isValidRowKey(rowKey) {
@@ -276,6 +293,7 @@ export async function listMeetings(req, res, next) {
   try {
     const sheetId = await getDefaultSheetId();
     const clientName = await getClientName(sheetId, rowKey);
+    const eventDate = await getEventDate(sheetId, rowKey);
 
     const meetings = await prisma.clientMeeting.findMany({
       where: { linkedRowKey: rowKey },
@@ -311,6 +329,7 @@ export async function listMeetings(req, res, next) {
       data: {
         rowKey,
         clientName,
+        eventDate,
         finalization: finalization
           ? { finalizedAt: formatDateTime(finalization.finalizedAt), finalizedByName: finalization.finalizedBy?.fullName || null }
           : null,
