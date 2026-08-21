@@ -225,6 +225,10 @@ model SheetCell {
   valueEmployeeId BigInt?   @map("value_employee_id") @db.UnsignedBigInt
   valueJson       Json?     @map("value_json")
   displayValue    String?   @map("display_value") @db.Text
+  // Set on the row's "Event Date" cell only — marks the client as already
+  // booked with another event management company (toggled via the Event
+  // Date cell's badge button; drives the row's highlight color).
+  alreadyBooked   Boolean   @default(false) @map("already_booked")
   createdById     BigInt?   @map("created_by") @db.UnsignedBigInt
   updatedById     BigInt?   @map("updated_by") @db.UnsignedBigInt
   createdAt       DateTime? @default(now()) @map("created_at") @db.DateTime(0)
