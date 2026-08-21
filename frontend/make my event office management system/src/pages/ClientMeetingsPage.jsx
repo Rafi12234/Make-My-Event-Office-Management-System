@@ -25,6 +25,7 @@ import {
   Trash2,
   UserRound,
   UserCog,
+  Wallet,
   X,
   Plus,
   Calendar,
@@ -1275,6 +1276,7 @@ function FinalizeReview({
   const [error, setError] = useState("");
   const [selections, setSelections] = useState(new Map());
   const [viewer, setViewer] = useState(null);
+  const [budget, setBudget] = useState("");
 
   const refreshPreview = useCallback(async () => {
     const data = await loadFinalizePreview(rowKey);
@@ -1295,6 +1297,11 @@ function FinalizeReview({
               new Set(group.images.filter((image) => image.isSelected).map((image) => image.id)),
             ])
           )
+        );
+        setBudget(
+          data.finalization?.finalizedBudget !== null && data.finalization?.finalizedBudget !== undefined
+            ? String(data.finalization.finalizedBudget)
+            : ""
         );
       })
       .catch((err) => {
@@ -1349,7 +1356,7 @@ function FinalizeReview({
         quantity: group.quantity,
         imageIds: Array.from(selections.get(group.groupKey) || []),
       }));
-      await finalizeClient(rowKey, employeeId, items);
+      await finalizeClient(rowKey, employeeId, items, budget.trim() === "" ? null : budget);
       await onFinalized();
       onClose();
     } catch (err) {
@@ -1427,6 +1434,25 @@ function FinalizeReview({
               </p>
             </div>
           )}
+
+          <div className="mb-6">
+            <label className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
+              <Wallet size={14} className="text-slate-400" />
+              Finalize Budget for this event
+            </label>
+            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 focus-within:border-slate-400">
+              <span className="text-sm font-black text-slate-400">৳</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={budget}
+                onChange={(event) => setBudget(event.target.value)}
+                placeholder="Enter finalized budget"
+                className="w-full border-none bg-transparent text-sm font-bold text-slate-900 outline-none placeholder:font-medium placeholder:text-slate-300"
+              />
+            </div>
+          </div>
 
           <div className="mb-4 flex items-center gap-2">
             <ClipboardList size={15} className="text-slate-400" />
@@ -1574,6 +1600,18 @@ function FinalizedItemsView({ rowKey, onClose }) {
                 {finalization.finalizedAt
                   ? ` on ${formatDisplayDatetime(finalization.finalizedAt)}`
                   : ""}
+              </p>
+            </div>
+          )}
+
+          {finalization?.finalizedBudget !== null && finalization?.finalizedBudget !== undefined && (
+            <div className="mb-6 flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4">
+              <Wallet size={18} className="shrink-0 text-slate-400" />
+              <p className="text-xs font-semibold text-slate-600">
+                Finalize Budget for this event —{" "}
+                <span className="font-black text-slate-900">
+                  ৳{Number(finalization.finalizedBudget).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
               </p>
             </div>
           )}

@@ -249,6 +249,15 @@ function parseQuantity(value) {
   return Math.min(Math.round(quantity), 100000);
 }
 
+// The finalize budget is optional free-entry currency — blank clears it
+// (stored as NULL) rather than defaulting to 0.
+function parseBudget(value) {
+  if (value === undefined || value === null || String(value).trim() === "") return null;
+  const budget = Number(value);
+  if (!Number.isFinite(budget) || budget < 0) return null;
+  return Math.min(Math.round(budget * 100) / 100, 999999999999.99);
+}
+
 // When a new meeting is created, it inherits the item rows (and each
 // item's images) of the most recently created meeting for the same
 // client, so employees only need to adjust what changed instead of
@@ -668,6 +677,10 @@ export async function getFinalizePreview(req, res, next) {
           ? {
               finalizedAt: formatDateTime(finalization.finalizedAt),
               finalizedByName: finalization.finalizedBy?.fullName || null,
+              finalizedBudget:
+                finalization.finalizedBudget !== null && finalization.finalizedBudget !== undefined
+                  ? Number(finalization.finalizedBudget)
+                  : null,
             }
           : null,
         items,
@@ -686,6 +699,7 @@ export async function finalizeMeeting(req, res, next) {
   }
 
   const employeeId = isValidId(req.body.employeeId);
+  const budget = parseBudget(req.body.budget);
   const rawItems = Array.isArray(req.body.items) ? req.body.items : [];
 
   const items = rawItems
@@ -715,8 +729,8 @@ export async function finalizeMeeting(req, res, next) {
 
     const finalization = await prisma.clientFinalization.upsert({
       where: { linkedRowKey: rowKey },
-      create: { linkedRowKey: rowKey, finalizedById: employeeId, finalizedAt: new Date() },
-      update: { finalizedById: employeeId, finalizedAt: new Date() },
+      create: { linkedRowKey: rowKey, finalizedById: employeeId, finalizedAt: new Date(), finalizedBudget: budget },
+      update: { finalizedById: employeeId, finalizedAt: new Date(), finalizedBudget: budget },
       include: { finalizedBy: { select: { fullName: true } } },
     });
 
@@ -755,6 +769,10 @@ export async function finalizeMeeting(req, res, next) {
         rowKey,
         finalizedAt: formatDateTime(finalization.finalizedAt),
         finalizedByName: finalization.finalizedBy?.fullName || null,
+        finalizedBudget:
+          finalization.finalizedBudget !== null && finalization.finalizedBudget !== undefined
+            ? Number(finalization.finalizedBudget)
+            : null,
       },
     });
   } catch (error) {
@@ -791,6 +809,10 @@ export async function getFinalizationDetail(req, res, next) {
         finalization: {
           finalizedAt: formatDateTime(finalization.finalizedAt),
           finalizedByName: finalization.finalizedBy?.fullName || null,
+          finalizedBudget:
+            finalization.finalizedBudget !== null && finalization.finalizedBudget !== undefined
+              ? Number(finalization.finalizedBudget)
+              : null,
         },
         items: finalization.items.map((item) => ({
           id: item.id,

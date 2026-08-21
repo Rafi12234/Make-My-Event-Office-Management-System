@@ -400,12 +400,13 @@ model ClientNextCall {
 }
 
 model ClientFinalization {
-  id            BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
-  linkedRowKey  String    @unique(map: "uq_client_finalizations_row") @map("linked_row_key") @db.Char(36)
-  finalizedById BigInt?   @map("finalized_by") @db.UnsignedBigInt
-  finalizedAt   DateTime  @map("finalized_at") @db.DateTime(0)
-  createdAt     DateTime? @default(now()) @map("created_at") @db.Timestamp(0)
-  updatedAt     DateTime? @default(now()) @map("updated_at") @db.Timestamp(0)
+  id              BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  linkedRowKey    String    @unique(map: "uq_client_finalizations_row") @map("linked_row_key") @db.Char(36)
+  finalizedById   BigInt?   @map("finalized_by") @db.UnsignedBigInt
+  finalizedAt     DateTime  @map("finalized_at") @db.DateTime(0)
+  finalizedBudget Decimal?  @map("finalized_budget") @db.Decimal(12, 2)
+  createdAt       DateTime? @default(now()) @map("created_at") @db.Timestamp(0)
+  updatedAt       DateTime? @default(now()) @map("updated_at") @db.Timestamp(0)
 
   finalizedBy Employee? @relation(fields: [finalizedById], references: [id], onUpdate: NoAction, map: "fk_client_finalizations_employee")
   items       ClientFinalizationItem[]

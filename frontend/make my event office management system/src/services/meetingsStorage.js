@@ -69,10 +69,10 @@ export async function loadFinalizationDetail(rowKey) {
   return apiRequest(`/meetings/${rowKey}/finalize`);
 }
 
-export async function finalizeClient(rowKey, employeeId, items) {
+export async function finalizeClient(rowKey, employeeId, items, budget) {
   return apiRequest(`/meetings/${rowKey}/finalize`, {
     method: "POST",
-    body: JSON.stringify({ employeeId, items }),
+    body: JSON.stringify({ employeeId, items, budget }),
   });
 }
 
