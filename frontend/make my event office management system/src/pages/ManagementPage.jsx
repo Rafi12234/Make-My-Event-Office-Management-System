@@ -428,13 +428,9 @@ function HoverPreviewPanel({ preview, onMouseEnter, onMouseLeave }) {
       ? preview.items.filter((item) => !isUpcoming(item))
       : preview.items.filter((item) => !isUpcoming(item));
 
-  // Whoever logged/held the most recent past meeting or call — for
-  // meetings, the person who marked it complete wins if that happened,
-  // otherwise the one who created the entry.
+  // Whoever logged/held the most recent past meeting or call.
   const lastDoneByName = previous.length
-    ? isMeetings
-      ? previous[0].completedByName || previous[0].createdByName
-      : previous[0].createdByName
+    ? previous[0].createdByName
     : null;
 
   // Whoever is on the hook for the next meeting/call — mirrors the
@@ -476,9 +472,6 @@ function HoverPreviewPanel({ preview, onMouseEnter, onMouseLeave }) {
           <p className={`mt-0.5 text-[10px] font-black uppercase tracking-wide ${isMissed ? "text-red-600" : "text-[#f2662b]"}`}>
             {isMissed ? "Next meeting · Missed" : "Next meeting"}
           </p>
-        )}
-        {isMeetings && item.isCompleted && (
-          <p className="mt-0.5 text-[10px] font-black uppercase tracking-wide text-emerald-600">Completed</p>
         )}
         {!isMeetings && item.isNextCallSchedule && (
           <p className={`mt-0.5 text-[10px] font-black uppercase tracking-wide ${isMissed ? "text-red-600" : "text-[#c2410c]"}`}>

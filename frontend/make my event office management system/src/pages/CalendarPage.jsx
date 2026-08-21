@@ -295,11 +295,6 @@ function ClientHoverCard({ clientName, rowData, columns, extras, rect, selectedD
                     <div key={m.id} className="break-inside-avoid-column rounded-lg border border-[#d6d6d6]/50 p-2.5">
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-xs font-black text-black">{formatDisplayDatetime(m.meetingDatetime)}</p>
-                        {m.isCompleted && (
-                          <span className="rounded bg-black px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide text-white">
-                            Completed
-                          </span>
-                        )}
                       </div>
                       {m.requirements?.length > 0 && (
                         <ul className="mt-1.5 space-y-1">
