@@ -3,7 +3,6 @@ import { useNavigate, useParams } from "react-router";
 import {
   CalendarCheck2,
   CheckCircle2,
-  Circle,
   PhoneCall,
   Sparkles,
   X,
@@ -33,11 +32,6 @@ function MeetingItem({ meeting, index }) {
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          {meeting.isCompleted ? (
-            <CheckCircle2 size={15} className="text-emerald-500" />
-          ) : (
-            <Circle size={15} className="text-mme-purple/25" />
-          )}
           <p className="font-black text-mme-purple">{formatDisplay(meeting.meetingDatetime) || "Not scheduled yet"}</p>
         </div>
         <span className="text-xs font-bold text-mme-purple/50">Logged by {meeting.createdByName || "—"}</span>

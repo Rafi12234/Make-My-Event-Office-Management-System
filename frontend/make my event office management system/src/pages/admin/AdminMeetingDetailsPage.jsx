@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import { useLocation, useNavigate, useParams } from "react-router";
 import {
   CalendarClock,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   LogOut,
@@ -116,11 +115,6 @@ function MeetingCard({ meeting, onViewImage }) {
             </p>
           </div>
         </div>
-        {meeting.isCompleted && (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-3 py-1 text-xs font-black text-green-700">
-            <CheckCircle2 size={12} /> Completed{meeting.completedByName ? ` by ${meeting.completedByName}` : ""}
-          </span>
-        )}
       </div>
 
       <div className="space-y-4 p-6">

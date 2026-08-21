@@ -279,9 +279,7 @@ function HoverPreviewPanel({ preview, onMouseEnter, onMouseLeave }) {
   const previous = preview.status !== "ready" ? [] : preview.items.filter((item) => !isUpcoming(item));
 
   const lastDoneByName = previous.length
-    ? isMeetings
-      ? previous[0].completedByName || previous[0].createdByName
-      : previous[0].createdByName
+    ? previous[0].createdByName
     : null;
 
   let nextAssignedToName = null;
@@ -313,9 +311,6 @@ function HoverPreviewPanel({ preview, onMouseEnter, onMouseLeave }) {
           <p className={`mt-0.5 text-[10px] font-black uppercase tracking-wide ${isMissed ? "text-red-600" : "text-[#f2662b]"}`}>
             {isMissed ? "Next meeting · Missed" : "Next meeting"}
           </p>
-        )}
-        {isMeetings && item.isCompleted && (
-          <p className="mt-0.5 text-[10px] font-black uppercase tracking-wide text-emerald-600">Completed</p>
         )}
         {!isMeetings && item.isNextCallSchedule && (
           <p className={`mt-0.5 text-[10px] font-black uppercase tracking-wide ${isMissed ? "text-red-600" : "text-[#c2410c]"}`}>
