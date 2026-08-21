@@ -254,7 +254,6 @@ export async function getClientDetail(req, res, next) {
         where: { linkedRowKey: rowKey },
         include: {
           createdBy: { select: { fullName: true } },
-          completedBy: { select: { fullName: true } },
           assignedBy: { select: { fullName: true } },
           nextMeeting: { include: { assignedEmployee: { select: { fullName: true } } } },
         },
@@ -310,10 +309,8 @@ export async function getClientDetail(req, res, next) {
         meetings: meetings.map((m) => ({
           id: m.id,
           meetingDatetime: formatDateTime(m.meetingDatetime),
-          isCompleted: m.isCompleted,
           discussionNotes: m.discussionNotes,
           createdByName: m.createdBy?.fullName || null,
-          completedByName: m.completedBy?.fullName || null,
           assignedByEmployeeName: m.assignedBy?.fullName || null,
           nextMeeting: m.nextMeeting
             ? {
