@@ -141,12 +141,16 @@ export async function getWorkspace(req, res, next) {
     // "Already booked" is stored on the row's Event Date cell (see the badge
     // button beside it on the frontend) but is really a per-row flag.
     const alreadyBookedByRow = new Map();
+    // "Booked from MME" is also stored on the row's Event Date cell — set
+    // automatically by finalizeMeeting when the employee confirms & finalizes.
+    const bookedFromMmeByRow = new Map();
 
     for (const cell of cells) {
       const column = columnById.get(cell.columnId);
       if (!column) continue;
       valuesByRow.get(cell.rowId)[column.columnKey] = cellValue(cell, column.dataType);
       if (cell.alreadyBooked) alreadyBookedByRow.set(cell.rowId, true);
+      if (cell.bookedFromMme) bookedFromMmeByRow.set(cell.rowId, true);
     }
 
     // "Last Meeting Time" / "Next Meeting Time" are never persisted — they are
@@ -196,6 +200,7 @@ export async function getWorkspace(req, res, next) {
           rowNumber: row.rowPosition,
           values: valuesByRow.get(row.id),
           alreadyBooked: alreadyBookedByRow.get(row.id) || false,
+          bookedFromMme: bookedFromMmeByRow.get(row.id) || false,
           ...(timeSummaryByRowKey.get(row.rowKey) || { lastCallDatetime: "", nextCallDatetime: "" }),
           createdAt: row.createdAt,
           updatedAt: row.updatedAt,

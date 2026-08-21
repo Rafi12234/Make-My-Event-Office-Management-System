@@ -128,6 +128,45 @@ async function getEventDate(sheetId, rowKey) {
   return formatDateOnly(row?.cells?.[0]?.valueDate);
 }
 
+// Flips the Management page row's green "booked from MME" highlight —
+// stored on the row's Event Date cell, same convention as already_booked.
+// Set to true on a successful finalize, and back to false wherever a
+// finalization is invalidated (e.g. deleteMeeting below).
+async function setBookedFromMme(sheetId, rowKey, value) {
+  if (!sheetId) return;
+
+  const row = await prisma.sheetRow.findFirst({
+    where: { sheetId, rowKey },
+    select: {
+      id: true,
+      cells: {
+        where: { column: { columnName: { equals: "Event Date" } } },
+        select: { id: true },
+        take: 1,
+      },
+    },
+  });
+  if (!row) return;
+
+  if (row.cells[0]) {
+    await prisma.sheetCell.update({
+      where: { id: row.cells[0].id },
+      data: { bookedFromMme: value },
+    });
+    return;
+  }
+
+  const column = await prisma.sheetColumn.findFirst({
+    where: { sheetId, columnName: "Event Date" },
+    select: { id: true },
+  });
+  if (!column) return;
+
+  await prisma.sheetCell.create({
+    data: { rowId: row.id, columnId: column.id, bookedFromMme: value },
+  });
+}
+
 function isValidRowKey(rowKey) {
   return /^[0-9a-fA-F-]{36}$/.test(String(rowKey || ""));
 }
@@ -764,6 +803,9 @@ export async function finalizeMeeting(req, res, next) {
       }
     }
 
+    const sheetId = await getDefaultSheetId();
+    await setBookedFromMme(sheetId, rowKey, true);
+
     res.json({
       data: {
         rowKey,
@@ -860,6 +902,9 @@ export async function deleteMeeting(req, res, next) {
     // Any prior finalization was based on the client's full image set at the
     // time — removing a meeting invalidates it, so the employee must re-finalize.
     await prisma.clientFinalization.deleteMany({ where: { linkedRowKey: rowKey } });
+
+    const sheetId = await getDefaultSheetId();
+    await setBookedFromMme(sheetId, rowKey, false);
 
     for (const image of images) {
       await deleteImageFileIfUnreferenced(image.storedFileName);

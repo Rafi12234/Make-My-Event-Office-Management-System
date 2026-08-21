@@ -158,7 +158,7 @@ function parseFreeTextDateToIso(raw) {
 }
 
 function isRowBlank(row, columns) {
-  if (row.alreadyBooked) return false;
+  if (row.alreadyBooked || row.bookedFromMme) return false;
   return columns.every((column) => String(row.values[column.id] ?? "").trim() === "");
 }
 
@@ -1802,18 +1802,33 @@ export default function ManagementPage() {
                     {filteredRows.map((row, index) => {
                       const rowH = rowHeights[row.id];
                       const isAlreadyBooked = Boolean(row.alreadyBooked);
-                      const stickyBg = isAlreadyBooked
+                      const isBookedFromMme = Boolean(row.bookedFromMme);
+                      const stickyBg = isBookedFromMme
+                        ? "bg-emerald-100 group-hover:bg-emerald-300/80"
+                        : isAlreadyBooked
                         ? "bg-rose-100 group-hover:bg-rose-300/80"
                         : "bg-[#ffffff] group-hover:bg-[#f8f8f8]";
-                      const cellBg = isAlreadyBooked
+                      const cellBg = isBookedFromMme
+                        ? "bg-emerald-100/80 group-hover:bg-emerald-200/70"
+                        : isAlreadyBooked
                         ? "bg-rose-100/80 group-hover:bg-rose-200/70"
                         : "bg-white group-hover:bg-[#fafafa]";
-                      const cellBorder = isAlreadyBooked ? "border-rose-300/70" : "border-[#d6d6d6]/45";
+                      const cellBorder = isBookedFromMme
+                        ? "border-emerald-300/70"
+                        : isAlreadyBooked
+                        ? "border-rose-300/70"
+                        : "border-[#d6d6d6]/45";
                       return (
                         <tr
                           key={row.id}
                           className="group"
-                          title={isAlreadyBooked ? "This client has already booked with another event management company" : undefined}
+                          title={
+                            isBookedFromMme
+                              ? "This client has confirmed & finalized their event with MME"
+                              : isAlreadyBooked
+                              ? "This client has already booked with another event management company"
+                              : undefined
+                          }
                           style={{
                             ...(rowH ? { height: `${rowH}px` } : {}),
                             animation: `fadeInUp 0.3s ease-out ${Math.min(index * 0.03, 0.5)}s both`,

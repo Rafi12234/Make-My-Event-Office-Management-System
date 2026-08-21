@@ -228,6 +228,10 @@ model SheetCell {
   // booked with another event management company (toggled via the Event
   // Date cell's badge button; drives the row's highlight color).
   alreadyBooked   Boolean   @default(false) @map("already_booked")
+  // Set on the row's "Event Date" cell only — automatically flips to true
+  // when the employee confirms & finalizes the client's event (drives the
+  // row's green highlight on the Management page).
+  bookedFromMme   Boolean   @default(false) @map("booked_from_mme")
   createdById     BigInt?   @map("created_by") @db.UnsignedBigInt
   updatedById     BigInt?   @map("updated_by") @db.UnsignedBigInt
   createdAt       DateTime? @default(now()) @map("created_at") @db.DateTime(0)
