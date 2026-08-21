@@ -39,7 +39,6 @@ model Employee {
   uploadedMeetingImages    ClientMeetingImage[]
   createdClientMeetings    ClientMeeting[]      @relation("ClientMeetingCreatedBy")
   updatedClientMeetings    ClientMeeting[]      @relation("ClientMeetingUpdatedBy")
-  completedClientMeetings ClientMeeting[]      @relation("ClientMeetingCompletedBy")
   assignedByClientMeetings ClientMeeting[]      @relation("ClientMeetingAssignedBy")
   createdClientNextMeetings  ClientNextMeeting[] @relation("ClientNextMeetingCreatedBy")
   updatedClientNextMeetings  ClientNextMeeting[] @relation("ClientNextMeetingUpdatedBy")
@@ -260,13 +259,9 @@ model ClientMeeting {
   assignedByEmployeeId BigInt? @map("assigned_by_employee_id") @db.UnsignedBigInt
   createdAt       DateTime  @default(now()) @map("created_at") @db.DateTime(0)
   updatedAt       DateTime  @default(now()) @map("updated_at") @db.DateTime(0)
-  isCompleted     Boolean   @default(false) @map("is_completed")
-  completedById   BigInt?   @map("completed_by") @db.UnsignedBigInt
-  completedAt     DateTime? @map("completed_at") @db.DateTime(0)
 
   createdBy   Employee? @relation("ClientMeetingCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "client_meetings_ibfk_1")
   updatedBy   Employee? @relation("ClientMeetingUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "client_meetings_ibfk_2")
-  completedBy Employee? @relation("ClientMeetingCompletedBy", fields: [completedById], references: [id], onUpdate: NoAction, map: "fk_client_meetings_completed_by")
   assignedBy  Employee? @relation("ClientMeetingAssignedBy", fields: [assignedByEmployeeId], references: [id], onUpdate: NoAction, map: "fk_client_meetings_assigned_by")
 
   images     ClientMeetingImage[]
@@ -275,7 +270,6 @@ model ClientMeeting {
 
   @@index([createdById], map: "client_meetings_ibfk_1")
   @@index([updatedById], map: "client_meetings_ibfk_2")
-  @@index([completedById], map: "fk_client_meetings_completed_by")
   @@index([assignedByEmployeeId], map: "fk_client_meetings_assigned_by")
   @@index([meetingDatetime], map: "idx_client_meetings_datetime")
   @@index([linkedRowKey], map: "idx_client_meetings_row")
@@ -414,9 +408,48 @@ model ClientFinalization {
   updatedAt     DateTime? @default(now()) @map("updated_at") @db.Timestamp(0)
 
   finalizedBy Employee? @relation(fields: [finalizedById], references: [id], onUpdate: NoAction, map: "fk_client_finalizations_employee")
+  items       ClientFinalizationItem[]
 
   @@index([finalizedById], map: "fk_client_finalizations_employee")
   @@map("client_finalizations")
+}
+
+// One row per distinct item (Stage, Entry Gate, ...) finalized for a
+// client — aggregated across every meeting the item ever appeared in, not
+// tied to a single meeting's MeetingItem row (which is per-meeting/copied
+// forward). Rewritten wholesale on every "Confirm & Finalize" submit.
+model ClientFinalizationItem {
+  id             BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  finalizationId BigInt   @map("finalization_id") @db.UnsignedBigInt
+  itemKey        String   @map("item_key") @db.VarChar(80)
+  customLabel    String?  @map("custom_label") @db.VarChar(160)
+  description    String?  @db.Text
+  quantity       Int?     @default(1) @db.UnsignedInt
+  createdAt      DateTime @default(now()) @map("created_at") @db.DateTime(0)
+
+  finalization ClientFinalization        @relation(fields: [finalizationId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_finalization_items_finalization")
+  images       ClientFinalizationImage[]
+
+  @@index([finalizationId], map: "fk_finalization_items_finalization")
+  @@map("client_finalization_items")
+}
+
+// A copy of the chosen image's metadata (same stored_file_name as the
+// source ClientMeetingImage) — kept independent so a finalized selection
+// survives even if the source meeting/item is later edited or deleted.
+model ClientFinalizationImage {
+  id                 BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  finalizationItemId BigInt   @map("finalization_item_id") @db.UnsignedBigInt
+  storedFileName     String   @map("stored_file_name") @db.VarChar(255)
+  originalFileName   String?  @map("original_file_name") @db.VarChar(255)
+  fileUrl            String   @map("file_url") @db.VarChar(500)
+  fileSizeBytes      Int?     @map("file_size_bytes") @db.UnsignedInt
+  createdAt          DateTime @default(now()) @map("created_at") @db.DateTime(0)
+
+  item ClientFinalizationItem @relation(fields: [finalizationItemId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_finalization_images_item")
+
+  @@index([finalizationItemId], map: "fk_finalization_images_item")
+  @@map("client_finalization_images")
 }
 
 model CalendarEvent {
