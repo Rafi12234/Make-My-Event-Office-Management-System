@@ -174,7 +174,7 @@ export async function getAdminCalendarMonth(req, res, next) {
       prisma.clientMeeting.findMany({
         where: { meetingDatetime: { gte: rangeStart, lte: rangeEnd } },
         select: {
-          id: true, linkedRowKey: true, meetingDatetime: true, isCompleted: true,
+          id: true, linkedRowKey: true, meetingDatetime: true,
           discussionNotes: true, requirements: true, createdById: true,
           nextMeeting: {
             select: {
@@ -227,7 +227,6 @@ export async function getAdminCalendarMonth(req, res, next) {
         rowKey: m.linkedRowKey,
         notes: m.discussionNotes,
         requirements: m.requirements || null,
-        isCompleted: m.isCompleted,
         meetingId: m.id,
         nextMeetingDatetime: formatDateTime(m.nextMeeting?.nextMeetingDatetime),
         nextMeetingAssignedEmployeeId: m.nextMeeting?.assignedEmployeeId ?? null,
