@@ -279,10 +279,12 @@ function getSortOrderStorageKey(employeeId) {
   return `mme_management_sort_order_v1_${employeeId || "anonymous"}`;
 }
 
+const SORT_ORDER_VALUES = new Set(["newest", "oldest", "eventDateAsc", "eventDateDesc"]);
+
 function loadStoredSortOrder(employeeId) {
   try {
     const stored = sessionStorage.getItem(getSortOrderStorageKey(employeeId));
-    return stored === "newest" || stored === "oldest" ? stored : "default";
+    return SORT_ORDER_VALUES.has(stored) ? stored : "default";
   } catch {
     return "default";
   }
@@ -916,6 +918,17 @@ export default function ManagementPage() {
     if (sortOrder === "newest" || sortOrder === "oldest") {
       const sign = sortOrder === "newest" ? -1 : 1;
       rows = [...rows].sort((a, b) => sign * (new Date(a.createdAt || 0) - new Date(b.createdAt || 0)));
+    } else if (sortOrder === "eventDateAsc" || sortOrder === "eventDateDesc") {
+      const sign = sortOrder === "eventDateAsc" ? 1 : -1;
+      rows = [...rows].sort((a, b) => {
+        const dateA = String(a.values.event_date ?? "");
+        const dateB = String(b.values.event_date ?? "");
+        // Rows with no event date always sink to the bottom, in either direction.
+        if (!dateA && !dateB) return 0;
+        if (!dateA) return 1;
+        if (!dateB) return -1;
+        return sign * dateA.localeCompare(dateB);
+      });
     }
 
     return [...draftRows, ...rows];
@@ -1702,12 +1715,14 @@ export default function ManagementPage() {
 
                         {hoveredSection === "sort" && (
                           <div className="animate-[fadeIn_0.15s_ease-out]">
-                            <p className="mb-3 text-[10px] font-black uppercase tracking-[0.18em] text-[#333333]">Sort by upload time</p>
+                            <p className="mb-3 text-[10px] font-black uppercase tracking-[0.18em] text-[#333333]">Sort By</p>
                             <div className="space-y-2">
                               {[
                                 { value: "default", label: "Default order" },
                                 { value: "newest",   label: "Newest upload first" },
                                 { value: "oldest",   label: "Oldest upload first" },
+                                { value: "eventDateAsc",  label: "Event date (ascending)" },
+                                { value: "eventDateDesc", label: "Event date (descending)" },
                               ].map((opt) => (
                                 <label key={opt.value} className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 transition-colors duration-150 hover:bg-[#f4f4f4]/30">
                                   <input
