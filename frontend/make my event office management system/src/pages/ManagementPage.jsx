@@ -2,6 +2,7 @@
 import { Link, useNavigate } from "react-router";
 import mmeLogo from "../assets/mme-logo-cropped.png";
 import {
+  BadgeAlert,
   CalendarClock,
   CalendarDays,
   Check,
@@ -157,7 +158,15 @@ function parseFreeTextDateToIso(raw) {
 }
 
 function isRowBlank(row, columns) {
+  if (row.alreadyBooked) return false;
   return columns.every((column) => String(row.values[column.id] ?? "").trim() === "");
+}
+
+// Snapshot used to detect meaningful unsaved changes — covers both the cell
+// values and the "already booked" badge (stored as a sibling row property,
+// not inside `values`).
+function rowSignature(row) {
+  return JSON.stringify({ values: row.values, alreadyBooked: Boolean(row.alreadyBooked) });
 }
 
 function buildRowSignature(values, columns) {
@@ -742,6 +751,11 @@ export default function ManagementPage() {
   const [hoverPreview, setHoverPreview] = useState(null);
   const hoverHideTimeout = useRef(null);
   const workspaceRef = useRef({ columns: [], rows: [] });
+  // Snapshot (rowId -> JSON.stringify(values)) of the sheet as it exists on
+  // the server right now — refreshed on load and after every successful
+  // save. Lets us tell a brand-new, never-saved row apart from an edit to
+  // an already-saved one, and detect real (non-blank) unsaved content.
+  const lastSavedRowsSnapshotRef = useRef(new Map());
   const [filters, setFilters] = useState(() =>
     loadStoredFilters(employee?.id) || {
       dateFrom: "",
@@ -849,7 +863,15 @@ export default function ManagementPage() {
   }
 
   const filteredRows = useMemo(() => {
-    let rows = workspace.rows;
+    // Rows added this session that haven't been saved yet are exempt from
+    // every filter/search/upcoming-only check below — a still-blank draft
+    // would otherwise never match any of them and vanish from view the
+    // moment a filter is active. They always float to the top, unfiltered,
+    // until Save Changes succeeds (at which point they leave this bucket
+    // and become subject to the exact same filters as any other row).
+    const isDraftRow = (row) => !lastSavedRowsSnapshotRef.current.has(row.id);
+    const draftRows = workspace.rows.filter(isDraftRow);
+    let rows = workspace.rows.filter((row) => !isDraftRow(row));
 
     const query = searchText.trim().toLowerCase();
     if (query) {
@@ -903,8 +925,20 @@ export default function ManagementPage() {
       rows = [...rows].sort((a, b) => sign * (new Date(a.createdAt || 0) - new Date(b.createdAt || 0)));
     }
 
-    return rows;
+    return [...draftRows, ...rows];
   }, [searchText, workspace.rows, workspace.columns, filters, upcomingOnly, sortOrder]);
+
+  // True only when there's an unsaved edit to an already-saved row, or a
+  // brand-new row that now has real content — NOT when the only unsaved
+  // change is a still-empty freshly-added row (that one just vanishes on
+  // refresh with no warning needed).
+  const hasMeaningfulUnsavedChanges = useMemo(() => {
+    return workspace.rows.some((row) => {
+      const savedSignature = lastSavedRowsSnapshotRef.current.get(row.id);
+      if (savedSignature === undefined) return !isRowBlank(row, workspace.columns);
+      return rowSignature(row) !== savedSignature;
+    });
+  }, [workspace.rows, workspace.columns]);
 
   const activeFilterCount = useMemo(
     () =>
@@ -1009,6 +1043,7 @@ export default function ManagementPage() {
         };
         cachedWorkspace = nextState;
         cachedEmployeeDirectory = employees;
+        lastSavedRowsSnapshotRef.current = new Map(nextState.rows.map((row) => [row.id, rowSignature(row)]));
         setWorkspace(nextState);
         setEmployeeDirectory(employees);
       } catch (error) {
@@ -1099,6 +1134,18 @@ export default function ManagementPage() {
     return () => window.clearTimeout(timeout);
   }, [notice]);
 
+  // Native "leave site?" confirmation — only when a refresh/close would
+  // actually lose real client data, not just a still-empty freshly-added row.
+  useEffect(() => {
+    function handleBeforeUnload(event) {
+      if (!hasMeaningfulUnsavedChanges) return;
+      event.preventDefault();
+      event.returnValue = "";
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasMeaningfulUnsavedChanges]);
+
   useEffect(() => {
     if (!employee) return undefined;
 
@@ -1143,7 +1190,7 @@ export default function ManagementPage() {
       ...current,
       rows: [...current.rows, createEmptyRow(current.columns, current.rows.length + 1)],
     }));
-    setNotice({ type: "success", message: "New row added at the bottom of the sheet." });
+    setNotice({ type: "success", message: "New row added at the top — fill it in and click Save Changes." });
   }
 
   async function deleteRow(rowId) {
@@ -1183,6 +1230,20 @@ export default function ManagementPage() {
     }));
   }
 
+  // Toggled via the badge button beside the Event Date cell — marks a client
+  // as already booked with another event management company. Applies
+  // immediately to local state (row highlight shows right away) but is only
+  // persisted to the database once Save Changes is clicked, same as any
+  // other cell edit.
+  function toggleAlreadyBooked(rowId) {
+    setWorkspace((current) => ({
+      ...current,
+      rows: current.rows.map((row) =>
+        row.id === rowId ? { ...row, alreadyBooked: !row.alreadyBooked } : row,
+      ),
+    }));
+  }
+
   function addColumn(column) {
     setWorkspace((current) => ({
       ...current,
@@ -1218,6 +1279,7 @@ export default function ManagementPage() {
 
       await saveWorkspace(workspaceToSave, employee.id);
       setWorkspace(workspaceToSave);
+      lastSavedRowsSnapshotRef.current = new Map(rows.map((row) => [row.id, rowSignature(row)]));
       setHasUnsavedChanges(false);
       setNotice({
         type: "success",
@@ -1731,17 +1793,26 @@ export default function ManagementPage() {
                   <tbody>
                     {filteredRows.map((row, index) => {
                       const rowH = rowHeights[row.id];
+                      const isAlreadyBooked = Boolean(row.alreadyBooked);
+                      const stickyBg = isAlreadyBooked
+                        ? "bg-rose-100 group-hover:bg-rose-300/80"
+                        : "bg-[#ffffff] group-hover:bg-[#f8f8f8]";
+                      const cellBg = isAlreadyBooked
+                        ? "bg-rose-100/80 group-hover:bg-rose-200/70"
+                        : "bg-white group-hover:bg-[#fafafa]";
+                      const cellBorder = isAlreadyBooked ? "border-rose-300/70" : "border-[#d6d6d6]/45";
                       return (
                         <tr
                           key={row.id}
                           className="group"
+                          title={isAlreadyBooked ? "This client has already booked with another event management company" : undefined}
                           style={{
                             ...(rowH ? { height: `${rowH}px` } : {}),
                             animation: `fadeInUp 0.3s ease-out ${Math.min(index * 0.03, 0.5)}s both`,
                           }}
                         >
                           <td
-                            className="sticky left-0 z-10 border-b border-r border-[#d6d6d6]/50 bg-[#ffffff] text-center text-xs font-black text-black/45 transition-colors duration-150 group-hover:bg-[#f8f8f8]"
+                            className={`sticky left-0 z-10 border-b border-r ${cellBorder} text-center text-xs font-black text-black/45 transition-colors duration-150 ${stickyBg}`}
                             style={rowH ? { height: `${rowH}px` } : undefined}
                           >
                             <div className="relative flex w-full min-h-11 items-center justify-center px-2" style={rowH ? { height: `${rowH}px` } : undefined}>
@@ -1756,9 +1827,36 @@ export default function ManagementPage() {
                             <td
                               key={column.id}
                               style={{ width: column.width, minWidth: column.width, ...(rowH ? { height: `${rowH}px` } : {}) }}
-                              className="border-b border-r border-[#d6d6d6]/45 bg-white align-top transition-colors duration-150 group-hover:bg-[#fafafa]"
+                              className={`border-b border-r ${cellBorder} align-top transition-colors duration-150 ${cellBg}`}
                             >
-                              {column.type === "meeting_manager" ? (
+                              {column.id === "event_date" ? (
+                                <div className="flex h-full min-h-11 items-stretch">
+                                  <div className="min-w-0 flex-1">
+                                    <CellEditor
+                                      column={column}
+                                      value={row.values[column.id]}
+                                      onChange={(value) => updateCell(row.id, column.id, value)}
+                                      employeeNames={employeeNames}
+                                    />
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleAlreadyBooked(row.id)}
+                                    title={
+                                      isAlreadyBooked
+                                        ? "Already booked with another event management company — click to unmark"
+                                        : "Mark as already booked with another event management company"
+                                    }
+                                    className={`my-auto mr-1.5 flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[10px] font-black transition-all duration-200 active:scale-90 ${
+                                      isAlreadyBooked
+                                        ? "bg-rose-500 text-white shadow-sm shadow-rose-500/30 hover:bg-rose-600"
+                                        : "bg-[#f4f4f4] text-black/35 hover:bg-rose-50 hover:text-rose-500"
+                                    }`}
+                                  >
+                                    <BadgeAlert size={13} />
+                                  </button>
+                                </div>
+                              ) : column.type === "meeting_manager" ? (
                                 <div className="flex h-full min-h-11 items-center justify-center gap-2 p-1.5">
                                   <button
                                     type="button"
@@ -1823,7 +1921,7 @@ export default function ManagementPage() {
                             </td>
                           ))}
                           <td
-                            className="sticky right-0 z-10 border-b border-l border-[#d6d6d6]/50 bg-white px-1 text-center transition-colors duration-150 group-hover:bg-[#fafafa]"
+                            className={`sticky right-0 z-10 border-b border-l ${cellBorder} px-1 text-center transition-colors duration-150 ${cellBg}`}
                             style={rowH ? { height: `${rowH}px` } : undefined}
                           >
                             <div className="flex min-h-11 items-center justify-center" style={rowH ? { height: `${rowH}px` } : undefined}>
