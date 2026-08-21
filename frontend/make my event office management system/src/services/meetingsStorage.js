@@ -48,13 +48,6 @@ export async function updateMeeting(rowKey, meetingId, { meetingDatetime, nextMe
   });
 }
 
-export async function toggleMeetingComplete(rowKey, meetingId, employeeId) {
-  return apiRequest(`/meetings/${rowKey}/${meetingId}/complete`, {
-    method: "PATCH",
-    body: JSON.stringify({ employeeId }),
-  });
-}
-
 export async function toggleImageFinalSelection(rowKey, imageId) {
   return apiRequest(`/meetings/${rowKey}/images/${imageId}/final`, {
     method: "PATCH",
@@ -68,10 +61,18 @@ export async function updateMeetingImageTag(rowKey, imageId, tagName) {
   });
 }
 
-export async function finalizeClient(rowKey, employeeId) {
+export async function loadFinalizePreview(rowKey) {
+  return apiRequest(`/meetings/${rowKey}/finalize/preview`);
+}
+
+export async function loadFinalizationDetail(rowKey) {
+  return apiRequest(`/meetings/${rowKey}/finalize`);
+}
+
+export async function finalizeClient(rowKey, employeeId, items) {
   return apiRequest(`/meetings/${rowKey}/finalize`, {
     method: "POST",
-    body: JSON.stringify({ employeeId }),
+    body: JSON.stringify({ employeeId, items }),
   });
 }
 
