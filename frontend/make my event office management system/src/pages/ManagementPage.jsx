@@ -5,7 +5,9 @@ import {
   CalendarClock,
   CalendarDays,
   Check,
+  CheckCircle2,
   ChevronDown,
+  Clock,
   Columns3,
   FileSpreadsheet,
   LayoutGrid,
@@ -31,7 +33,7 @@ import {
   Showed_Column_Name,
   sortColumnsByDefaultOrder,
 } from "../data/defaultSheet";
-import { clearCurrentEmployee, loadCurrentEmployee } from "../services/authStorage";
+import { clearCurrentEmployee, fetchTodaySummary, loadCurrentEmployee } from "../services/authStorage";
 import {
   loadEmployeeDirectory,
   loadWorkspace,
@@ -750,6 +752,31 @@ export default function ManagementPage() {
   );
   const [sortOrder, setSortOrder] = useState(() => loadStoredSortOrder(employee?.id));
   const [upcomingOnly, setUpcomingOnly] = useState(() => loadStoredUpcomingOnly(employee?.id));
+  const [todaySummary, setTodaySummary] = useState(null);
+
+  // Powers the header "Due Today" / "Completed Today" widget. Refetched
+  // every 60s (not a full websocket) so the count stays roughly live while
+  // an employee has the page open across the day without any user action.
+  useEffect(() => {
+    if (!employee?.id) return undefined;
+    let cancelled = false;
+
+    async function loadTodaySummary() {
+      try {
+        const data = await fetchTodaySummary();
+        if (!cancelled) setTodaySummary(data);
+      } catch {
+        // Silent failure — this is a nice-to-have widget, not core workflow.
+      }
+    }
+
+    loadTodaySummary();
+    const interval = window.setInterval(loadTodaySummary, 60000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [employee?.id]);
 
   useEffect(() => {
     saveStoredFilters(employee?.id, filters);
@@ -1381,6 +1408,55 @@ export default function ManagementPage() {
         <div className="flex min-h-18 items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-4">
             <img src={mmeLogo} alt="Make My Event - Management Workspace" className="h-27 w-auto shrink-0 object-contain sm:h-28" />
+          </div>
+
+          {/* ── Today's activity widget (Meetings vs Calls, per stat) ── */}
+          <div className="hidden flex-1 items-center justify-center gap-3 lg:flex">
+            <div className="flex items-stretch gap-3 rounded-2xl border border-[#d6d6d6]/60 bg-white px-4 py-2.5 shadow-sm shadow-black/5">
+              <div className="flex items-center gap-2.5 pr-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
+                  <Clock size={18} />
+                </div>
+                <div className="leading-tight">
+                  <p className="text-[10px] font-black uppercase tracking-[0.15em] text-black/40">Due Today</p>
+                  <div className="mt-1 flex items-center gap-2.5">
+                    <span className="inline-flex items-center gap-1 text-xs font-black text-black">
+                      <CalendarClock size={13} className="text-amber-500" />
+                      {todaySummary ? todaySummary.dueMeetings : <span className="inline-block h-3 w-3 animate-pulse rounded bg-black/10" />}
+                      <span className="font-semibold text-black/40">Meetings</span>
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-xs font-black text-black">
+                      <Phone size={13} className="text-amber-500" />
+                      {todaySummary ? todaySummary.dueCalls : <span className="inline-block h-3 w-3 animate-pulse rounded bg-black/10" />}
+                      <span className="font-semibold text-black/40">Calls</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="w-px bg-[#d6d6d6]/70" />
+
+              <div className="flex items-center gap-2.5 pl-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+                  <CheckCircle2 size={18} />
+                </div>
+                <div className="leading-tight">
+                  <p className="text-[10px] font-black uppercase tracking-[0.15em] text-black/40">Completed Today</p>
+                  <div className="mt-1 flex items-center gap-2.5">
+                    <span className="inline-flex items-center gap-1 text-xs font-black text-black">
+                      <CalendarClock size={13} className="text-emerald-500" />
+                      {todaySummary ? todaySummary.completedMeetings : <span className="inline-block h-3 w-3 animate-pulse rounded bg-black/10" />}
+                      <span className="font-semibold text-black/40">Meetings</span>
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-xs font-black text-black">
+                      <Phone size={13} className="text-emerald-500" />
+                      {todaySummary ? todaySummary.completedCalls : <span className="inline-block h-3 w-3 animate-pulse rounded bg-black/10" />}
+                      <span className="font-semibold text-black/40">Calls</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
