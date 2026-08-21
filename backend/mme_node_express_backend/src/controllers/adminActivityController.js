@@ -94,10 +94,8 @@ export async function listAllMeetings(req, res, next) {
         rowKey: meeting.linkedRowKey,
         clientName: namesByRowKey.get(meeting.linkedRowKey) || "",
         meetingDatetime: formatDateTime(meeting.meetingDatetime),
-        isCompleted: meeting.isCompleted,
         // "Completed" for the admin filter = actually has content logged
-        // (discussion notes or added items) — distinct from the employee's
-        // manual isCompleted toggle above.
+        // (discussion notes or added items).
         hasCompletedDetails: Boolean(meeting.discussionNotes?.trim()) || meeting._count.items > 0,
         createdByName: meeting.createdBy?.fullName || null,
         assignedByEmployeeName: meeting.assignedBy?.fullName || null,
@@ -296,7 +294,6 @@ export async function getClientMeetingsForAdmin(req, res, next) {
       include: {
         createdBy: { select: { fullName: true } },
         updatedBy: { select: { fullName: true } },
-        completedBy: { select: { fullName: true } },
         assignedBy: { select: { fullName: true } },
         nextMeeting: {
           select: {
@@ -334,9 +331,6 @@ export async function getClientMeetingsForAdmin(req, res, next) {
           nextMeetingAssignedEmployeeName: meeting.nextMeeting?.assignedEmployee?.fullName || null,
           assignedByEmployeeName: meeting.assignedBy?.fullName || null,
           requirements: parseRequirements(meeting.requirements),
-          isCompleted: Boolean(meeting.isCompleted),
-          completedByName: meeting.completedBy?.fullName || null,
-          completedAt: formatDateTime(meeting.completedAt),
           createdByName: meeting.createdBy?.fullName || null,
           updatedByName: meeting.updatedBy?.fullName || null,
           createdAt: formatDateTime(meeting.createdAt),
