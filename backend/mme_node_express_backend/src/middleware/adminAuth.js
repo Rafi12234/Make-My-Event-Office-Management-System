@@ -60,7 +60,7 @@ export async function requireAdmin(req, res, next) {
     next(error);
   }
 }
-
+ 
 /**
  * Non-throwing session check used by the SPA page-fallback gate in
  * server.js — decides whether to redirect a direct /admin request to

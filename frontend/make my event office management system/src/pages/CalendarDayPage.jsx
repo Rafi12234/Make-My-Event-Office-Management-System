@@ -420,12 +420,6 @@ function ClientDayCard({ group, columns, extras, navigate, selectedDate, employe
                           <Clock size={13} className="shrink-0 text-zinc-400" />
                           <p className="text-sm font-black text-black">{formatDisplayDatetime(m.meetingDatetime)}</p>
                         </div>
-                        {m.isCompleted && (
-                          <span className="flex shrink-0 items-center gap-1 rounded-lg bg-emerald-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-200">
-                            <Check size={10} />
-                            Done
-                          </span>
-                        )}
                       </div>
                       {m.requirements?.length > 0 && (
                         <ul className="mt-3 space-y-2">

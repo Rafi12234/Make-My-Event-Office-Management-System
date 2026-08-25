@@ -57,6 +57,12 @@ export async function changeEmployeePassword({ currentPassword, newPassword }) {
   return merged;
 }
 
+// Powers the Management page header widget (meetings/calls due vs.
+// completed today for the logged-in employee).
+export async function fetchTodaySummary() {
+  return apiRequest("/employees/me/today-summary");
+}
+
 export function clearCurrentEmployee() {
   localStorage.removeItem(EMPLOYEE_STORAGE_KEY);
   // Clear the server-side session cookie too. Fire-and-forget: local

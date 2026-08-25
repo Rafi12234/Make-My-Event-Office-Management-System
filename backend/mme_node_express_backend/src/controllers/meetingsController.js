@@ -4,7 +4,7 @@ import { mkdirSync, unlink } from "node:fs";
 import { fileURLToPath } from "node:url";
 import multer from "multer";
 import { prisma } from "../config/prisma.js";
-import { formatDateTime, parseDateTimeLocal, todayMinValue, nowInBusinessTimezone } from "../utils/dbDates.js";
+import { formatDateTime, formatDateOnly, parseDateTimeLocal, todayMinValue, nowInBusinessTimezone } from "../utils/dbDates.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -111,6 +111,62 @@ async function getClientName(sheetId, rowKey) {
   return cell?.valueText || cell?.displayValue || "";
 }
 
+async function getEventDate(sheetId, rowKey) {
+  if (!sheetId) return "";
+
+  const row = await prisma.sheetRow.findFirst({
+    where: { sheetId, rowKey },
+    select: {
+      cells: {
+        where: { column: { columnName: { equals: "Event Date" } } },
+        select: { valueDate: true },
+        take: 1,
+      },
+    },
+  });
+
+  return formatDateOnly(row?.cells?.[0]?.valueDate);
+}
+
+// Flips the Management page row's green "booked from MME" highlight —
+// stored on the row's Event Date cell, same convention as already_booked.
+// Set to true on a successful finalize, and back to false wherever a
+// finalization is invalidated (e.g. deleteMeeting below).
+async function setBookedFromMme(sheetId, rowKey, value) {
+  if (!sheetId) return;
+
+  const row = await prisma.sheetRow.findFirst({
+    where: { sheetId, rowKey },
+    select: {
+      id: true,
+      cells: {
+        where: { column: { columnName: { equals: "Event Date" } } },
+        select: { id: true },
+        take: 1,
+      },
+    },
+  });
+  if (!row) return;
+
+  if (row.cells[0]) {
+    await prisma.sheetCell.update({
+      where: { id: row.cells[0].id },
+      data: { bookedFromMme: value },
+    });
+    return;
+  }
+
+  const column = await prisma.sheetColumn.findFirst({
+    where: { sheetId, columnName: "Event Date" },
+    select: { id: true },
+  });
+  if (!column) return;
+
+  await prisma.sheetCell.create({
+    data: { rowId: row.id, columnId: column.id, bookedFromMme: value },
+  });
+}
+
 function isValidRowKey(rowKey) {
   return /^[0-9a-fA-F-]{36}$/.test(String(rowKey || ""));
 }
@@ -171,12 +227,24 @@ function parseRequirements(value) {
 // stored_file_name — images can be shared across meetings when a new
 // meeting inherits the previous meeting's images.
 async function deleteImageFileIfUnreferenced(storedFileName) {
-  const count = await prisma.clientMeetingImage.count({
-    where: { storedFileName },
-  });
-  if (!count) {
+  const [meetingImageCount, finalizationImageCount] = await Promise.all([
+    prisma.clientMeetingImage.count({ where: { storedFileName } }),
+    prisma.clientFinalizationImage.count({ where: { storedFileName } }),
+  ]);
+  if (!meetingImageCount && !finalizationImageCount) {
     unlink(path.join(meetingImagesDirectory, storedFileName), () => {});
   }
+}
+
+// A finalized item groups every occurrence of the same item across a
+// client's whole meeting history — the fixed dropdown keys are unique per
+// client, while "other" items are grouped by their (case-insensitive,
+// trimmed) custom label since an employee can add several differently
+// named "other" items across meetings.
+function finalizeGroupKey(itemKey, customLabel) {
+  return itemKey === "other"
+    ? `other:${String(customLabel || "").trim().toLowerCase()}`
+    : itemKey;
 }
 
 // Fixed set of selectable item names for the "Add Items" dropdown. Kept in
@@ -218,6 +286,15 @@ function parseQuantity(value) {
   const quantity = Number(value);
   if (!Number.isFinite(quantity) || quantity < 0) return 1;
   return Math.min(Math.round(quantity), 100000);
+}
+
+// The finalize budget is optional free-entry currency — blank clears it
+// (stored as NULL) rather than defaulting to 0.
+function parseBudget(value) {
+  if (value === undefined || value === null || String(value).trim() === "") return null;
+  const budget = Number(value);
+  if (!Number.isFinite(budget) || budget < 0) return null;
+  return Math.min(Math.round(budget * 100) / 100, 999999999999.99);
 }
 
 // When a new meeting is created, it inherits the item rows (and each
@@ -276,13 +353,13 @@ export async function listMeetings(req, res, next) {
   try {
     const sheetId = await getDefaultSheetId();
     const clientName = await getClientName(sheetId, rowKey);
+    const eventDate = await getEventDate(sheetId, rowKey);
 
     const meetings = await prisma.clientMeeting.findMany({
       where: { linkedRowKey: rowKey },
       include: {
         createdBy: { select: { fullName: true } },
         updatedBy: { select: { fullName: true } },
-        completedBy: { select: { fullName: true } },
         assignedBy: { select: { fullName: true } },
         nextMeeting: {
           select: {
@@ -311,6 +388,7 @@ export async function listMeetings(req, res, next) {
       data: {
         rowKey,
         clientName,
+        eventDate,
         finalization: finalization
           ? { finalizedAt: formatDateTime(finalization.finalizedAt), finalizedByName: finalization.finalizedBy?.fullName || null }
           : null,
@@ -323,9 +401,6 @@ export async function listMeetings(req, res, next) {
           nextMeetingAssignedEmployeeName: meeting.nextMeeting?.assignedEmployee?.fullName || null,
           assignedByEmployeeName: meeting.assignedBy?.fullName || null,
           requirements: parseRequirements(meeting.requirements),
-          isCompleted: Boolean(meeting.isCompleted),
-          completedByName: meeting.completedBy?.fullName || null,
-          completedAt: formatDateTime(meeting.completedAt),
           createdByName: meeting.createdBy?.fullName || null,
           updatedByName: meeting.updatedBy?.fullName || null,
           createdAt: formatDateTime(meeting.createdAt),
@@ -484,45 +559,6 @@ export async function updateMeeting(req, res, next) {
   }
 }
 
-// ─── PATCH /api/meetings/:rowKey/:meetingId/complete — toggle "Mark as Done" ───
-
-export async function toggleMeetingComplete(req, res, next) {
-  const { rowKey, meetingId } = req.params;
-  const id = isValidId(meetingId);
-
-  if (!isValidRowKey(rowKey) || !id) {
-    return res.status(400).json({ message: "Invalid reference." });
-  }
-
-  const employeeId = isValidId(req.body.employeeId);
-
-  try {
-    const meeting = await prisma.clientMeeting.findFirst({
-      where: { id, linkedRowKey: rowKey },
-      select: { isCompleted: true },
-    });
-
-    if (!meeting) {
-      return res.status(404).json({ message: "Meeting not found." });
-    }
-
-    const nextCompleted = !meeting.isCompleted;
-
-    await prisma.clientMeeting.update({
-      where: { id },
-      data: {
-        isCompleted: nextCompleted,
-        completedById: nextCompleted ? employeeId : null,
-        completedAt: nextCompleted ? new Date() : null,
-      },
-    });
-
-    res.json({ data: { id, isCompleted: nextCompleted } });
-  } catch (error) {
-    next(error);
-  }
-}
-
 // ─── PATCH /api/meetings/:rowKey/images/:imageId/tag — rename an image's tag ───
 
 export async function updateImageTag(req, res, next) {
@@ -589,8 +625,112 @@ export async function toggleImageFinal(req, res, next) {
   }
 }
 
-// ─── POST /api/meetings/:rowKey/finalize — confirm final client selection ───
+// ─── GET /api/meetings/:rowKey/finalize/preview — cross-meeting item aggregate ───
+// Groups every MeetingItem the client has ever had (across every meeting)
+// by item, using the most recent occurrence's description/quantity and the
+// union of every image ever uploaded under that item (deduped by the
+// underlying stored file), so the employee can pick exactly which images
+// the client is actually finalizing for each item.
+export async function getFinalizePreview(req, res, next) {
+  const { rowKey } = req.params;
+  if (!isValidRowKey(rowKey)) {
+    return res.status(400).json({ message: "Invalid client reference." });
+  }
 
+  try {
+    const meetings = await prisma.clientMeeting.findMany({
+      where: { linkedRowKey: rowKey },
+      orderBy: { id: "asc" },
+      include: {
+        items: {
+          orderBy: { id: "asc" },
+          include: { images: { orderBy: { id: "asc" } } },
+        },
+      },
+    });
+
+    const finalization = await prisma.clientFinalization.findUnique({
+      where: { linkedRowKey: rowKey },
+      include: {
+        finalizedBy: { select: { fullName: true } },
+        items: { include: { images: true } },
+      },
+    });
+
+    const savedSelections = new Map();
+    for (const finalizedItem of finalization?.items || []) {
+      const key = finalizeGroupKey(finalizedItem.itemKey, finalizedItem.customLabel);
+      savedSelections.set(key, new Set(finalizedItem.images.map((image) => image.storedFileName)));
+    }
+
+    const groups = new Map();
+    for (const meeting of meetings) {
+      for (const item of meeting.items) {
+        const key = finalizeGroupKey(item.itemKey, item.customLabel);
+        const group = groups.get(key) || { imagesByFile: new Map() };
+
+        // Later meetings overwrite the label/description/quantity/source —
+        // the group always reflects the most recent occurrence.
+        group.groupKey = key;
+        group.itemKey = item.itemKey;
+        group.customLabel = item.customLabel || "";
+        group.description = item.description || "";
+        group.quantity = item.quantity ?? 1;
+        group.sourceMeetingId = meeting.id;
+        group.sourceItemId = item.id;
+
+        for (const image of item.images) {
+          if (!group.imagesByFile.has(image.storedFileName)) {
+            group.imagesByFile.set(image.storedFileName, image);
+          }
+        }
+
+        groups.set(key, group);
+      }
+    }
+
+    const items = Array.from(groups.values()).map((group) => {
+      const selectedFiles = savedSelections.get(group.groupKey);
+      return {
+        groupKey: group.groupKey,
+        itemKey: group.itemKey,
+        customLabel: group.customLabel,
+        description: group.description,
+        quantity: group.quantity,
+        sourceMeetingId: group.sourceMeetingId,
+        sourceItemId: group.sourceItemId,
+        images: Array.from(group.imagesByFile.values()).map((image) => ({
+          id: image.id,
+          url: image.fileUrl,
+          originalFileName: image.originalFileName,
+          createdAt: formatDateTime(image.createdAt),
+          isSelected: selectedFiles ? selectedFiles.has(image.storedFileName) : false,
+        })),
+      };
+    });
+
+    res.json({
+      data: {
+        rowKey,
+        finalization: finalization
+          ? {
+              finalizedAt: formatDateTime(finalization.finalizedAt),
+              finalizedByName: finalization.finalizedBy?.fullName || null,
+              finalizedBudget:
+                finalization.finalizedBudget !== null && finalization.finalizedBudget !== undefined
+                  ? Number(finalization.finalizedBudget)
+                  : null,
+            }
+          : null,
+        items,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// ─── POST /api/meetings/:rowKey/finalize — save the finalized item/image selection ───
 export async function finalizeMeeting(req, res, next) {
   const { rowKey } = req.params;
   if (!isValidRowKey(rowKey)) {
@@ -598,15 +738,138 @@ export async function finalizeMeeting(req, res, next) {
   }
 
   const employeeId = isValidId(req.body.employeeId);
+  const budget = parseBudget(req.body.budget);
+  const rawItems = Array.isArray(req.body.items) ? req.body.items : [];
+
+  const items = rawItems
+    .filter((item) => item && isValidItemKey(item.itemKey))
+    .slice(0, 60)
+    .map((item) => ({
+      itemKey: item.itemKey,
+      customLabel: item.itemKey === "other" ? sanitizeCustomLabel(item.customLabel) : null,
+      description: String(item.description || "").slice(0, 5000),
+      quantity: parseQuantity(item.quantity),
+      imageIds: Array.isArray(item.imageIds)
+        ? item.imageIds.map((id) => isValidId(id)).filter(Boolean)
+        : [],
+    }));
 
   try {
-    await prisma.clientFinalization.upsert({
+    const allImageIds = [...new Set(items.flatMap((item) => item.imageIds))];
+
+    // Only images that actually belong to this client can be copied into
+    // the finalization — prevents referencing another client's images.
+    const validImages = allImageIds.length
+      ? await prisma.clientMeetingImage.findMany({
+          where: { id: { in: allImageIds }, meeting: { linkedRowKey: rowKey } },
+        })
+      : [];
+    const imageById = new Map(validImages.map((image) => [String(image.id), image]));
+
+    const finalization = await prisma.clientFinalization.upsert({
       where: { linkedRowKey: rowKey },
-      create: { linkedRowKey: rowKey, finalizedById: employeeId, finalizedAt: new Date() },
-      update: { finalizedById: employeeId, finalizedAt: new Date() },
+      create: { linkedRowKey: rowKey, finalizedById: employeeId, finalizedAt: new Date(), finalizedBudget: budget },
+      update: { finalizedById: employeeId, finalizedAt: new Date(), finalizedBudget: budget },
+      include: { finalizedBy: { select: { fullName: true } } },
     });
 
-    res.json({ data: { rowKey } });
+    // Rewritten wholesale on every submit (cascades to finalization images).
+    await prisma.clientFinalizationItem.deleteMany({ where: { finalizationId: finalization.id } });
+
+    for (const item of items) {
+      const createdItem = await prisma.clientFinalizationItem.create({
+        data: {
+          finalizationId: finalization.id,
+          itemKey: item.itemKey,
+          customLabel: item.customLabel,
+          description: item.description,
+          quantity: item.quantity,
+        },
+        select: { id: true },
+      });
+
+      for (const imageId of item.imageIds) {
+        const image = imageById.get(String(imageId));
+        if (!image) continue;
+        await prisma.clientFinalizationImage.create({
+          data: {
+            finalizationItemId: createdItem.id,
+            storedFileName: image.storedFileName,
+            originalFileName: image.originalFileName,
+            fileUrl: image.fileUrl,
+            fileSizeBytes: image.fileSizeBytes,
+          },
+        });
+      }
+    }
+
+    const sheetId = await getDefaultSheetId();
+    await setBookedFromMme(sheetId, rowKey, true);
+
+    res.json({
+      data: {
+        rowKey,
+        finalizedAt: formatDateTime(finalization.finalizedAt),
+        finalizedByName: finalization.finalizedBy?.fullName || null,
+        finalizedBudget:
+          finalization.finalizedBudget !== null && finalization.finalizedBudget !== undefined
+            ? Number(finalization.finalizedBudget)
+            : null,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// ─── GET /api/meetings/:rowKey/finalize — read-only view of what was actually confirmed ───
+export async function getFinalizationDetail(req, res, next) {
+  const { rowKey } = req.params;
+  if (!isValidRowKey(rowKey)) {
+    return res.status(400).json({ message: "Invalid client reference." });
+  }
+
+  try {
+    const finalization = await prisma.clientFinalization.findUnique({
+      where: { linkedRowKey: rowKey },
+      include: {
+        finalizedBy: { select: { fullName: true } },
+        items: {
+          orderBy: { id: "asc" },
+          include: { images: { orderBy: { id: "asc" } } },
+        },
+      },
+    });
+
+    if (!finalization) {
+      return res.json({ data: { rowKey, finalization: null, items: [] } });
+    }
+
+    res.json({
+      data: {
+        rowKey,
+        finalization: {
+          finalizedAt: formatDateTime(finalization.finalizedAt),
+          finalizedByName: finalization.finalizedBy?.fullName || null,
+          finalizedBudget:
+            finalization.finalizedBudget !== null && finalization.finalizedBudget !== undefined
+              ? Number(finalization.finalizedBudget)
+              : null,
+        },
+        items: finalization.items.map((item) => ({
+          id: item.id,
+          itemKey: item.itemKey,
+          customLabel: item.customLabel || "",
+          description: item.description || "",
+          quantity: item.quantity ?? 1,
+          images: item.images.map((image) => ({
+            id: image.id,
+            url: image.fileUrl,
+            originalFileName: image.originalFileName,
+          })),
+        })),
+      },
+    });
   } catch (error) {
     next(error);
   }
@@ -639,6 +902,9 @@ export async function deleteMeeting(req, res, next) {
     // Any prior finalization was based on the client's full image set at the
     // time — removing a meeting invalidates it, so the employee must re-finalize.
     await prisma.clientFinalization.deleteMany({ where: { linkedRowKey: rowKey } });
+
+    const sheetId = await getDefaultSheetId();
+    await setBookedFromMme(sheetId, rowKey, false);
 
     for (const image of images) {
       await deleteImageFileIfUnreferenced(image.storedFileName);

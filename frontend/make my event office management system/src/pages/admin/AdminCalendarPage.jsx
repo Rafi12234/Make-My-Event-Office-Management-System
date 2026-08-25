@@ -229,9 +229,9 @@ function EmployeeDayHoverCard({ employeeName, employeeColor, dayEvents, rowData,
                       <span className="text-xs font-black text-mme-purple">
                         {EVENT_LABELS[ev.source] || ev.source}{ev.date ? ` \u00b7 ${formatEventDateTime(ev.date, ev.time)}` : ""}
                       </span>
-                      {(ev.missed || ev.isCompleted) && (
-                        <span className={`rounded px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide ${ev.missed ? "bg-red-500 text-white" : "bg-mme-purple text-white"}`}>
-                          {ev.missed ? "Missed" : "Completed"}
+                      {ev.missed && (
+                        <span className="rounded px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide bg-red-500 text-white">
+                          Missed
                         </span>
                       )}
                     </div>

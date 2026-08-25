@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "../config/prisma.js";
 import { setEmployeeCookie, SESSION_COOKIE } from "../middleware/employeeAuth.js";
 import { isValidAdminSession } from "../middleware/adminAuth.js";
+import { nowInBusinessTimezone } from "../utils/dbDates.js";
 
 const PASSWORD_MIN_LENGTH = 6;
 
@@ -166,4 +167,56 @@ export async function changePassword(req, res, next) {
 export function logoutEmployee(req, res) {
   res.clearCookie(SESSION_COOKIE);
   res.json({ data: { success: true } });
+}
+
+/**
+ * GET /api/employees/me/today-summary
+ * Powers the Management page header widget: how many meetings/calls this
+ * employee is due to hold today (their own next-schedule assignments dated
+ * today) vs. how many they've already completed today. "Completed" mirrors
+ * the same signal used across the admin activity pages — a meeting counts
+ * once it has items, a call once it has discussion text on record.
+ */
+export async function getTodaySummary(req, res, next) {
+  try {
+    const employeeId = BigInt(req.employee.id);
+    const now = nowInBusinessTimezone();
+    const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000 - 1);
+
+    const [dueMeetings, dueCalls, meetingsToday, callsToday] = await Promise.all([
+      prisma.clientNextMeeting.count({
+        where: { assignedEmployeeId: employeeId, nextMeetingDatetime: { gte: todayStart, lte: todayEnd } },
+      }),
+      prisma.clientNextCall.count({
+        where: { assignedEmployeeId: employeeId, nextCallDatetime: { gte: todayStart, lte: todayEnd } },
+      }),
+      prisma.clientMeeting.findMany({
+        where: { createdById: employeeId, meetingDatetime: { gte: todayStart, lte: todayEnd } },
+        select: { discussionNotes: true, _count: { select: { items: true } } },
+      }),
+      prisma.clientCall.findMany({
+        where: { createdById: employeeId, callDatetime: { gte: todayStart, lte: todayEnd } },
+        select: { callDiscussion: true },
+      }),
+    ]);
+
+    const completedMeetings = meetingsToday.filter(
+      (meeting) => Boolean(meeting.discussionNotes?.trim()) || meeting._count.items > 0,
+    ).length;
+    const completedCalls = callsToday.filter((call) => Boolean(call.callDiscussion?.trim())).length;
+
+    res.json({
+      data: {
+        dueToday: dueMeetings + dueCalls,
+        completedToday: completedMeetings + completedCalls,
+        dueMeetings,
+        dueCalls,
+        completedMeetings,
+        completedCalls,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
 }

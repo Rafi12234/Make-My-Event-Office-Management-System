@@ -98,6 +98,11 @@ jobs:
           test -f "${BACKEND_DIR}/prisma/schema.prisma"
           test -f "${BACKEND_DIR}/prisma.config.ts"
 
+          # Accounts module lives in a separate top-level folder (not under
+          # BACKEND_DIR) - confirm it exists before the SFTP step relies on it.
+          test -f "Accounts/backend/routes/accounts.js"
+          test -f "Accounts/backend/controllers/accountsController.js"
+
           # cPanel's manual "Run NPM Install" does not run the
           # postinstall "prisma generate" hook, so the generated
           # Prisma Client (node_modules/.prisma/client) never gets
@@ -275,6 +280,24 @@ jobs:
             echo "put package.json"
             echo "put package-lock.json"
             echo "put prisma.config.ts"
+
+            # Accounts module (Accounts/backend/*) is a sibling folder outside
+            # BACKEND_DIR, uploaded here into APP_DIR/accounts-module so its
+            # bare imports (express, multer) resolve via THIS app's already-
+            # deployed node_modules (Node resolves node_modules by walking up
+            # from the importing file - there's no shell access on this host
+            # to create a symlink here like local dev does). server.js finds
+            # it via the ACCOUNTS_BACKEND_DIR env var (set once in cPanel's
+            # Setup Node.js App -> Environment variables) pointing at
+            # ${APP_DIR}/accounts-module.
+            echo "cd ${APP_DIR}"
+            echo "-mkdir accounts-module"
+            echo "-mkdir accounts-module/controllers"
+            echo "-mkdir accounts-module/routes"
+            echo "lcd \"$GITHUB_WORKSPACE/Accounts/backend/controllers\""
+            echo "put * accounts-module/controllers/"
+            echo "lcd \"$GITHUB_WORKSPACE/Accounts/backend/routes\""
+            echo "put * accounts-module/routes/"
 
             echo "-mkdir tmp"
             echo "lcd \"$GITHUB_WORKSPACE\""

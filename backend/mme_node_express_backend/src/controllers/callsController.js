@@ -1,5 +1,5 @@
 import { prisma } from "../config/prisma.js";
-import { formatDateTime, parseDateTimeLocal, todayMinValue, nowInBusinessTimezone } from "../utils/dbDates.js";
+import { formatDateTime, formatDateOnly, parseDateTimeLocal, todayMinValue, nowInBusinessTimezone } from "../utils/dbDates.js";
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -33,6 +33,23 @@ async function getClientName(sheetId, rowKey) {
   return cell?.valueText || cell?.displayValue || "";
 }
 
+async function getEventDate(sheetId, rowKey) {
+  if (!sheetId) return "";
+
+  const row = await prisma.sheetRow.findFirst({
+    where: { sheetId, rowKey },
+    select: {
+      cells: {
+        where: { column: { columnName: { equals: "Event Date" } } },
+        select: { valueDate: true },
+        take: 1,
+      },
+    },
+  });
+
+  return formatDateOnly(row?.cells?.[0]?.valueDate);
+}
+
 function isValidRowKey(rowKey) {
   return /^[0-9a-fA-F-]{36}$/.test(String(rowKey || ""));
 }
@@ -60,6 +77,7 @@ export async function listCalls(req, res, next) {
   try {
     const sheetId = await getDefaultSheetId();
     const clientName = await getClientName(sheetId, rowKey);
+    const eventDate = await getEventDate(sheetId, rowKey);
 
     const calls = await prisma.clientCall.findMany({
       where: { linkedRowKey: rowKey },
@@ -84,6 +102,7 @@ export async function listCalls(req, res, next) {
       data: {
         rowKey,
         clientName,
+        eventDate,
         calls: calls.map((call) => ({
           id: call.id,
           createdById: call.createdById ?? null,

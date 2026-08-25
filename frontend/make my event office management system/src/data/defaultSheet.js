@@ -180,6 +180,8 @@ export function createEmptyRow(columns, rowNumber) {
     id: crypto.randomUUID(),
     rowNumber,
     values: Object.fromEntries(columns.map((column) => [column.id, ""])),
+    alreadyBooked: false,
+    bookedFromMme: false,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };

@@ -16,7 +16,6 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  Circle,
   ClipboardList,
   ImagePlus,
   Loader2,
@@ -26,6 +25,7 @@ import {
   Trash2,
   UserRound,
   UserCog,
+  Wallet,
   X,
   Plus,
   Calendar,
@@ -44,9 +44,9 @@ import {
   deleteMeetingItemImage,
   finalizeClient,
   loadClientMeetings,
+  loadFinalizationDetail,
+  loadFinalizePreview,
   resolveImageUrl,
-  toggleImageFinalSelection,
-  toggleMeetingComplete,
   updateMeeting,
   updateMeetingItem,
   uploadMeetingItemImages,
@@ -111,6 +111,15 @@ function formatDisplayDatetime(value) {
     dateStyle: "medium",
     timeStyle: "short",
   });
+}
+
+// "Event Date" arrives as a plain "YYYY-MM-DD" — shown as "DD/MM/YYYY" to
+// match how it's displayed on the Management sheet.
+function formatEventDateDisplay(iso) {
+  const match = String(iso ?? "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "";
+  const [, yyyy, mm, dd] = match;
+  return `${dd}/${mm}/${yyyy}`;
 }
 
 function ImageLightbox({ images, initialIndex, onClose }) {
@@ -220,7 +229,6 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
   );
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [isCompleting, setIsCompleting] = useState(false);
   const [isAddingItem, setIsAddingItem] = useState(false);
   const [isCreatingItem, setIsCreatingItem] = useState(false);
   const [draftItemKey, setDraftItemKey] = useState("");
@@ -381,19 +389,6 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
     if (discarded) onChanged();
   }
 
-  async function handleToggleComplete() {
-    setIsCompleting(true);
-    setError("");
-    try {
-      await toggleMeetingComplete(rowKey, meeting.id, employeeId);
-      onChanged();
-    } catch (err) {
-      setError(err.message || "Failed to update meeting status.");
-    } finally {
-      setIsCompleting(false);
-    }
-  }
-
   async function handleDelete() {
     if (
       !window.confirm(
@@ -474,19 +469,11 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
       style={{ animation: "slideUp 0.35s ease both" }}
     >
       <div
-        className={`relative flex flex-wrap items-center justify-between gap-3 px-6 py-4 transition-colors duration-200 ${
-          meeting.isCompleted
-            ? "bg-linear-to-r from-emerald-50 to-green-50/50"
-            : "bg-linear-to-r from-slate-50 to-white"
-        }`}
+        className="relative flex flex-wrap items-center justify-between gap-3 px-6 py-4 transition-colors duration-200 bg-linear-to-r from-slate-50 to-white"
       >
         <div className="flex items-center gap-3">
           <div
-            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${
-              meeting.isCompleted
-                ? "bg-emerald-500 text-white"
-                : "bg-slate-900 text-white"
-            }`}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-900 text-white"
           >
             <Calendar size={17} />
           </div>
@@ -544,25 +531,6 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
             </>
           )}
           <button
-            onClick={handleToggleComplete}
-            disabled={isCompleting}
-            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-black transition-all duration-200 disabled:opacity-60 ${
-              meeting.isCompleted
-                ? "bg-emerald-500 text-white shadow-md shadow-emerald-200 hover:bg-emerald-600"
-                : "bg-white text-slate-700 shadow-sm shadow-slate-200 hover:bg-slate-900 hover:text-white border border-slate-200"
-            }`}
-          >
-            {isCompleting ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : meeting.isCompleted ? (
-              <CheckCircle2 size={14} />
-            ) : (
-              <Circle size={14} />
-            )}
-            {meeting.isCompleted ? "Completed" : "Mark Complete"}
-          </button>
-
-          <button
             onClick={handleDelete}
             disabled={isDeleting}
             className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 transition-all duration-200 hover:bg-red-50 hover:text-red-500 disabled:opacity-50"
@@ -575,21 +543,6 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
           </button>
         </div>
       </div>
-
-      {meeting.isCompleted && (
-        <div className="flex items-center gap-2 border-b border-emerald-100 bg-emerald-50/60 px-6 py-2.5">
-          <CheckCircle2 size={13} className="text-emerald-500" />
-          <p className="text-xs font-semibold text-emerald-700">
-            Completed by{" "}
-            <span className="font-black">
-              {meeting.completedByName || "an employee"}
-            </span>
-            {meeting.completedAt
-              ? ` · ${formatDisplayDatetime(meeting.completedAt)}`
-              : ""}
-          </p>
-        </div>
-      )}
 
       <div className="grid gap-0 lg:grid-cols-[280px_1fr]">
         <div className="border-b border-slate-100 p-6 lg:border-b-0 lg:border-r">
@@ -1127,44 +1080,80 @@ const MeetingItemRow = forwardRef(function MeetingItemRow(
   );
 });
 
-function FinalizeItemRow({
+// One card per item, aggregated across every meeting the item ever
+// appeared in (see GET /meetings/:rowKey/finalize/preview) — description
+// and quantity are still saved back onto the item's most recent
+// occurrence (group.sourceMeetingId/sourceItemId) via the existing
+// updateMeetingItem endpoint, exactly like the old single-meeting editor.
+function FinalizeItemGroupCard({
   rowKey,
-  meetingId,
-  item,
+  group,
   employeeId,
-  onSaved,
+  selectedIds,
+  onToggleImage,
   onViewImage,
+  onItemSaved,
+  onImagesAdded,
 }) {
-  const [description, setDescription] = useState(item.description || "");
-  const [quantity, setQuantity] = useState(item.quantity ?? 1);
+  const [description, setDescription] = useState(group.description || "");
+  const [quantity, setQuantity] = useState(group.quantity ?? 1);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState("");
+  const fileInputRef = useRef(null);
 
-  const option = CLIENT_REQUIREMENT_OPTIONS.find(
-    (c) => c.key === item.itemKey
-  );
+  useEffect(() => {
+    setDescription(group.description || "");
+    setQuantity(group.quantity ?? 1);
+  }, [group.sourceItemId, group.description, group.quantity]);
+
+  const option = CLIENT_REQUIREMENT_OPTIONS.find((c) => c.key === group.itemKey);
   const displayLabel =
-    item.itemKey === "other" ? item.customLabel || "Other" : option?.label || item.itemKey;
+    group.itemKey === "other" ? group.customLabel || "Other" : option?.label || group.itemKey;
 
   const isDirty =
-    description !== (item.description || "") ||
-    Number(quantity) !== (item.quantity ?? 1);
+    description !== (group.description || "") ||
+    Number(quantity) !== (group.quantity ?? 1);
 
   async function handleSave() {
     if (!isDirty) return;
     setIsSaving(true);
     setError("");
     try {
-      await updateMeetingItem(rowKey, meetingId, item.id, {
+      await updateMeetingItem(rowKey, group.sourceMeetingId, group.sourceItemId, {
         description,
         quantity,
         employeeId,
       });
-      await onSaved();
+      await onItemSaved();
     } catch (err) {
       setError(err.message || "Failed to save item.");
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function handleFilesSelected(e) {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (!files.length) return;
+    setIsUploading(true);
+    setError("");
+    try {
+      const result = await uploadMeetingItemImages(
+        rowKey,
+        group.sourceMeetingId,
+        group.sourceItemId,
+        files,
+        employeeId
+      );
+      const uploaded = Array.isArray(result?.images) ? result.images : Array.isArray(result) ? result : [];
+      const newIds = uploaded.map((image) => image.id).filter(Boolean);
+      await onImagesAdded(group.groupKey, newIds);
+    } catch (err) {
+      setError(err.message || "Failed to upload images.");
+    } finally {
+      setIsUploading(false);
     }
   }
 
@@ -1200,22 +1189,74 @@ function FinalizeItemRow({
 
       {error && <p className="mt-1 text-[10px] font-bold text-red-500">{error}</p>}
 
-      {item.images.length > 0 && (
-        <div className="mt-3 grid grid-cols-4 gap-1.5 sm:grid-cols-6">
-          {item.images.map((image, imageIndex) => (
-            <div
-              key={image.id}
-              className="aspect-square cursor-pointer overflow-hidden rounded-lg border border-slate-200 bg-slate-100 transition-all duration-200 hover:border-slate-300 hover:scale-105"
-              onClick={() => onViewImage(item.images, imageIndex)}
-            >
-              <img
-                src={resolveImageUrl(image.url)}
-                alt={image.originalFileName || "Item image"}
-                className="h-full w-full object-cover"
-                loading="lazy"
-              />
-            </div>
-          ))}
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+          Images ({group.images.length}) — select which to finalize
+        </p>
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isUploading}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-black text-slate-600 transition-all duration-200 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-60"
+        >
+          {isUploading ? (
+            <Loader2 size={12} className="animate-spin" />
+          ) : (
+            <ImagePlus size={12} />
+          )}
+          Add Photos
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={handleFilesSelected}
+        />
+      </div>
+
+      {group.images.length === 0 ? (
+        <p className="mt-2 text-xs font-semibold text-slate-300">
+          No images uploaded for this item yet.
+        </p>
+      ) : (
+        <div className="mt-2 grid grid-cols-4 gap-1.5 sm:grid-cols-6">
+          {group.images.map((image, imageIndex) => {
+            const isSelected = selectedIds.has(image.id);
+            return (
+              <div
+                key={image.id}
+                onClick={() => onViewImage(group.images, imageIndex)}
+                className={`group relative aspect-square cursor-pointer overflow-hidden rounded-lg border-2 transition-all duration-200 hover:scale-105 ${
+                  isSelected
+                    ? "border-emerald-400 shadow-md shadow-emerald-100"
+                    : "border-slate-200 hover:border-slate-300"
+                }`}
+              >
+                <img
+                  src={resolveImageUrl(image.url)}
+                  alt={image.originalFileName || "Item image"}
+                  className="h-full w-full object-cover"
+                  loading="lazy"
+                />
+                {isSelected && <div className="absolute inset-0 bg-emerald-500/10" />}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleImage(group.groupKey, image.id);
+                  }}
+                  className={`absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full transition-all duration-200 ${
+                    isSelected
+                      ? "bg-emerald-500 text-white shadow-md"
+                      : "bg-black/50 text-white opacity-0 group-hover:opacity-100 backdrop-blur-sm"
+                  }`}
+                >
+                  <CheckCircle2 size={11} />
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -1225,37 +1266,99 @@ function FinalizeItemRow({
 function FinalizeReview({
   rowKey,
   employeeId,
-  meetings,
   finalization,
   onClose,
   onFinalized,
 }) {
+  const [preview, setPreview] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
-  const [togglingId, setTogglingId] = useState(null);
+  const [selections, setSelections] = useState(new Map());
   const [viewer, setViewer] = useState(null);
+  const [budget, setBudget] = useState("");
 
-  const lastMeeting = meetings[meetings.length - 1];
+  const refreshPreview = useCallback(async () => {
+    const data = await loadFinalizePreview(rowKey);
+    setPreview(data);
+    return data;
+  }, [rowKey]);
 
-  async function handleToggleFinal(imageId) {
-    setTogglingId(imageId);
-    setError("");
-    try {
-      await toggleImageFinalSelection(rowKey, imageId);
-      await onFinalized();
-    } catch (err) {
-      setError(err.message || "Failed to update image selection.");
-    } finally {
-      setTogglingId(null);
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    refreshPreview()
+      .then((data) => {
+        if (cancelled) return;
+        setSelections(
+          new Map(
+            (data.items || []).map((group) => [
+              group.groupKey,
+              new Set(group.images.filter((image) => image.isSelected).map((image) => image.id)),
+            ])
+          )
+        );
+        setBudget(
+          data.finalization?.finalizedBudget !== null && data.finalization?.finalizedBudget !== undefined
+            ? String(data.finalization.finalizedBudget)
+            : ""
+        );
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message || "Failed to load finalize preview.");
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshPreview]);
+
+  function handleToggleImage(groupKey, imageId) {
+    setSelections((prev) => {
+      const next = new Map(prev);
+      const set = new Set(next.get(groupKey) || []);
+      if (set.has(imageId)) set.delete(imageId);
+      else set.add(imageId);
+      next.set(groupKey, set);
+      return next;
+    });
+  }
+
+  async function handleItemSaved() {
+    await refreshPreview();
+    await onFinalized();
+  }
+
+  async function handleImagesAdded(groupKey, newIds) {
+    await refreshPreview();
+    if (newIds.length) {
+      setSelections((prev) => {
+        const next = new Map(prev);
+        const set = new Set(next.get(groupKey) || []);
+        for (const id of newIds) set.add(id);
+        next.set(groupKey, set);
+        return next;
+      });
     }
+    await onFinalized();
   }
 
   async function handleConfirm() {
     setIsSaving(true);
     setError("");
     try {
-      await finalizeClient(rowKey, employeeId);
+      const items = (preview?.items || []).map((group) => ({
+        itemKey: group.itemKey,
+        customLabel: group.customLabel,
+        description: group.description,
+        quantity: group.quantity,
+        imageIds: Array.from(selections.get(group.groupKey) || []),
+      }));
+      await finalizeClient(rowKey, employeeId, items, budget.trim() === "" ? null : budget);
       await onFinalized();
+      onClose();
     } catch (err) {
       setError(err.message || "Failed to finalize client.");
     } finally {
@@ -1263,8 +1366,10 @@ function FinalizeReview({
     }
   }
 
-  const totalSelected = meetings.reduce(
-    (acc, m) => acc + m.images.filter((img) => img.isFinalSelected).length,
+  const items = preview?.items || [];
+  const activeFinalization = preview?.finalization || finalization;
+  const totalSelected = Array.from(selections.values()).reduce(
+    (acc, set) => acc + set.size,
     0
   );
 
@@ -1314,130 +1419,72 @@ function FinalizeReview({
         </div>
 
         <div className="max-h-[72vh] overflow-y-auto px-7 py-6">
-          {finalization && (
+          {activeFinalization && (
             <div className="mb-6 flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4">
               <BadgeCheck size={18} className="shrink-0 text-emerald-500" />
               <p className="text-xs font-semibold text-emerald-700">
                 Finalized by{" "}
                 <span className="font-black">
-                  {finalization.finalizedByName || "an employee"}
+                  {activeFinalization.finalizedByName || "an employee"}
                 </span>
-                {finalization.finalizedAt
-                  ? ` on ${formatDisplayDatetime(finalization.finalizedAt)}`
+                {activeFinalization.finalizedAt
+                  ? ` on ${formatDisplayDatetime(activeFinalization.finalizedAt)}`
                   : ""}
                 &nbsp;— you can still make changes and confirm again.
               </p>
             </div>
           )}
 
-          {meetings.length === 0 ? (
+          <div className="mb-6">
+            <label className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
+              <Wallet size={14} className="text-slate-400" />
+              Finalize Budget for this event
+            </label>
+            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 focus-within:border-slate-400">
+              <span className="text-sm font-black text-slate-400">৳</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={budget}
+                onChange={(event) => setBudget(event.target.value)}
+                placeholder="Enter finalized budget"
+                className="w-full border-none bg-transparent text-sm font-bold text-slate-900 outline-none placeholder:font-medium placeholder:text-slate-300"
+              />
+            </div>
+          </div>
+
+          <div className="mb-4 flex items-center gap-2">
+            <ClipboardList size={15} className="text-slate-400" />
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+              Items — combined across every meeting
+            </p>
+          </div>
+
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center py-16">
+              <Loader2 size={28} className="animate-spin text-slate-300" />
+            </div>
+          ) : items.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <Calendar size={36} className="mb-4 text-slate-200" />
-              <p className="font-black text-slate-400">No meetings to review</p>
+              <p className="font-black text-slate-400">No items to finalize yet</p>
             </div>
           ) : (
-            <div className="space-y-8">
-              {meetings.map((meeting, index) => (
-                <div key={meeting.id}>
-                  <div className="mb-3 flex items-center gap-3">
-                    <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-slate-900 text-[11px] font-black text-white">
-                      {index + 1}
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                        Meeting {index + 1}
-                      </p>
-                      <p className="text-xs font-bold text-slate-600">
-                        {formatDisplayDatetime(meeting.meetingDatetime)}
-                      </p>
-                    </div>
-                  </div>
-
-                  {meeting.images.length === 0 ? (
-                    <div className="flex items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 py-6 text-center">
-                      <p className="text-xs font-semibold text-slate-300">
-                        No images from this meeting
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-4 gap-2.5 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10">
-                      {meeting.images.map((image, imageIndex) => (
-                        <div
-                          key={image.id}
-                          onClick={() =>
-                            setViewer({ images: meeting.images, index: imageIndex })
-                          }
-                          className={`group relative aspect-square w-full cursor-pointer overflow-hidden rounded-2xl border-2 transition-all duration-200 hover:scale-105 hover:shadow-lg ${
-                            image.isFinalSelected
-                              ? "border-emerald-400 shadow-md shadow-emerald-100"
-                              : "border-slate-200 hover:border-slate-300"
-                          }`}
-                        >
-                          <img
-                            src={resolveImageUrl(image.url)}
-                            alt={image.originalFileName || "Meeting image"}
-                            className="h-full w-full object-cover"
-                            loading="lazy"
-                          />
-                          {image.isFinalSelected && (
-                            <div className="absolute inset-0 bg-emerald-500/10" />
-                          )}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleToggleFinal(image.id);
-                            }}
-                            disabled={togglingId === image.id}
-                            className={`absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full transition-all duration-200 disabled:opacity-60 ${
-                              image.isFinalSelected
-                                ? "bg-emerald-500 text-white shadow-md"
-                                : "bg-black/50 text-white opacity-0 group-hover:opacity-100 backdrop-blur-sm"
-                            }`}
-                          >
-                            {togglingId === image.id ? (
-                              <Loader2 size={12} className="animate-spin" />
-                            ) : (
-                              <CheckCircle2 size={12} />
-                            )}
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+            <div className="space-y-4">
+              {items.map((group) => (
+                <FinalizeItemGroupCard
+                  key={group.groupKey}
+                  rowKey={rowKey}
+                  group={group}
+                  employeeId={employeeId}
+                  selectedIds={selections.get(group.groupKey) || new Set()}
+                  onToggleImage={handleToggleImage}
+                  onViewImage={(images, index) => setViewer({ images, index })}
+                  onItemSaved={handleItemSaved}
+                  onImagesAdded={handleImagesAdded}
+                />
               ))}
-            </div>
-          )}
-
-          {lastMeeting && (
-            <div className="mt-8 overflow-hidden rounded-2xl border border-slate-200">
-              <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-5 py-3.5">
-                <ClipboardList size={15} className="text-slate-400" />
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                  Final Items — Meeting {meetings.length}
-                </p>
-              </div>
-              <div className="space-y-3 p-5">
-                {lastMeeting.items?.length ? (
-                  lastMeeting.items.map((item) => (
-                    <FinalizeItemRow
-                      key={item.id}
-                      rowKey={rowKey}
-                      meetingId={lastMeeting.id}
-                      item={item}
-                      employeeId={employeeId}
-                      onSaved={onFinalized}
-                      onViewImage={(images, index) =>
-                        setViewer({ images, index })
-                      }
-                    />
-                  ))
-                ) : (
-                  <p className="text-xs font-semibold text-slate-300">
-                    No items recorded yet.
-                  </p>
-                )}
-              </div>
             </div>
           )}
 
@@ -1457,7 +1504,7 @@ function FinalizeReview({
           </button>
           <button
             onClick={handleConfirm}
-            disabled={isSaving}
+            disabled={isSaving || isLoading}
             className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-black text-white transition-all duration-200 hover:bg-slate-700 disabled:opacity-60"
           >
             {isSaving ? (
@@ -1481,6 +1528,170 @@ function FinalizeReview({
   );
 }
 
+// Read-only view of exactly what was saved into client_finalizations —
+// distinct from FinalizeReview, which is the editable pick/confirm popup.
+function FinalizedItemsView({ rowKey, onClose }) {
+  const [detail, setDetail] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [viewer, setViewer] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadFinalizationDetail(rowKey)
+      .then((data) => {
+        if (!cancelled) setDetail(data);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message || "Failed to load finalized items.");
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [rowKey]);
+
+  const items = detail?.items || [];
+  const finalization = detail?.finalization;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 py-8"
+      style={{ animation: "fadeIn 0.2s ease" }}
+    >
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div
+        className="relative w-full max-w-5xl overflow-hidden rounded-3xl bg-white shadow-2xl shadow-black/30"
+        style={{ animation: "slideUp 0.3s ease" }}
+      >
+        <div className="flex items-center justify-between gap-4 border-b border-slate-100 bg-linear-to-r from-slate-50 to-white px-7 py-5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-500">
+              <BadgeCheck size={18} className="text-white" />
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                Finalized
+              </p>
+              <p className="text-base font-black text-slate-900">
+                Confirmed Items
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 transition-all duration-200 hover:bg-slate-100 hover:text-slate-700"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="max-h-[72vh] overflow-y-auto px-7 py-6">
+          {finalization && (
+            <div className="mb-6 flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4">
+              <BadgeCheck size={18} className="shrink-0 text-emerald-500" />
+              <p className="text-xs font-semibold text-emerald-700">
+                Finalized by{" "}
+                <span className="font-black">
+                  {finalization.finalizedByName || "an employee"}
+                </span>
+                {finalization.finalizedAt
+                  ? ` on ${formatDisplayDatetime(finalization.finalizedAt)}`
+                  : ""}
+              </p>
+            </div>
+          )}
+
+          {finalization?.finalizedBudget !== null && finalization?.finalizedBudget !== undefined && (
+            <div className="mb-6 flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4">
+              <Wallet size={18} className="shrink-0 text-slate-400" />
+              <p className="text-xs font-semibold text-slate-600">
+                Finalize Budget for this event —{" "}
+                <span className="font-black text-slate-900">
+                  ৳{Number(finalization.finalizedBudget).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </p>
+            </div>
+          )}
+
+          {error && (
+            <div className="mb-4 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+              <p className="text-xs font-bold text-red-600">{error}</p>
+            </div>
+          )}
+
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center py-16">
+              <Loader2 size={28} className="animate-spin text-slate-300" />
+            </div>
+          ) : items.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <ClipboardList size={36} className="mb-4 text-slate-200" />
+              <p className="font-black text-slate-400">No finalized items yet</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {items.map((item) => {
+                const option = CLIENT_REQUIREMENT_OPTIONS.find((c) => c.key === item.itemKey);
+                const displayLabel =
+                  item.itemKey === "other" ? item.customLabel || "Other" : option?.label || item.itemKey;
+
+                return (
+                  <div key={item.id} className="rounded-2xl border border-slate-200 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-sm font-black text-slate-900">{displayLabel}</p>
+                      <span className="rounded-lg bg-slate-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                        Qty {item.quantity}
+                      </span>
+                    </div>
+
+                    {item.description && (
+                      <p className="mt-2 text-xs text-slate-600">{item.description}</p>
+                    )}
+
+                    {item.images.length === 0 ? (
+                      <p className="mt-3 text-xs font-semibold text-slate-300">
+                        No images finalized for this item.
+                      </p>
+                    ) : (
+                      <div className="mt-3 grid grid-cols-4 gap-1.5 sm:grid-cols-6">
+                        {item.images.map((image, imageIndex) => (
+                          <div
+                            key={image.id}
+                            className="aspect-square cursor-pointer overflow-hidden rounded-lg border border-slate-200 bg-slate-100 transition-all duration-200 hover:border-slate-300 hover:scale-105"
+                            onClick={() => setViewer({ images: item.images, index: imageIndex })}
+                          >
+                            <img
+                              src={resolveImageUrl(image.url)}
+                              alt={image.originalFileName || "Finalized image"}
+                              className="h-full w-full object-cover"
+                              loading="lazy"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {viewer && (
+        <ImageLightbox
+          images={viewer.images}
+          initialIndex={viewer.index}
+          onClose={() => setViewer(null)}
+        />
+      )}
+    </div>
+  );
+}
+
 export default function ClientMeetingsPage() {
   const { rowKey } = useParams();
   const navigate = useNavigate();
@@ -1488,11 +1699,13 @@ export default function ClientMeetingsPage() {
   const backTo = location.state?.from || "/management";
   const [employee] = useState(() => loadCurrentEmployee());
   const [clientName, setClientName] = useState("");
+  const [eventDate, setEventDate] = useState("");
   const [meetings, setMeetings] = useState([]);
   const [finalization, setFinalization] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [showFinalize, setShowFinalize] = useState(false);
+  const [showFinalizedView, setShowFinalizedView] = useState(false);
   const [error, setError] = useState("");
   const [employeeDirectory, setEmployeeDirectory] = useState([]);
   // Tracks meeting ids created during this visit that haven't yet been
@@ -1507,6 +1720,7 @@ export default function ClientMeetingsPage() {
     try {
       const data = await loadClientMeetings(rowKey);
       setClientName(data.clientName || "");
+      setEventDate(data.eventDate || "");
       setMeetings(data.meetings || []);
       setFinalization(data.finalization || null);
     } catch (err) {
@@ -1612,6 +1826,12 @@ export default function ClientMeetingsPage() {
                 <h1 className="text-3xl font-black text-slate-900 sm:text-4xl">
                   {clientName || "This client"}
                 </h1>
+                {eventDate && (
+                  <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-600">
+                    <CalendarClock size={13} className="text-slate-400" />
+                    Event Date: {formatEventDateDisplay(eventDate)}
+                  </p>
+                )}
                 <p className="mt-2.5 max-w-2xl text-sm leading-relaxed text-slate-500">
                   Schedule meetings, track client requirements, and upload the
                   images the client chose during each session.
@@ -1647,14 +1867,6 @@ export default function ClientMeetingsPage() {
                     Meetings
                   </span>
                 </div>
-                <div className="flex flex-col items-center justify-center rounded-2xl bg-emerald-50 px-5 py-4 text-center border border-emerald-100">
-                  <span className="text-3xl font-black text-emerald-600">
-                    {meetings.filter((m) => m.isCompleted).length}
-                  </span>
-                  <span className="mt-0.5 text-[10px] font-bold uppercase tracking-widest text-emerald-500">
-                    Done
-                  </span>
-                </div>
               </div>
             </div>
 
@@ -1667,6 +1879,15 @@ export default function ClientMeetingsPage() {
                 <Sparkles size={16} className="text-amber-500" />
                 {finalization ? "Review & Re-confirm" : "Complete & Finalize"}
               </button>
+              {finalization && (
+                <button
+                  onClick={() => setShowFinalizedView(true)}
+                  className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-white px-5 py-2.5 text-sm font-black text-emerald-700 shadow-sm transition-all duration-200 hover:bg-emerald-50 hover:border-emerald-300 hover:shadow-md"
+                >
+                  <BadgeCheck size={16} className="text-emerald-500" />
+                  View Finalized Items
+                </button>
+              )}
               <button
                 onClick={handleCreateMeeting}
                 disabled={isCreating || hasEmptyMeeting}
@@ -1763,10 +1984,16 @@ export default function ClientMeetingsPage() {
         <FinalizeReview
           rowKey={rowKey}
           employeeId={employee?.id}
-          meetings={meetings}
           finalization={finalization}
           onClose={() => setShowFinalize(false)}
           onFinalized={refresh}
+        />
+      )}
+
+      {showFinalizedView && (
+        <FinalizedItemsView
+          rowKey={rowKey}
+          onClose={() => setShowFinalizedView(false)}
         />
       )}
     </div>

@@ -6,10 +6,11 @@ import {
   listMeetings,
   createMeeting,
   updateMeeting,
-  toggleMeetingComplete,
   updateImageTag,
   toggleImageFinal,
+  getFinalizePreview,
   finalizeMeeting,
+  getFinalizationDetail,
   deleteMeeting,
   uploadMeetingImages,
   deleteMeetingImage,
@@ -28,9 +29,10 @@ const router = Router();
 router.get("/:rowKey", listMeetings);
 router.post("/:rowKey", createMeeting);
 router.put("/:rowKey/:meetingId", updateMeeting);
-router.patch("/:rowKey/:meetingId/complete", toggleMeetingComplete);
 router.patch("/:rowKey/images/:imageId/tag", updateImageTag);
 router.patch("/:rowKey/images/:imageId/final", toggleImageFinal);
+router.get("/:rowKey/finalize/preview", getFinalizePreview);
+router.get("/:rowKey/finalize", getFinalizationDetail);
 router.post("/:rowKey/finalize", finalizeMeeting);
 router.delete("/:rowKey/:meetingId", deleteMeeting);
 router.post("/:rowKey/:meetingId/items", createMeetingItem);

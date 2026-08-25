@@ -78,6 +78,15 @@ function formatDisplayDatetime(value) {
   });
 }
 
+// "Event Date" arrives as a plain "YYYY-MM-DD" — shown as "DD/MM/YYYY" to
+// match how it's displayed on the Management sheet.
+function formatEventDateDisplay(iso) {
+  const match = String(iso ?? "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "";
+  const [, yyyy, mm, dd] = match;
+  return `${dd}/${mm}/${yyyy}`;
+}
+
 // The next call's assignee dropdown defaults to whoever is already assigned,
 // falling back to the logged-in employee — mirrors the same default both on
 // initial render and when checking dirty state, so opening a card with no
@@ -401,6 +410,7 @@ export default function ClientCallsPage() {
   const backTo = location.state?.from || "/management";
   const [employee] = useState(() => loadCurrentEmployee());
   const [clientName, setClientName] = useState("");
+  const [eventDate, setEventDate] = useState("");
   const [calls, setCalls] = useState([]);
   const [employeeDirectory, setEmployeeDirectory] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -417,6 +427,7 @@ export default function ClientCallsPage() {
     try {
       const data = await loadClientCalls(rowKey);
       setClientName(data.clientName || "");
+      setEventDate(data.eventDate || "");
       setCalls(data.calls || []);
     } catch (err) {
       setError(err.message || "Failed to load calls.");
@@ -531,6 +542,12 @@ export default function ClientCallsPage() {
                 <h1 className="text-3xl font-black text-slate-900 sm:text-4xl">
                   {clientName || "This client"}
                 </h1>
+                {eventDate && (
+                  <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-600">
+                    <CalendarClock size={13} className="text-slate-400" />
+                    Event Date: {formatEventDateDisplay(eventDate)}
+                  </p>
+                )}
               </div>
 
               {/* Stats */}

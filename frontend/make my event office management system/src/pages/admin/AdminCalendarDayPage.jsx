@@ -374,7 +374,6 @@ export default function AdminCalendarDayPage() {
                           <p className="truncate font-black text-mme-purple">{ev.clientName || "Unnamed client"}</p>
                           <p className="text-xs font-bold text-mme-purple/55">
                             {EVENT_LABELS[ev.source] || ev.source}{ev.time ? ` ┬╖ ${to12h(ev.time)}` : ""}
-                            {ev.isCompleted ? " ┬╖ Completed" : ""}
                             {ev.missed ? " ┬╖ Missed" : ""}
                           </p>
 

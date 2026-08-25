@@ -39,7 +39,6 @@ model Employee {
   uploadedMeetingImages    ClientMeetingImage[]
   createdClientMeetings    ClientMeeting[]      @relation("ClientMeetingCreatedBy")
   updatedClientMeetings    ClientMeeting[]      @relation("ClientMeetingUpdatedBy")
-  completedClientMeetings ClientMeeting[]      @relation("ClientMeetingCompletedBy")
   assignedByClientMeetings ClientMeeting[]      @relation("ClientMeetingAssignedBy")
   createdClientNextMeetings  ClientNextMeeting[] @relation("ClientNextMeetingCreatedBy")
   updatedClientNextMeetings  ClientNextMeeting[] @relation("ClientNextMeetingUpdatedBy")
@@ -56,6 +55,9 @@ model Employee {
   updatedSheetColumns      SheetColumn[]        @relation("SheetColumnUpdatedBy")
   createdSheetRows         SheetRow[]           @relation("SheetRowCreatedBy")
   updatedSheetRows         SheetRow[]           @relation("SheetRowUpdatedBy")
+  accountMoneyReceived     AccountMoneyReceived[]
+  accountExpenses          AccountExpense[]
+  accountWallet            AccountWallet?
 
   @@index([createdById], map: "fk_emp_created_by")
   @@index([roleId], map: "fk_emp_role")
@@ -225,6 +227,14 @@ model SheetCell {
   valueEmployeeId BigInt?   @map("value_employee_id") @db.UnsignedBigInt
   valueJson       Json?     @map("value_json")
   displayValue    String?   @map("display_value") @db.Text
+  // Set on the row's "Event Date" cell only — marks the client as already
+  // booked with another event management company (toggled via the Event
+  // Date cell's badge button; drives the row's highlight color).
+  alreadyBooked   Boolean   @default(false) @map("already_booked")
+  // Set on the row's "Event Date" cell only — automatically flips to true
+  // when the employee confirms & finalizes the client's event (drives the
+  // row's green highlight on the Management page).
+  bookedFromMme   Boolean   @default(false) @map("booked_from_mme")
   createdById     BigInt?   @map("created_by") @db.UnsignedBigInt
   updatedById     BigInt?   @map("updated_by") @db.UnsignedBigInt
   createdAt       DateTime? @default(now()) @map("created_at") @db.DateTime(0)
@@ -256,13 +266,9 @@ model ClientMeeting {
   assignedByEmployeeId BigInt? @map("assigned_by_employee_id") @db.UnsignedBigInt
   createdAt       DateTime  @default(now()) @map("created_at") @db.DateTime(0)
   updatedAt       DateTime  @default(now()) @map("updated_at") @db.DateTime(0)
-  isCompleted     Boolean   @default(false) @map("is_completed")
-  completedById   BigInt?   @map("completed_by") @db.UnsignedBigInt
-  completedAt     DateTime? @map("completed_at") @db.DateTime(0)
 
   createdBy   Employee? @relation("ClientMeetingCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "client_meetings_ibfk_1")
   updatedBy   Employee? @relation("ClientMeetingUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "client_meetings_ibfk_2")
-  completedBy Employee? @relation("ClientMeetingCompletedBy", fields: [completedById], references: [id], onUpdate: NoAction, map: "fk_client_meetings_completed_by")
   assignedBy  Employee? @relation("ClientMeetingAssignedBy", fields: [assignedByEmployeeId], references: [id], onUpdate: NoAction, map: "fk_client_meetings_assigned_by")
 
   images     ClientMeetingImage[]
@@ -271,7 +277,6 @@ model ClientMeeting {
 
   @@index([createdById], map: "client_meetings_ibfk_1")
   @@index([updatedById], map: "client_meetings_ibfk_2")
-  @@index([completedById], map: "fk_client_meetings_completed_by")
   @@index([assignedByEmployeeId], map: "fk_client_meetings_assigned_by")
   @@index([meetingDatetime], map: "idx_client_meetings_datetime")
   @@index([linkedRowKey], map: "idx_client_meetings_row")
@@ -402,17 +407,57 @@ model ClientNextCall {
 }
 
 model ClientFinalization {
-  id            BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
-  linkedRowKey  String    @unique(map: "uq_client_finalizations_row") @map("linked_row_key") @db.Char(36)
-  finalizedById BigInt?   @map("finalized_by") @db.UnsignedBigInt
-  finalizedAt   DateTime  @map("finalized_at") @db.DateTime(0)
-  createdAt     DateTime? @default(now()) @map("created_at") @db.Timestamp(0)
-  updatedAt     DateTime? @default(now()) @map("updated_at") @db.Timestamp(0)
+  id              BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  linkedRowKey    String    @unique(map: "uq_client_finalizations_row") @map("linked_row_key") @db.Char(36)
+  finalizedById   BigInt?   @map("finalized_by") @db.UnsignedBigInt
+  finalizedAt     DateTime  @map("finalized_at") @db.DateTime(0)
+  finalizedBudget Decimal?  @map("finalized_budget") @db.Decimal(12, 2)
+  createdAt       DateTime? @default(now()) @map("created_at") @db.Timestamp(0)
+  updatedAt       DateTime? @default(now()) @map("updated_at") @db.Timestamp(0)
 
   finalizedBy Employee? @relation(fields: [finalizedById], references: [id], onUpdate: NoAction, map: "fk_client_finalizations_employee")
+  items       ClientFinalizationItem[]
 
   @@index([finalizedById], map: "fk_client_finalizations_employee")
   @@map("client_finalizations")
+}
+
+// One row per distinct item (Stage, Entry Gate, ...) finalized for a
+// client — aggregated across every meeting the item ever appeared in, not
+// tied to a single meeting's MeetingItem row (which is per-meeting/copied
+// forward). Rewritten wholesale on every "Confirm & Finalize" submit.
+model ClientFinalizationItem {
+  id             BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  finalizationId BigInt   @map("finalization_id") @db.UnsignedBigInt
+  itemKey        String   @map("item_key") @db.VarChar(80)
+  customLabel    String?  @map("custom_label") @db.VarChar(160)
+  description    String?  @db.Text
+  quantity       Int?     @default(1) @db.UnsignedInt
+  createdAt      DateTime @default(now()) @map("created_at") @db.DateTime(0)
+
+  finalization ClientFinalization        @relation(fields: [finalizationId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_finalization_items_finalization")
+  images       ClientFinalizationImage[]
+
+  @@index([finalizationId], map: "fk_finalization_items_finalization")
+  @@map("client_finalization_items")
+}
+
+// A copy of the chosen image's metadata (same stored_file_name as the
+// source ClientMeetingImage) — kept independent so a finalized selection
+// survives even if the source meeting/item is later edited or deleted.
+model ClientFinalizationImage {
+  id                 BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  finalizationItemId BigInt   @map("finalization_item_id") @db.UnsignedBigInt
+  storedFileName     String   @map("stored_file_name") @db.VarChar(255)
+  originalFileName   String?  @map("original_file_name") @db.VarChar(255)
+  fileUrl            String   @map("file_url") @db.VarChar(500)
+  fileSizeBytes      Int?     @map("file_size_bytes") @db.UnsignedInt
+  createdAt          DateTime @default(now()) @map("created_at") @db.DateTime(0)
+
+  item ClientFinalizationItem @relation(fields: [finalizationItemId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_finalization_images_item")
+
+  @@index([finalizationItemId], map: "fk_finalization_images_item")
+  @@map("client_finalization_images")
 }
 
 model CalendarEvent {
@@ -533,4 +578,90 @@ model ExcelImportError {
 
   @@index([importId], map: "import_id")
   @@map("excel_import_errors")
+}
+
+// ─── Accounts (employee wallet / expense tracking) ─────────────────────
+
+// Repeatable log of money the boss gave an employee — immutable once
+// added (no update/delete endpoint), adds to the employee's wallet.
+model AccountMoneyReceived {
+  id           BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  employeeId   BigInt?  @map("employee_id") @db.UnsignedBigInt
+  amount       Decimal  @db.Decimal(12, 2)
+  receivedDate DateTime @map("received_date") @db.Date
+  note         String?  @db.VarChar(255)
+  createdAt    DateTime @default(now()) @map("created_at") @db.DateTime(0)
+
+  employee Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_money_received_employee")
+
+  @@index([employeeId], map: "fk_account_money_received_employee")
+  @@map("account_money_received")
+}
+
+enum AccountCostType {
+  event
+  regular
+
+  @@map("account_expenses_cost_type")
+}
+
+// One row per "Submit Cost" click (event-based or regular) — immutable
+// once submitted, deducts totalAmount from the employee's wallet.
+model AccountExpense {
+  id                      BigInt          @id @default(autoincrement()) @db.UnsignedBigInt
+  employeeId              BigInt?         @map("employee_id") @db.UnsignedBigInt
+  costType                AccountCostType @map("cost_type")
+  // Plain index into sheet_rows.row_key, NOT a real FK — same convention as
+  // client_meetings.linked_row_key. Only set when costType = "event".
+  linkedRowKey            String?         @map("linked_row_key") @db.Char(36)
+  // Frozen copy of the client name / event date at submit time, so this
+  // history entry stays accurate even if the sheet row is edited later.
+  eventClientNameSnapshot String?         @map("event_client_name_snapshot") @db.VarChar(190)
+  eventDateSnapshot       DateTime?       @map("event_date_snapshot") @db.Date
+  totalAmount             Decimal         @map("total_amount") @db.Decimal(12, 2)
+  createdAt               DateTime        @default(now()) @map("created_at") @db.DateTime(0)
+
+  employee Employee?            @relation(fields: [employeeId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_expenses_employee")
+  items    AccountExpenseItem[]
+
+  @@index([employeeId], map: "fk_account_expenses_employee")
+  @@index([linkedRowKey], map: "idx_account_expenses_row")
+  @@map("account_expenses")
+}
+
+// A single row of the 7-column expense table. onDelete: Restrict (not
+// Cascade, unlike this repo's other item/image child tables) — expense
+// records are an immutable audit trail with no delete endpoint at all, so
+// a parent row must never be removable while items still reference it.
+model AccountExpenseItem {
+  id                      BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  expenseId               BigInt   @map("expense_id") @db.UnsignedBigInt
+  purpose                 String   @db.VarChar(190)
+  costDate                DateTime @map("cost_date") @db.Date
+  quantity                Decimal  @db.Decimal(10, 2)
+  perQtyAmount            Decimal  @map("per_qty_amount") @db.Decimal(12, 2)
+  totalAmount             Decimal  @map("total_amount") @db.Decimal(12, 2)
+  receiptStoredFileName   String?  @map("receipt_stored_file_name") @db.VarChar(255)
+  receiptOriginalFileName String?  @map("receipt_original_file_name") @db.VarChar(255)
+  receiptFileUrl          String?  @map("receipt_file_url") @db.VarChar(500)
+  receiptFileSizeBytes    Int?     @map("receipt_file_size_bytes") @db.UnsignedInt
+  createdAt               DateTime @default(now()) @map("created_at") @db.DateTime(0)
+
+  expense AccountExpense @relation(fields: [expenseId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_account_expense_items_expense")
+
+  @@index([expenseId], map: "fk_account_expense_items_expense")
+  @@map("account_expense_items")
+}
+
+// Stored current balance per employee (received − spent), kept in sync
+// transactionally on every AccountMoneyReceived/AccountExpense write — the
+// fast read path for the wallet header display and (later) admin oversight.
+model AccountWallet {
+  employeeId     BigInt   @id @map("employee_id") @db.UnsignedBigInt
+  currentBalance Decimal  @default(0) @map("current_balance") @db.Decimal(12, 2)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_account_wallets_employee")
+
+  @@map("account_wallets")
 }
