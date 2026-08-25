@@ -55,6 +55,9 @@ model Employee {
   updatedSheetColumns      SheetColumn[]        @relation("SheetColumnUpdatedBy")
   createdSheetRows         SheetRow[]           @relation("SheetRowCreatedBy")
   updatedSheetRows         SheetRow[]           @relation("SheetRowUpdatedBy")
+  accountMoneyReceived     AccountMoneyReceived[]
+  accountExpenses          AccountExpense[]
+  accountWallet            AccountWallet?
 
   @@index([createdById], map: "fk_emp_created_by")
   @@index([roleId], map: "fk_emp_role")
@@ -575,4 +578,90 @@ model ExcelImportError {
 
   @@index([importId], map: "import_id")
   @@map("excel_import_errors")
+}
+
+// ─── Accounts (employee wallet / expense tracking) ─────────────────────
+
+// Repeatable log of money the boss gave an employee — immutable once
+// added (no update/delete endpoint), adds to the employee's wallet.
+model AccountMoneyReceived {
+  id           BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  employeeId   BigInt?  @map("employee_id") @db.UnsignedBigInt
+  amount       Decimal  @db.Decimal(12, 2)
+  receivedDate DateTime @map("received_date") @db.Date
+  note         String?  @db.VarChar(255)
+  createdAt    DateTime @default(now()) @map("created_at") @db.DateTime(0)
+
+  employee Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_money_received_employee")
+
+  @@index([employeeId], map: "fk_account_money_received_employee")
+  @@map("account_money_received")
+}
+
+enum AccountCostType {
+  event
+  regular
+
+  @@map("account_expenses_cost_type")
+}
+
+// One row per "Submit Cost" click (event-based or regular) — immutable
+// once submitted, deducts totalAmount from the employee's wallet.
+model AccountExpense {
+  id                      BigInt          @id @default(autoincrement()) @db.UnsignedBigInt
+  employeeId              BigInt?         @map("employee_id") @db.UnsignedBigInt
+  costType                AccountCostType @map("cost_type")
+  // Plain index into sheet_rows.row_key, NOT a real FK — same convention as
+  // client_meetings.linked_row_key. Only set when costType = "event".
+  linkedRowKey            String?         @map("linked_row_key") @db.Char(36)
+  // Frozen copy of the client name / event date at submit time, so this
+  // history entry stays accurate even if the sheet row is edited later.
+  eventClientNameSnapshot String?         @map("event_client_name_snapshot") @db.VarChar(190)
+  eventDateSnapshot       DateTime?       @map("event_date_snapshot") @db.Date
+  totalAmount             Decimal         @map("total_amount") @db.Decimal(12, 2)
+  createdAt               DateTime        @default(now()) @map("created_at") @db.DateTime(0)
+
+  employee Employee?            @relation(fields: [employeeId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_expenses_employee")
+  items    AccountExpenseItem[]
+
+  @@index([employeeId], map: "fk_account_expenses_employee")
+  @@index([linkedRowKey], map: "idx_account_expenses_row")
+  @@map("account_expenses")
+}
+
+// A single row of the 7-column expense table. onDelete: Restrict (not
+// Cascade, unlike this repo's other item/image child tables) — expense
+// records are an immutable audit trail with no delete endpoint at all, so
+// a parent row must never be removable while items still reference it.
+model AccountExpenseItem {
+  id                      BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  expenseId               BigInt   @map("expense_id") @db.UnsignedBigInt
+  purpose                 String   @db.VarChar(190)
+  costDate                DateTime @map("cost_date") @db.Date
+  quantity                Decimal  @db.Decimal(10, 2)
+  perQtyAmount            Decimal  @map("per_qty_amount") @db.Decimal(12, 2)
+  totalAmount             Decimal  @map("total_amount") @db.Decimal(12, 2)
+  receiptStoredFileName   String?  @map("receipt_stored_file_name") @db.VarChar(255)
+  receiptOriginalFileName String?  @map("receipt_original_file_name") @db.VarChar(255)
+  receiptFileUrl          String?  @map("receipt_file_url") @db.VarChar(500)
+  receiptFileSizeBytes    Int?     @map("receipt_file_size_bytes") @db.UnsignedInt
+  createdAt               DateTime @default(now()) @map("created_at") @db.DateTime(0)
+
+  expense AccountExpense @relation(fields: [expenseId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_account_expense_items_expense")
+
+  @@index([expenseId], map: "fk_account_expense_items_expense")
+  @@map("account_expense_items")
+}
+
+// Stored current balance per employee (received − spent), kept in sync
+// transactionally on every AccountMoneyReceived/AccountExpense write — the
+// fast read path for the wallet header display and (later) admin oversight.
+model AccountWallet {
+  employeeId     BigInt   @id @map("employee_id") @db.UnsignedBigInt
+  currentBalance Decimal  @default(0) @map("current_balance") @db.Decimal(12, 2)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_account_wallets_employee")
+
+  @@map("account_wallets")
 }

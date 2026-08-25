@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate && node scripts/ensureAccountsNodeModulesLink.js"
   },
   "dependencies": {
     "@prisma/adapter-mariadb": "^7.9.1",

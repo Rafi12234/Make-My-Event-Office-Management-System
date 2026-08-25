@@ -8,6 +8,7 @@ import ClientMeetingsPage from "./pages/ClientMeetingsPage";
 import ClientCallsPage from "./pages/ClientCallsPage";
 import CalendarPage from "./pages/CalendarPage";
 import CalendarDayPage from "./pages/CalendarDayPage";
+import AccountsPage from "../../../Accounts/frontend/pages/AccountsPage";
 import AdminPage from "./pages/AdminPage";
 import AdminDashboardPage from "./pages/AdminDashboardPage";
 import AdminClientDetailPage from "./pages/AdminClientDetailPage";
@@ -63,6 +64,7 @@ function App() {
         <Route path="/management/calls/:rowKey" element={<RequirePasswordChange><ClientCallsPage /></RequirePasswordChange>} />
         <Route path="/calendar" element={<RequirePasswordChange><CalendarPage /></RequirePasswordChange>} />
         <Route path="/calendar/day/:date" element={<RequirePasswordChange><CalendarDayPage /></RequirePasswordChange>} />
+        <Route path="/accounts" element={<RequirePasswordChange><AccountsPage /></RequirePasswordChange>} />
         <Route path="/admin" element={<Navigate to="/admin-dashboard" replace />} />
         <Route path="/admin-dashboard" element={<BlockIfEmployeeSession><AdminDashboardPage /></BlockIfEmployeeSession>} />
         <Route path="/admin-dashboard/clients/:rowKey" element={<BlockIfEmployeeSession><AdminClientDetailPage /></BlockIfEmployeeSession>} />

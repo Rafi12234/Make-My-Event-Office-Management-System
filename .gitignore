@@ -37,3 +37,6 @@ github_deploy_key*
 
 # ── Uploaded meeting images (backend-owned, never committed) ──
 backend/mme_node_express_backend/uploads/
+
+# ── Uploaded expense receipts (Accounts module, never committed) ──
+Accounts/backend/uploads/

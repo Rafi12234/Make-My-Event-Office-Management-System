@@ -21,10 +21,12 @@ import {
   Trash2,
   Upload,
   UserRound,
+  Wallet,
   X,
 } from "lucide-react";
 import AddColumnModal from "../components/AddColumnModal";
 import ConfirmDialog from "../components/ConfirmDialog";
+import EmployeeLayout from "../components/EmployeeLayout";
 import ExcelImportModal from "../components/ExcelImportModal";
 import {
   MANDATORY_EXCEL_COLUMNS,
@@ -1409,18 +1411,21 @@ export default function ManagementPage() {
 
   if (isLoadingWorkspace) {
     return (
+      <EmployeeLayout>
       <div className="grid min-h-screen place-items-center bg-[#ffffff] text-black">
         <div className="animate-[fadeInUp_0.4s_ease-out] text-center">
           <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-[#d6d6d6] border-t-black" />
           <p className="mt-4 font-black">Loading shared management data...</p>
         </div>
       </div>
+      </EmployeeLayout>
     );
   }
 
   /* ─── Render ─── */
 
   return (
+    <EmployeeLayout>
     <div className="min-h-screen bg-[#ffffff] text-black">
       {/* ── Global keyframes ── */}
       <style>{`
@@ -1570,6 +1575,9 @@ export default function ManagementPage() {
             </div>
 
             <div className="flex flex-wrap gap-2">
+              <Link to="/accounts" className="inline-flex items-center gap-2 rounded-xl bg-[#301934] px-4 py-2.5 text-sm font-black text-white shadow-md shadow-[#301934]/30 transition-all duration-200 hover:brightness-125 hover:shadow-lg hover:shadow-[#301934]/40 active:scale-[0.97]">
+                <Wallet size={17} /> Accounts
+              </Link>
               <Link to="/calendar" className="inline-flex items-center gap-2 rounded-xl bg-[#301934] px-4 py-2.5 text-sm font-black text-white shadow-md shadow-[#301934]/30 transition-all duration-200 hover:brightness-125 hover:shadow-lg hover:shadow-[#301934]/40 active:scale-[0.97]">
                 <CalendarDays size={17} /> Calendar
               </Link>
@@ -2099,5 +2107,6 @@ export default function ManagementPage() {
         </button>
       )}
     </div>
+    </EmployeeLayout>
   );
 }

@@ -6,7 +6,7 @@ import morgan from "morgan";
 import cookieParser from "cookie-parser";
 import path from "node:path";
 import { existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { prisma, verifyDatabaseConnection } from "./config/prisma.js";
 import employeeRoutes from "./routes/employees.js";
@@ -61,6 +61,30 @@ const frontendIndexFile = path.join(
 
 /*
 |--------------------------------------------------------------------------
+| Resolve the Accounts module
+|--------------------------------------------------------------------------
+|
+| Accounts/backend lives in a separate top-level folder, NOT inside this
+| project, so a fixed relative import breaks once deployed (production's
+| directory layout doesn't mirror this repo's nesting). ACCOUNTS_BACKEND_DIR
+| lets deployment point at wherever those files actually land on disk;
+| local dev falls back to the real repo-relative path.
+|
+*/
+
+const accountsBackendDirectory = process.env.ACCOUNTS_BACKEND_DIR
+  ? path.resolve(process.env.ACCOUNTS_BACKEND_DIR)
+  : path.resolve(__dirname, "../../../Accounts/backend");
+
+const {
+  default: accountsRoutes,
+  uploadsRootDirectory: accountsUploadsRootDirectory,
+} = await import(
+  pathToFileURL(path.join(accountsBackendDirectory, "routes/accounts.js")).href
+);
+
+/*
+|--------------------------------------------------------------------------
 | Global middleware
 |--------------------------------------------------------------------------
 */
@@ -109,6 +133,16 @@ app.use(
   }),
 );
 
+// Accounts module's cash-receipt uploads — a separate backend-owned folder
+// (lives under Accounts/backend/uploads, not this project's own uploads/),
+// see Accounts/backend/controllers/accountsController.js.
+app.use(
+  "/accounts-uploads",
+  express.static(accountsUploadsRootDirectory, {
+    maxAge: "7d",
+  }),
+);
+
 /*
 |--------------------------------------------------------------------------
 | Health-check route
@@ -145,6 +179,7 @@ app.use("/api/admin", adminCalendarRoutes);
 app.use("/api/admin", adminDashboardRoutes);
 app.use("/api/meetings", requireEmployee, meetingRoutes);
 app.use("/api/calls", requireEmployee, callRoutes);
+app.use("/api/accounts", requireEmployee, accountsRoutes);
 
 /*
 |--------------------------------------------------------------------------
