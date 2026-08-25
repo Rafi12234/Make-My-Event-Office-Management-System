@@ -6,7 +6,8 @@ import morgan from "morgan";
 import cookieParser from "cookie-parser";
 import path from "node:path";
 import { existsSync } from "node:fs";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 
 import { prisma, verifyDatabaseConnection } from "./config/prisma.js";
 import employeeRoutes from "./routes/employees.js";
@@ -70,7 +71,13 @@ const frontendIndexFile = path.join(
 | lets deployment point at wherever those files actually land on disk;
 | local dev falls back to the real repo-relative path.
 |
+| Loaded via require() (not a dynamic import()) so no top-level await is
+| introduced here - LiteSpeed/Passenger's lsnode.js loads this whole app
+| with a synchronous require(), which hard-crashes (ERR_REQUIRE_ASYNC_MODULE)
+| if the ESM graph contains top-level await anywhere.
 */
+
+const require = createRequire(import.meta.url);
 
 const accountsBackendDirectory = process.env.ACCOUNTS_BACKEND_DIR
   ? path.resolve(process.env.ACCOUNTS_BACKEND_DIR)
@@ -79,9 +86,7 @@ const accountsBackendDirectory = process.env.ACCOUNTS_BACKEND_DIR
 const {
   default: accountsRoutes,
   uploadsRootDirectory: accountsUploadsRootDirectory,
-} = await import(
-  pathToFileURL(path.join(accountsBackendDirectory, "routes/accounts.js")).href
-);
+} = require(path.join(accountsBackendDirectory, "routes/accounts.js"));
 
 /*
 |--------------------------------------------------------------------------

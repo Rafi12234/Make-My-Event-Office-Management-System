@@ -1,7 +1,8 @@
 import path from "node:path";
 import crypto from "node:crypto";
 import { mkdirSync, unlink } from "node:fs";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import multer from "multer";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -11,15 +12,17 @@ const __dirname = path.dirname(__filename);
 // (production's layout doesn't mirror this repo's nesting), so BACKEND_SRC_DIR
 // lets deployment point at wherever it actually lands; local dev falls back
 // to the real repo-relative path. See server.js's matching ACCOUNTS_BACKEND_DIR.
+// Loaded via require() (not import()) - see server.js for why top-level
+// await must be avoided anywhere in this module graph.
+const require = createRequire(import.meta.url);
+
 const backendSrcDirectory = process.env.BACKEND_SRC_DIR
   ? path.resolve(process.env.BACKEND_SRC_DIR)
   : path.resolve(__dirname, "../../../backend/mme_node_express_backend/src");
 
-const { prisma } = await import(
-  pathToFileURL(path.join(backendSrcDirectory, "config/prisma.js")).href
-);
-const { formatDateOnly, formatDateTime, parseDateOnly } = await import(
-  pathToFileURL(path.join(backendSrcDirectory, "utils/dbDates.js")).href
+const { prisma } = require(path.join(backendSrcDirectory, "config/prisma.js"));
+const { formatDateOnly, formatDateTime, parseDateOnly } = require(
+  path.join(backendSrcDirectory, "utils/dbDates.js"),
 );
 
 /*
