@@ -77,6 +77,21 @@ export async function loadBookedEvents() {
   return apiRequest("/accounts/booked-events");
 }
 
+export async function loadVendors() {
+  return apiRequest("/accounts/vendors");
+}
+
+export async function loadVendorProfile(vendorId) {
+  return apiRequest(`/accounts/vendors/${vendorId}`);
+}
+
+export async function payVendor(vendorId, { amount, paidOn, note }) {
+  return apiRequest(`/accounts/vendors/${vendorId}/pay`, {
+    method: "POST",
+    body: JSON.stringify({ amount, paidOn, note }),
+  });
+}
+
 export async function addMoneyReceived({ amount, receivedDate, note }) {
   return apiRequest("/accounts/money-received", {
     method: "POST",
@@ -93,11 +108,13 @@ export async function submitExpense({ costType, linkedRowKey, items }) {
   formData.append(
     "items",
     JSON.stringify(
-      items.map(({ purpose, costDate, quantity, perQtyAmount }) => ({
+      items.map(({ purpose, costDate, quantity, perQtyAmount, vendorId, paymentStatus }) => ({
         purpose,
         costDate,
         quantity,
         perQtyAmount,
+        vendorId: vendorId || null,
+        paymentStatus: vendorId ? paymentStatus : null,
       })),
     ),
   );
