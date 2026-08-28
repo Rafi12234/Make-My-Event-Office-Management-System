@@ -605,6 +605,44 @@ enum AccountCostType {
   @@map("account_expenses_cost_type")
 }
 
+enum VendorPaymentStatus {
+  to_pay
+  paid
+
+  @@map("account_expense_items_payment_status")
+}
+
+// A payee an employee can spend against (Transportation/Carpenter/Flower
+// etc.) — company-wide, not per-employee. Creation/deactivation is
+// Admin-only (UI pending); isActive is the only lifecycle control, there
+// is no delete endpoint so history never dangles.
+model Vendor {
+  id        BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  name      String   @db.VarChar(190)
+  category  String?  @db.VarChar(100)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(0)
+
+  expenseItems AccountExpenseItem[]
+  balance      VendorBalance?
+
+  @@map("vendors")
+}
+
+// Stored running balance per vendor (negative = we owe the vendor,
+// positive = we've paid/advanced beyond what's owed) — shared across all
+// employees, kept in sync transactionally alongside AccountExpenseItem
+// writes, same convention as AccountWallet.
+model VendorBalance {
+  vendorId       BigInt   @id @map("vendor_id") @db.UnsignedBigInt
+  currentBalance Decimal  @default(0) @map("current_balance") @db.Decimal(12, 2)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_vendor_balances_vendor")
+
+  @@map("vendor_balances")
+}
+
 // One row per "Submit Cost" click (event-based or regular) — immutable
 // once submitted, deducts totalAmount from the employee's wallet.
 model AccountExpense {
@@ -634,22 +672,30 @@ model AccountExpense {
 // records are an immutable audit trail with no delete endpoint at all, so
 // a parent row must never be removable while items still reference it.
 model AccountExpenseItem {
-  id                      BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
-  expenseId               BigInt   @map("expense_id") @db.UnsignedBigInt
-  purpose                 String   @db.VarChar(190)
-  costDate                DateTime @map("cost_date") @db.Date
-  quantity                Decimal  @db.Decimal(10, 2)
-  perQtyAmount            Decimal  @map("per_qty_amount") @db.Decimal(12, 2)
-  totalAmount             Decimal  @map("total_amount") @db.Decimal(12, 2)
-  receiptStoredFileName   String?  @map("receipt_stored_file_name") @db.VarChar(255)
-  receiptOriginalFileName String?  @map("receipt_original_file_name") @db.VarChar(255)
-  receiptFileUrl          String?  @map("receipt_file_url") @db.VarChar(500)
-  receiptFileSizeBytes    Int?     @map("receipt_file_size_bytes") @db.UnsignedInt
-  createdAt               DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  id                      BigInt               @id @default(autoincrement()) @db.UnsignedBigInt
+  expenseId               BigInt               @map("expense_id") @db.UnsignedBigInt
+  purpose                 String               @db.VarChar(190)
+  costDate                DateTime             @map("cost_date") @db.Date
+  quantity                Decimal              @db.Decimal(10, 2)
+  perQtyAmount            Decimal              @map("per_qty_amount") @db.Decimal(12, 2)
+  totalAmount             Decimal              @map("total_amount") @db.Decimal(12, 2)
+  receiptStoredFileName   String?              @map("receipt_stored_file_name") @db.VarChar(255)
+  receiptOriginalFileName String?              @map("receipt_original_file_name") @db.VarChar(255)
+  receiptFileUrl          String?              @map("receipt_file_url") @db.VarChar(500)
+  receiptFileSizeBytes    Int?                 @map("receipt_file_size_bytes") @db.UnsignedInt
+  // Both null when this item has no vendor attached (unchanged behaviour).
+  // When vendorId is set, paymentStatus decides the money flow: "paid"
+  // deducts the wallet immediately and settles the vendor ledger; "to_pay"
+  // is a liability only — no wallet deduction until later paid.
+  vendorId                BigInt?              @map("vendor_id") @db.UnsignedBigInt
+  paymentStatus           VendorPaymentStatus? @map("payment_status")
+  createdAt               DateTime             @default(now()) @map("created_at") @db.DateTime(0)
 
   expense AccountExpense @relation(fields: [expenseId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_account_expense_items_expense")
+  vendor  Vendor?        @relation(fields: [vendorId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_expense_items_vendor")
 
   @@index([expenseId], map: "fk_account_expense_items_expense")
+  @@index([vendorId], map: "fk_account_expense_items_vendor")
   @@map("account_expense_items")
 }
 

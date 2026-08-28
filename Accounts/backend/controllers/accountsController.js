@@ -173,19 +173,60 @@ function serializeExpenseItem(item) {
     totalAmount: Number(item.totalAmount),
     receiptUrl: item.receiptFileUrl || null,
     receiptOriginalFileName: item.receiptOriginalFileName || null,
+    vendorId: item.vendorId ? String(item.vendorId) : null,
+    vendorName: item.vendor?.name || null,
+    paymentStatus: item.paymentStatus || null,
   };
 }
 
-function serializeExpense(expense) {
+function serializeVendor(vendor) {
+  return {
+    id: String(vendor.id),
+    name: vendor.name,
+    category: vendor.category || null,
+    isActive: Boolean(vendor.isActive),
+    currentBalance: vendor.balance ? Number(vendor.balance.currentBalance) : 0,
+  };
+}
+
+// A "To Pay" vendor item is an order placed, not money actually spent yet —
+// it must never count toward the Expenses history or the total-spent figure.
+// This filters those out and recomputes the total from what's left, so a
+// submission that's entirely "to pay" has nothing to show here at all
+// (returns null — see the vendor-payments list below for where it does show).
+function serializeExpenseForHistory(expense) {
+  const paidItems = (expense.items || []).filter(
+    (item) => !(item.vendorId && item.paymentStatus === "to_pay"),
+  );
+  if (paidItems.length === 0) return null;
+
   return {
     id: expense.id,
     costType: expense.costType,
     linkedRowKey: expense.linkedRowKey,
     eventClientName: expense.eventClientNameSnapshot || null,
     eventDate: formatDateOnly(expense.eventDateSnapshot),
-    totalAmount: Number(expense.totalAmount),
+    totalAmount: roundMoney(paidItems.reduce((sum, item) => sum + Number(item.totalAmount), 0)),
     createdAt: formatDateTime(expense.createdAt),
-    items: (expense.items || []).map(serializeExpenseItem),
+    items: paidItems.map(serializeExpenseItem),
+  };
+}
+
+// One row per vendor-linked item (both "to_pay" and "paid") for the History
+// page's dedicated Vendor Payment tab — this is the only place a "to_pay"
+// item is ever shown to the employee.
+function serializeVendorPaymentEntry(item, expense) {
+  return {
+    id: item.id,
+    purpose: item.purpose,
+    costType: expense.costType,
+    eventClientName: expense.eventClientNameSnapshot || null,
+    costDate: formatDateOnly(item.costDate),
+    totalAmount: Number(item.totalAmount),
+    paymentStatus: item.paymentStatus,
+    vendorId: item.vendorId ? String(item.vendorId) : null,
+    vendorName: item.vendor?.name || null,
+    createdAt: formatDateTime(item.createdAt),
   };
 }
 
@@ -207,7 +248,7 @@ export async function getSummary(req, res, next) {
       }),
       prisma.accountExpense.findMany({
         where: { employeeId },
-        include: { items: { orderBy: { id: "asc" } } },
+        include: { items: { include: { vendor: true }, orderBy: { id: "asc" } } },
         orderBy: { id: "desc" },
       }),
     ]);
@@ -216,7 +257,14 @@ export async function getSummary(req, res, next) {
       data: {
         currentBalance: wallet ? Number(wallet.currentBalance) : 0,
         moneyReceived: moneyReceived.map(serializeMoneyReceived),
-        expenses: expenses.map(serializeExpense),
+        expenses: expenses.map(serializeExpenseForHistory).filter(Boolean),
+        vendorPayments: expenses
+          .flatMap((expense) =>
+            expense.items
+              .filter((item) => item.vendorId)
+              .map((item) => serializeVendorPaymentEntry(item, expense)),
+          )
+          .sort((a, b) => Number(b.id) - Number(a.id)),
       },
     });
   } catch (error) {
@@ -253,6 +301,9 @@ export async function listBookedEvents(req, res, next) {
             valueText: true,
             displayValue: true,
             valueDate: true,
+            // Both flags live on the "Event Date" cell only.
+            alreadyBooked: true,
+            bookedFromMme: true,
             column: { select: { columnName: true } },
           },
         },
@@ -274,13 +325,171 @@ export async function listBookedEvents(req, res, next) {
           rowKey,
           clientName: clientNameCell?.valueText || clientNameCell?.displayValue || "",
           eventDate: formatDateOnly(eventDateCell?.valueDate),
+          bookedFromMme: Boolean(eventDateCell?.bookedFromMme),
+          alreadyBooked: Boolean(eventDateCell?.alreadyBooked),
         };
       })
       .filter(Boolean)
-      // Only upcoming confirmed events belong in the Event Based Cost picker — past events are excluded.
-      .filter((event) => event.eventDate && event.eventDate >= todayStr);
+      // Booked through us only: ClientFinalization already means "confirmed
+      // & finalized with us" (which is what flips bookedFromMme), so rows
+      // flagged as booked with another company are excluded.
+      .filter((event) => event.bookedFromMme && !event.alreadyBooked)
+      // Costs are logged against events that have not happened yet.
+      .filter((event) => event.eventDate && event.eventDate >= todayStr)
+      .sort((a, b) => a.eventDate.localeCompare(b.eventDate))
+      .map(({ rowKey, clientName, eventDate }) => ({ rowKey, clientName, eventDate }));
 
     res.json({ data: events });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// ─── GET /api/accounts/vendors ──────────────────────────────────
+
+// Every employee can view + transact against vendors (per the module's
+// design) — only Admin can create/deactivate them, so this list is
+// read-only here regardless of who calls it.
+export async function listVendors(req, res, next) {
+  try {
+    const vendors = await prisma.vendor.findMany({
+      where: { isActive: true },
+      include: { balance: true },
+      orderBy: { name: "asc" },
+    });
+
+    res.json({ data: vendors.map(serializeVendor) });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// ─── GET /api/accounts/vendors/:id ─────────────────────────────
+
+// Vendor profile: current shared balance + full transaction history
+// (every AccountExpenseItem ever booked against this vendor, across all
+// employees — the balance is company-wide, not per-employee).
+export async function getVendorProfile(req, res, next) {
+  try {
+    const vendorId = BigInt(req.params.id);
+
+    const vendor = await prisma.vendor.findUnique({
+      where: { id: vendorId },
+      include: { balance: true },
+    });
+    if (!vendor) {
+      return res.status(404).json({ message: "Vendor not found." });
+    }
+
+    const items = await prisma.accountExpenseItem.findMany({
+      where: { vendorId },
+      include: {
+        expense: {
+          select: {
+            costType: true,
+            eventClientNameSnapshot: true,
+            eventDateSnapshot: true,
+            employee: { select: { fullName: true } },
+          },
+        },
+      },
+      orderBy: { id: "desc" },
+    });
+
+    const transactions = items.map((item) => ({
+      id: item.id,
+      purpose: item.purpose,
+      costDate: formatDateOnly(item.costDate),
+      totalAmount: Number(item.totalAmount),
+      paymentStatus: item.paymentStatus,
+      costType: item.expense.costType,
+      eventClientName: item.expense.eventClientNameSnapshot || null,
+      employeeName: item.expense.employee?.fullName || "—",
+      createdAt: formatDateTime(item.createdAt),
+    }));
+
+    res.json({
+      data: {
+        vendor: serializeVendor(vendor),
+        transactions,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// ─── POST /api/accounts/vendors/:id/pay ────────────────────────
+
+// Records a real-world payment made to a vendor to settle (part of) an
+// outstanding balance. Modeled as a single "regular" expense item tied to
+// this vendor with paymentStatus "paid" — the same wallet-deduct +
+// vendor-balance-credit rules as logging a paid cost, without the full
+// item form. Shows up in both the Expenses history and the Vendor
+// Payments tab, same as any other paid vendor item would.
+export async function payVendor(req, res, next) {
+  try {
+    const employeeId = BigInt(req.employee.id);
+    const vendorId = BigInt(req.params.id);
+    const amount = roundMoney(Number(req.body.amount));
+    const paidOn = parseDateOnly(req.body.paidOn) || new Date();
+    const note = String(req.body.note || "").trim().slice(0, 190);
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(422).json({ message: "Enter a valid amount greater than 0." });
+    }
+
+    const vendor = await prisma.vendor.findUnique({ where: { id: vendorId } });
+    if (!vendor || !vendor.isActive) {
+      return res.status(404).json({ message: "Vendor not found." });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.accountExpense.create({
+        data: {
+          employeeId,
+          costType: "regular",
+          totalAmount: amount,
+          items: {
+            create: [
+              {
+                purpose: note || `Payment to ${vendor.name}`,
+                costDate: paidOn,
+                quantity: 1,
+                perQtyAmount: amount,
+                totalAmount: amount,
+                vendorId,
+                paymentStatus: "paid",
+              },
+            ],
+          },
+        },
+      });
+
+      await tx.accountWallet.upsert({
+        where: { employeeId },
+        create: { employeeId, currentBalance: -amount },
+        update: { currentBalance: { decrement: amount } },
+      });
+
+      await tx.vendorBalance.upsert({
+        where: { vendorId },
+        create: { vendorId, currentBalance: amount },
+        update: { currentBalance: { increment: amount } },
+      });
+    });
+
+    const [updatedVendor, wallet] = await Promise.all([
+      prisma.vendor.findUnique({ where: { id: vendorId }, include: { balance: true } }),
+      prisma.accountWallet.findUnique({ where: { employeeId } }),
+    ]);
+
+    res.status(201).json({
+      data: {
+        vendor: serializeVendor(updatedVendor),
+        currentBalance: wallet ? Number(wallet.currentBalance) : 0,
+      },
+    });
   } catch (error) {
     next(error);
   }
@@ -375,6 +584,25 @@ export async function createExpense(req, res, next) {
       if (match) filesByIndex.set(Number(match[1]), file);
     }
 
+    // Collect every vendorId referenced by an item up front so each one can
+    // be validated (exists + still active) in a single query below, instead
+    // of one query per item.
+    const referencedVendorIds = [
+      ...new Set(
+        items
+          .map((rawItem) => String(rawItem.vendorId || "").trim())
+          .filter((id) => /^\d+$/.test(id)),
+      ),
+    ];
+
+    let activeVendorsById = new Map();
+    if (referencedVendorIds.length) {
+      const vendors = await prisma.vendor.findMany({
+        where: { id: { in: referencedVendorIds.map(BigInt) }, isActive: true },
+      });
+      activeVendorsById = new Map(vendors.map((vendor) => [vendor.id.toString(), vendor]));
+    }
+
     const preparedItems = [];
     for (const [index, rawItem] of items.entries()) {
       const purpose = String(rawItem.purpose || "").trim().slice(0, 190);
@@ -394,6 +622,24 @@ export async function createExpense(req, res, next) {
         return res.status(422).json({ message: `Item ${index + 1} is missing required fields.` });
       }
 
+      const rawVendorId = String(rawItem.vendorId || "").trim();
+      let vendorId = null;
+      let paymentStatus = null;
+
+      if (rawVendorId) {
+        const vendor = activeVendorsById.get(rawVendorId);
+        if (!vendor) {
+          removeUploadedFiles(req.files);
+          return res.status(422).json({ message: `Item ${index + 1} has an invalid or inactive vendor.` });
+        }
+        if (!["to_pay", "paid"].includes(rawItem.paymentStatus)) {
+          removeUploadedFiles(req.files);
+          return res.status(422).json({ message: `Item ${index + 1} needs a payment status (To Pay or Paid).` });
+        }
+        vendorId = vendor.id;
+        paymentStatus = rawItem.paymentStatus;
+      }
+
       const receiptFile = filesByIndex.get(index);
 
       preparedItems.push({
@@ -406,10 +652,34 @@ export async function createExpense(req, res, next) {
         receiptOriginalFileName: receiptFile ? receiptFile.originalname.slice(0, 255) : null,
         receiptFileUrl: receiptFile ? `/accounts-uploads/expense-receipts/${receiptFile.filename}` : null,
         receiptFileSizeBytes: receiptFile?.size || null,
+        vendorId,
+        paymentStatus,
       });
     }
 
     const grandTotal = roundMoney(preparedItems.reduce((sum, item) => sum + item.totalAmount, 0));
+
+    // "To Pay" vendor items are a liability only — no cash has left the
+    // wallet yet, so they're excluded from the wallet deduction. Every
+    // other item (no vendor, or vendor+"paid") deducts as before.
+    const walletDeduction = roundMoney(
+      preparedItems.reduce((sum, item) => {
+        if (item.vendorId && item.paymentStatus === "to_pay") return sum;
+        return sum + item.totalAmount;
+      }, 0),
+    );
+
+    // Per-vendor ledger deltas: "to_pay" increases what we owe (balance
+    // goes down), "paid" settles/advances against that vendor (balance
+    // goes up). Keyed by vendorId string since BigInt can't be a Map key
+    // comparison target reliably across references.
+    const vendorBalanceDeltas = new Map();
+    for (const item of preparedItems) {
+      if (!item.vendorId) continue;
+      const key = item.vendorId.toString();
+      const delta = item.paymentStatus === "paid" ? item.totalAmount : -item.totalAmount;
+      vendorBalanceDeltas.set(key, roundMoney((vendorBalanceDeltas.get(key) || 0) + delta));
+    }
 
     const expense = await prisma.$transaction(async (tx) => {
       const created = await tx.accountExpense.create({
@@ -422,14 +692,22 @@ export async function createExpense(req, res, next) {
           totalAmount: grandTotal,
           items: { create: preparedItems },
         },
-        include: { items: { orderBy: { id: "asc" } } },
+        include: { items: { include: { vendor: true }, orderBy: { id: "asc" } } },
       });
 
       await tx.accountWallet.upsert({
         where: { employeeId },
-        create: { employeeId, currentBalance: -grandTotal },
-        update: { currentBalance: { decrement: grandTotal } },
+        create: { employeeId, currentBalance: -walletDeduction },
+        update: { currentBalance: { decrement: walletDeduction } },
       });
+
+      for (const [vendorIdKey, delta] of vendorBalanceDeltas) {
+        await tx.vendorBalance.upsert({
+          where: { vendorId: BigInt(vendorIdKey) },
+          create: { vendorId: BigInt(vendorIdKey), currentBalance: delta },
+          update: { currentBalance: { increment: delta } },
+        });
+      }
 
       return created;
     });
@@ -438,7 +716,12 @@ export async function createExpense(req, res, next) {
 
     res.status(201).json({
       data: {
-        expense: serializeExpense(expense),
+        // A submission that's entirely "to pay" has no paid portion yet, so
+        // there's nothing to add to the Expenses tab or its running total.
+        expense: serializeExpenseForHistory(expense),
+        vendorPayments: expense.items
+          .filter((item) => item.vendorId)
+          .map((item) => serializeVendorPaymentEntry(item, expense)),
         currentBalance: Number(wallet.currentBalance),
       },
     });

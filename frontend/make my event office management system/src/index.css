@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+/* The Accounts module lives at the repo root (../../../Accounts), outside
+   this Vite project, so Tailwind's automatic content detection never sees
+   it — any utility used only there gets silently dropped from the build.
+   Registering it explicitly is what makes those classes exist at all. */
+@source "../../../Accounts/frontend";
+
 /* Make My Event global color system */
 @theme {
   --color-mme-blush: #f3ccde;

@@ -1453,6 +1453,36 @@ export default function ManagementPage() {
           0% { background-position: -200% 0; }
           100% { background-position: 200% 0; }
         }
+        @keyframes heroDrift {
+          0%, 100% { transform: translate3d(0,0,0) scale(1); opacity: .5; }
+          33% { transform: translate3d(8%,-10%,0) scale(1.25); opacity: .8; }
+          66% { transform: translate3d(-9%,8%,0) scale(.85); opacity: .4; }
+        }
+        @keyframes sheen {
+          from { transform: translateX(-120%) skewX(-18deg); }
+          to { transform: translateX(320%) skewX(-18deg); }
+        }
+        .animate-hero-drift { animation: heroDrift 16s ease-in-out infinite; }
+        .btn-sheen { position: relative; overflow: hidden; }
+        .btn-sheen::after {
+          content: "";
+          position: absolute;
+          top: 0;
+          bottom: 0;
+          width: 45%;
+          background: linear-gradient(90deg, transparent, rgba(255,255,255,.35), transparent);
+          transform: translateX(-120%) skewX(-18deg);
+          pointer-events: none;
+        }
+        .btn-sheen:hover::after { animation: sheen .9s ease-out; }
+        .hero-dots {
+          background-image: radial-gradient(rgba(255,255,255,.16) 1px, transparent 1px);
+          background-size: 22px 22px;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .animate-hero-drift { animation: none !important; }
+          .btn-sheen:hover::after { animation: none !important; }
+        }
       `}</style>
 
       {showAddColumn && <AddColumnModal onClose={() => setShowAddColumn(false)} onAdd={addColumn} />}
@@ -1477,17 +1507,17 @@ export default function ManagementPage() {
       />
 
       {/* ─── Header ─── */}
-      <header className="sticky top-0 z-40 border-b border-[#d6d6d6]/50 bg-white/95 backdrop-blur-xl transition-all duration-300">
+      <header className="sticky top-0 z-40 border-b border-[#d6d6d6]/50 bg-white/85 backdrop-blur-xl transition-all duration-300 animate-[fadeInDown_0.5s_ease-out]">
         <div className="flex min-h-18 items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-4">
-            <img src={mmeLogo} alt="Make My Event - Management Workspace" className="h-27 w-auto shrink-0 object-contain sm:h-28" />
+            <img src={mmeLogo} alt="Make My Event - Management Workspace" className="h-27 w-auto shrink-0 object-contain transition-transform duration-300 hover:scale-105 sm:h-28" />
           </div>
 
           {/* ── Today's activity widget (Meetings vs Calls, per stat) ── */}
           <div className="hidden flex-1 items-center justify-center gap-3 lg:flex">
-            <div className="flex items-stretch gap-3 rounded-2xl border border-[#d6d6d6]/60 bg-white px-4 py-2.5 shadow-sm shadow-black/5">
+            <div className="flex items-stretch gap-3 rounded-2xl border border-[#d6d6d6]/60 bg-white px-4 py-2.5 shadow-sm shadow-black/5 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md hover:shadow-black/10">
               <div className="flex items-center gap-2.5 pr-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600 transition-transform duration-300 group-hover:scale-110">
                   <Clock size={18} />
                 </div>
                 <div className="leading-tight">
@@ -1510,7 +1540,7 @@ export default function ManagementPage() {
               <div className="w-px bg-[#d6d6d6]/70" />
 
               <div className="flex items-center gap-2.5 pl-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 transition-transform duration-300 group-hover:scale-110">
                   <CheckCircle2 size={18} />
                 </div>
                 <div className="leading-tight">
@@ -1536,9 +1566,9 @@ export default function ManagementPage() {
             <button
               onClick={() => handleSaveChanges()}
               disabled={!hasUnsavedChanges || isSaving || !employee?.id}
-              className={`hidden items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold transition-all duration-200 md:flex ${
+              className={`btn-sheen hidden items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold transition-all duration-200 md:flex ${
                 hasUnsavedChanges && !isSaving
-                  ? "border-black bg-black text-white shadow-md shadow-black/20 hover:bg-[#222222] hover:shadow-lg hover:shadow-black/30 active:scale-[0.97] cursor-pointer"
+                  ? "border-black bg-black text-white shadow-md shadow-black/20 hover:-translate-y-0.5 hover:bg-[#222222] hover:shadow-lg hover:shadow-black/30 active:scale-[0.97] cursor-pointer"
                   : "pointer-events-none border-[#d6d6d6]/60 bg-[#ffffff] text-black/40 opacity-60 cursor-not-allowed"
               }`}
             >
@@ -1548,7 +1578,7 @@ export default function ManagementPage() {
               {isSaving ? "Saving..." : hasUnsavedChanges ? "Save Changes" : "Saved"}
             </button>
 
-            <button onClick={requestLogout} title="Logout" className="group flex items-center gap-2 rounded-2xl border border-[#d6d6d6]/70 bg-white px-3 py-2.5 text-left transition-all duration-200 hover:bg-red-50 hover:border-red-200 hover:shadow-md hover:shadow-red-100/50 sm:px-4">
+            <button onClick={requestLogout} title="Logout" className="group flex items-center gap-2 rounded-2xl border border-[#d6d6d6]/70 bg-white px-3 py-2.5 text-left transition-all duration-300 hover:-translate-y-0.5 hover:border-red-200 hover:bg-red-50 hover:shadow-md hover:shadow-red-100/50 sm:px-4">
               <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#f4f4f4] text-black transition-colors duration-200 group-hover:bg-red-100 group-hover:text-red-500"><UserRound size={16} /></div>
               <div className="hidden sm:block">
                 <p className="max-w-36 truncate text-xs font-black text-black">{employee?.fullName || "Employee"}</p>
@@ -1563,39 +1593,54 @@ export default function ManagementPage() {
       {/* ─── Main ─── */}
       <main className="px-3 py-5 sm:px-5 lg:px-7">
         <section className="mx-auto max-w-[1800px] animate-[fadeInUp_0.4s_ease-out]">
-          <div className="mb-5 flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
-            <div>
-              <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.2em] text-[#333333]">
-                
-              </div>
-              <h1 className="mt-2 text-2xl font-black text-black sm:text-3xl">{workspace.name}</h1>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-black/60">
-                
-              </p>
+          <div className="relative mb-6 overflow-hidden rounded-[28px] bg-[#0B0B0F] p-6 text-white shadow-[0_30px_80px_-24px_rgba(0,0,0,.55)] ring-1 ring-white/10 sm:p-8">
+            <div className="pointer-events-none absolute inset-0 overflow-hidden">
+              <div className="animate-hero-drift absolute -left-24 -top-32 h-80 w-80 rounded-full bg-violet-600/40 blur-[100px]" />
+              <div
+                className="animate-hero-drift absolute -bottom-32 right-0 h-80 w-80 rounded-full bg-cyan-500/25 blur-[110px]"
+                style={{ animationDelay: "-6s" }}
+              />
+              <div className="hero-dots absolute inset-0 opacity-30" />
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <Link to="/accounts" className="inline-flex items-center gap-2 rounded-xl bg-[#301934] px-4 py-2.5 text-sm font-black text-white shadow-md shadow-[#301934]/30 transition-all duration-200 hover:brightness-125 hover:shadow-lg hover:shadow-[#301934]/40 active:scale-[0.97]">
-                <Wallet size={17} /> Accounts
-              </Link>
-              <Link to="/calendar" className="inline-flex items-center gap-2 rounded-xl bg-[#301934] px-4 py-2.5 text-sm font-black text-white shadow-md shadow-[#301934]/30 transition-all duration-200 hover:brightness-125 hover:shadow-lg hover:shadow-[#301934]/40 active:scale-[0.97]">
-                <CalendarDays size={17} /> Calendar
-              </Link>
+            <div className="relative flex flex-col justify-between gap-5 xl:flex-row xl:items-end">
+              <div className="min-w-0">
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-white/50">Employee Workspace</p>
+                <h1 className="mt-2 truncate text-2xl font-black tracking-tight sm:text-3xl">{workspace.name}</h1>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-white/60">
+                  Every client, booking and follow-up call, kept in one shared, live-updating sheet.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2.5">
+                <Link
+                  to="/accounts"
+                  className="group inline-flex items-center gap-2 rounded-xl bg-white/10 px-4 py-2.5 text-sm font-black text-white ring-1 ring-white/15 backdrop-blur transition-all duration-300 hover:-translate-y-0.5 hover:bg-white/20 hover:shadow-lg"
+                >
+                  <Wallet size={17} className="transition-transform duration-300 group-hover:scale-110" /> Accounts
+                </Link>
+                <Link
+                  to="/calendar"
+                  className="group inline-flex items-center gap-2 rounded-xl bg-white/10 px-4 py-2.5 text-sm font-black text-white ring-1 ring-white/15 backdrop-blur transition-all duration-300 hover:-translate-y-0.5 hover:bg-white/20 hover:shadow-lg"
+                >
+                  <CalendarDays size={17} className="transition-transform duration-300 group-hover:scale-110" /> Calendar
+                </Link>
+              </div>
             </div>
           </div>
 
           {/* ─── Sheet Container ─── */}
           <div className="overflow-hidden rounded-[24px] border border-[#d6d6d6]/60 bg-white shadow-[0_20px_60px_rgba(0,0,0,0.08)] transition-shadow duration-300 hover:shadow-[0_20px_60px_rgba(0,0,0,0.12)]">
             {/* Toolbar */}
-            <div className="flex flex-col gap-3 border-b border-[#d6d6d6]/50 bg-white p-3.5 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-col gap-3 border-b border-[#d6d6d6]/50 bg-white p-3.5 animate-[fadeIn_0.5s_ease-out] lg:flex-row lg:items-center lg:justify-between">
               <div className="flex flex-wrap gap-2">
-                <button onClick={addRow} className="inline-flex items-center gap-2 rounded-xl bg-black px-4 py-2.5 text-sm font-black text-white shadow-md shadow-black/15 transition-all duration-200 hover:bg-[#222222] hover:shadow-lg hover:shadow-black/25 active:scale-[0.97]">
+                <button onClick={addRow} className="btn-sheen inline-flex items-center gap-2 rounded-xl bg-black px-4 py-2.5 text-sm font-black text-white shadow-md shadow-black/15 transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#222222] hover:shadow-lg hover:shadow-black/25 active:scale-[0.97]">
                   <Plus size={17} /> Add row
                 </button>
-                <button onClick={() => setShowAddColumn(true)} className="inline-flex items-center gap-2 rounded-xl bg-[#36454F] px-4 py-2.5 text-sm font-black text-white shadow-md shadow-[#36454F]/30 transition-all duration-200 hover:brightness-110 hover:shadow-lg hover:shadow-[#36454F]/40 active:scale-[0.97]">
+                <button onClick={() => setShowAddColumn(true)} className="btn-sheen inline-flex items-center gap-2 rounded-xl bg-[#36454F] px-4 py-2.5 text-sm font-black text-white shadow-md shadow-[#36454F]/30 transition-all duration-200 hover:-translate-y-0.5 hover:brightness-110 hover:shadow-lg hover:shadow-[#36454F]/40 active:scale-[0.97]">
                   <Columns3 size={17} /> Add column
                 </button>
-                <button disabled={isImporting} onClick={() => fileInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-xl bg-[#023020] px-4 py-2.5 text-sm font-black text-white shadow-md shadow-[#023020]/30 transition-all duration-200 hover:brightness-110 hover:shadow-lg hover:shadow-[#023020]/40 active:scale-[0.97] disabled:opacity-60 disabled:hover:shadow-none">
+                <button disabled={isImporting} onClick={() => fileInputRef.current?.click()} className="btn-sheen inline-flex items-center gap-2 rounded-xl bg-[#023020] px-4 py-2.5 text-sm font-black text-white shadow-md shadow-[#023020]/30 transition-all duration-200 hover:-translate-y-0.5 hover:brightness-110 hover:shadow-lg hover:shadow-[#023020]/40 active:scale-[0.97] disabled:opacity-60 disabled:hover:translate-y-0 disabled:hover:shadow-none">
                   {isImporting ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" /> : <FileSpreadsheet size={17} />}
                   {isImporting ? "Reading file..." : "Upload Excel"}
                 </button>
@@ -1604,7 +1649,7 @@ export default function ManagementPage() {
                 <div className="relative" ref={filterDropdownRef}>
                   <button
                     onClick={() => { setShowFilters((v) => !v); setHoveredSection(null); }}
-                    className="inline-flex items-center gap-2 rounded-xl bg-[#191970] px-4 py-2.5 text-sm font-black text-white shadow-md shadow-[#191970]/30 transition-all duration-200 hover:brightness-110 hover:shadow-lg hover:shadow-[#191970]/40 active:scale-[0.97]"
+                    className="btn-sheen inline-flex items-center gap-2 rounded-xl bg-[#191970] px-4 py-2.5 text-sm font-black text-white shadow-md shadow-[#191970]/30 transition-all duration-200 hover:-translate-y-0.5 hover:brightness-110 hover:shadow-lg hover:shadow-[#191970]/40 active:scale-[0.97]"
                   >
                     <SlidersHorizontal size={17} />
                     Filters
@@ -1754,7 +1799,7 @@ export default function ManagementPage() {
                 <button
                   onClick={() => setUpcomingOnly((v) => !v)}
                   title={upcomingOnly ? "Showing only upcoming events — click to show all clients again" : "Hide clients whose event date is today or already passed"}
-                  className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-black text-white shadow-md transition-all duration-200 hover:brightness-110 hover:shadow-lg active:scale-[0.97] ${
+                  className={`btn-sheen inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-black text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:brightness-110 hover:shadow-lg active:scale-[0.97] ${
                     upcomingOnly
                       ? "bg-[#0b6e4f] shadow-[#0b6e4f]/30 hover:shadow-[#0b6e4f]/40"
                       : "bg-[#c2410c] shadow-[#c2410c]/30 hover:shadow-[#c2410c]/40"
@@ -1773,7 +1818,7 @@ export default function ManagementPage() {
                 </p>
                 <div className="relative min-w-0 flex-1 lg:w-72 lg:flex-none">
                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#333333]" size={17} />
-                  <input value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="Search all cells..." className="w-full rounded-xl border border-[#d6d6d6]/70 bg-[#ffffff] py-2.5 pl-10 pr-9 text-sm outline-none transition-all duration-200 focus:border-[#333333] focus:ring-4 focus:ring-[#d6d6d6]/20 focus:shadow-md" />
+                  <input value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="Search all cells..." className="w-full rounded-xl border border-[#d6d6d6]/70 bg-[#ffffff] py-2.5 pl-10 pr-9 text-sm outline-none transition-all duration-200 focus:border-[#333333] focus:shadow-md focus:ring-4 focus:ring-[#d6d6d6]/20" />
                   {searchText && <button onClick={() => setSearchText("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-black/40 transition-colors duration-150 hover:text-black"><X size={15} /></button>}
                 </div>
               </div>
@@ -1994,7 +2039,7 @@ export default function ManagementPage() {
             )}
 
             {/* Footer */}
-            <div className="flex flex-col justify-between gap-2 border-t border-[#d6d6d6]/50 bg-[#ffffff] px-4 py-3 text-xs text-black/50 sm:flex-row sm:items-center">
+            <div className="flex flex-col justify-between gap-2 border-t border-[#d6d6d6]/50 bg-[#fafafa] px-4 py-3 text-xs text-black/50 transition-colors duration-300 sm:flex-row sm:items-center">
               <p>Drag column edges to resize width · Drag row edges to resize height · Press <strong>Save Changes</strong> to persist edits to the database.</p>
               <p className="font-bold">Supported imports: .xlsx and .csv</p>
             </div>

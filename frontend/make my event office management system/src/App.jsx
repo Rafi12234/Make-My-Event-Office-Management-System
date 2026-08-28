@@ -9,6 +9,10 @@ import ClientCallsPage from "./pages/ClientCallsPage";
 import CalendarPage from "./pages/CalendarPage";
 import CalendarDayPage from "./pages/CalendarDayPage";
 import AccountsPage from "../../../Accounts/frontend/pages/AccountsPage";
+import MoneyInPage from "../../../Accounts/frontend/pages/MoneyInPage";
+import LogCostPage from "../../../Accounts/frontend/pages/LogCostPage";
+import VendorsPage from "../../../Accounts/frontend/pages/VendorsPage";
+import VendorProfilePage from "../../../Accounts/frontend/pages/VendorProfilePage";
 import AdminPage from "./pages/AdminPage";
 import AdminDashboardPage from "./pages/AdminDashboardPage";
 import AdminClientDetailPage from "./pages/AdminClientDetailPage";
@@ -65,6 +69,10 @@ function App() {
         <Route path="/calendar" element={<RequirePasswordChange><CalendarPage /></RequirePasswordChange>} />
         <Route path="/calendar/day/:date" element={<RequirePasswordChange><CalendarDayPage /></RequirePasswordChange>} />
         <Route path="/accounts" element={<RequirePasswordChange><AccountsPage /></RequirePasswordChange>} />
+        <Route path="/accounts/money-in" element={<RequirePasswordChange><MoneyInPage /></RequirePasswordChange>} />
+        <Route path="/accounts/log-cost" element={<RequirePasswordChange><LogCostPage /></RequirePasswordChange>} />
+        <Route path="/accounts/vendors" element={<RequirePasswordChange><VendorsPage /></RequirePasswordChange>} />
+        <Route path="/accounts/vendors/:id" element={<RequirePasswordChange><VendorProfilePage /></RequirePasswordChange>} />
         <Route path="/admin" element={<Navigate to="/admin-dashboard" replace />} />
         <Route path="/admin-dashboard" element={<BlockIfEmployeeSession><AdminDashboardPage /></BlockIfEmployeeSession>} />
         <Route path="/admin-dashboard/clients/:rowKey" element={<BlockIfEmployeeSession><AdminClientDetailPage /></BlockIfEmployeeSession>} />
