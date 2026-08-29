@@ -152,13 +152,31 @@ async function getConfirmedEventSnapshot(rowKey) {
   };
 }
 
+// An employee can see that a record was corrected or voided by an Admin,
+// but still has no way to edit it.
+function adminTouchFields(record) {
+  const created = new Date(record.createdAt).getTime();
+  const updated = record.updatedAt ? new Date(record.updatedAt).getTime() : created;
+  return {
+    status: record.status || "active",
+    correctedByAdmin: record.status === "active" && updated - created > 1000,
+    correctedAt: updated - created > 1000 ? formatDateTime(record.updatedAt) : null,
+    voidReason: record.voidReason || null,
+    voidedAt: record.voidedAt ? formatDateTime(record.voidedAt) : null,
+  };
+}
+
 function serializeMoneyReceived(entry) {
   return {
     id: entry.id,
     amount: Number(entry.amount),
     receivedDate: formatDateOnly(entry.receivedDate),
     note: entry.note || "",
+    // "admin" means the boss/Admin entered this on the employee's behalf.
+    source: entry.source || "employee",
+    addedByAdminName: entry.createdByAdmin?.fullName || null,
     createdAt: formatDateTime(entry.createdAt),
+    ...adminTouchFields(entry),
   };
 }
 
@@ -217,6 +235,7 @@ function serializeExpenseForHistory(expense) {
     walletDeductionAmount,
     vendorPayableAmount: roundMoney(recordedTotalAmount - walletDeductionAmount),
     createdAt: formatDateTime(expense.createdAt),
+    ...adminTouchFields(expense),
     items: paidItems.map(serializeExpenseItem),
   };
 }
@@ -253,6 +272,7 @@ export async function getSummary(req, res, next) {
       prisma.accountWallet.findUnique({ where: { employeeId } }),
       prisma.accountMoneyReceived.findMany({
         where: { employeeId },
+        include: { createdByAdmin: { select: { fullName: true } } },
         orderBy: { id: "desc" },
       }),
       prisma.accountExpense.findMany({
