@@ -644,7 +644,10 @@ model VendorBalance {
 }
 
 // One row per "Submit Cost" click (event-based or regular) — immutable
-// once submitted, deducts totalAmount from the employee's wallet.
+// once submitted. totalAmount is the total RECORDED COST across all items
+// (including unpaid "to_pay" vendor items) — it is NOT the amount that
+// left the wallet. walletDeductionAmount is the actual cash deducted;
+// (totalAmount - walletDeductionAmount) is what's still owed to vendors.
 model AccountExpense {
   id                      BigInt          @id @default(autoincrement()) @db.UnsignedBigInt
   employeeId              BigInt?         @map("employee_id") @db.UnsignedBigInt
@@ -657,6 +660,7 @@ model AccountExpense {
   eventClientNameSnapshot String?         @map("event_client_name_snapshot") @db.VarChar(190)
   eventDateSnapshot       DateTime?       @map("event_date_snapshot") @db.Date
   totalAmount             Decimal         @map("total_amount") @db.Decimal(12, 2)
+  walletDeductionAmount   Decimal         @default(0) @map("wallet_deduction_amount") @db.Decimal(12, 2)
   createdAt               DateTime        @default(now()) @map("created_at") @db.DateTime(0)
 
   employee Employee?            @relation(fields: [employeeId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_expenses_employee")
