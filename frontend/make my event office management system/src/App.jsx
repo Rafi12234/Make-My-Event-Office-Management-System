@@ -26,6 +26,16 @@ import AdminCallDetailsPage from "./pages/admin/AdminCallDetailsPage";
 import AdminCalendarPage from "./pages/admin/AdminCalendarPage";
 import AdminCalendarDayPage from "./pages/admin/AdminCalendarDayPage";
 import AdminClientsManagementPage from "./pages/admin/AdminClientsManagementPage";
+import AdminAccountsOverviewPage from "./pages/admin/accounts/AdminAccountsOverviewPage";
+import AdminAccountsEmployeesPage from "./pages/admin/accounts/AdminAccountsEmployeesPage";
+import AdminAccountsEmployeeProfilePage from "./pages/admin/accounts/AdminAccountsEmployeeProfilePage";
+import AdminAccountsMoneyInPage from "./pages/admin/accounts/AdminAccountsMoneyInPage";
+import AdminAccountsExpensesPage from "./pages/admin/accounts/AdminAccountsExpensesPage";
+import AdminAccountsExpenseDetailPage from "./pages/admin/accounts/AdminAccountsExpenseDetailPage";
+import AdminAccountsEventsPage from "./pages/admin/accounts/AdminAccountsEventsPage";
+import AdminAccountsVendorsPage from "./pages/admin/accounts/AdminAccountsVendorsPage";
+import AdminAccountsVendorProfilePage from "./pages/admin/accounts/AdminAccountsVendorProfilePage";
+import AdminAccountsAuditPage from "./pages/admin/accounts/AdminAccountsAuditPage";
 import RedirectIfAuthed from "./components/RedirectIfAuthed";
 import RequirePasswordChange from "./components/RequirePasswordChange";
 import BlockIfEmployeeSession from "./components/BlockIfEmployeeSession";
@@ -87,6 +97,19 @@ function App() {
         <Route path="/admin/calendar" element={<BlockIfEmployeeSession><AdminCalendarPage /></BlockIfEmployeeSession>} />
         <Route path="/admin/calendar/day/:date" element={<BlockIfEmployeeSession><AdminCalendarDayPage /></BlockIfEmployeeSession>} />
         <Route path="/admin/clients-management" element={<BlockIfEmployeeSession><AdminClientsManagementPage /></BlockIfEmployeeSession>} />
+
+        {/* Admin Financial Accounts — distinct from /admin-employee-management/accounts,
+            which manages employee login accounts rather than money. */}
+        <Route path="/admin/accounts" element={<BlockIfEmployeeSession><AdminAccountsOverviewPage /></BlockIfEmployeeSession>} />
+        <Route path="/admin/accounts/employees" element={<BlockIfEmployeeSession><AdminAccountsEmployeesPage /></BlockIfEmployeeSession>} />
+        <Route path="/admin/accounts/employees/:employeeId" element={<BlockIfEmployeeSession><AdminAccountsEmployeeProfilePage /></BlockIfEmployeeSession>} />
+        <Route path="/admin/accounts/money-in" element={<BlockIfEmployeeSession><AdminAccountsMoneyInPage /></BlockIfEmployeeSession>} />
+        <Route path="/admin/accounts/expenses" element={<BlockIfEmployeeSession><AdminAccountsExpensesPage /></BlockIfEmployeeSession>} />
+        <Route path="/admin/accounts/expenses/:expenseId" element={<BlockIfEmployeeSession><AdminAccountsExpenseDetailPage /></BlockIfEmployeeSession>} />
+        <Route path="/admin/accounts/events" element={<BlockIfEmployeeSession><AdminAccountsEventsPage /></BlockIfEmployeeSession>} />
+        <Route path="/admin/accounts/vendors" element={<BlockIfEmployeeSession><AdminAccountsVendorsPage /></BlockIfEmployeeSession>} />
+        <Route path="/admin/accounts/vendors/:vendorId" element={<BlockIfEmployeeSession><AdminAccountsVendorProfilePage /></BlockIfEmployeeSession>} />
+        <Route path="/admin/accounts/audit" element={<BlockIfEmployeeSession><AdminAccountsAuditPage /></BlockIfEmployeeSession>} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
