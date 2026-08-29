@@ -200,6 +200,9 @@ function serializeExpenseForHistory(expense) {
   );
   if (paidItems.length === 0) return null;
 
+  const recordedTotalAmount = Number(expense.totalAmount);
+  const walletDeductionAmount = Number(expense.walletDeductionAmount);
+
   return {
     id: expense.id,
     costType: expense.costType,
@@ -207,6 +210,12 @@ function serializeExpenseForHistory(expense) {
     eventClientName: expense.eventClientNameSnapshot || null,
     eventDate: formatDateOnly(expense.eventDateSnapshot),
     totalAmount: roundMoney(paidItems.reduce((sum, item) => sum + Number(item.totalAmount), 0)),
+    // Unambiguous audit fields for future reporting: recordedTotalAmount is
+    // the full submitted cost, walletDeductionAmount is what actually left
+    // the wallet, vendorPayableAmount is what's still owed to vendors.
+    recordedTotalAmount,
+    walletDeductionAmount,
+    vendorPayableAmount: roundMoney(recordedTotalAmount - walletDeductionAmount),
     createdAt: formatDateTime(expense.createdAt),
     items: paidItems.map(serializeExpenseItem),
   };
@@ -450,6 +459,7 @@ export async function payVendor(req, res, next) {
           employeeId,
           costType: "regular",
           totalAmount: amount,
+          walletDeductionAmount: amount,
           items: {
             create: [
               {
@@ -671,8 +681,10 @@ export async function createExpense(req, res, next) {
 
     // Per-vendor ledger deltas: "to_pay" increases what we owe (balance
     // goes down), "paid" settles/advances against that vendor (balance
-    // goes up). Keyed by vendorId string since BigInt can't be a Map key
-    // comparison target reliably across references.
+    // goes up) — a "paid" item can legitimately mean an advance payment to
+    // the vendor, so a positive vendor balance is valid business behavior.
+    // Keyed by vendorId string since BigInt can't be a Map key comparison
+    // target reliably across references.
     const vendorBalanceDeltas = new Map();
     for (const item of preparedItems) {
       if (!item.vendorId) continue;
@@ -690,6 +702,7 @@ export async function createExpense(req, res, next) {
           eventClientNameSnapshot: eventSnapshot?.clientName || null,
           eventDateSnapshot: eventSnapshot?.eventDate || null,
           totalAmount: grandTotal,
+          walletDeductionAmount: walletDeduction,
           items: { create: preparedItems },
         },
         include: { items: { include: { vendor: true }, orderBy: { id: "asc" } } },
