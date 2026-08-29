@@ -58,6 +58,11 @@ model Employee {
   accountMoneyReceived     AccountMoneyReceived[]
   accountExpenses          AccountExpense[]
   accountWallet            AccountWallet?
+  createdAccountMoneyReceived AccountMoneyReceived[] @relation("AccountMoneyReceivedCreatedByAdmin")
+  voidedAccountMoneyReceived  AccountMoneyReceived[] @relation("AccountMoneyReceivedVoidedByAdmin")
+  createdAccountExpenses      AccountExpense[]       @relation("AccountExpenseCreatedByAdmin")
+  voidedAccountExpenses       AccountExpense[]       @relation("AccountExpenseVoidedByAdmin")
+  accountAuditLogs            AccountAuditLog[]      @relation("AccountAuditLogAdmin")
 
   @@index([createdById], map: "fk_emp_created_by")
   @@index([roleId], map: "fk_emp_role")
@@ -582,20 +587,60 @@ model ExcelImportError {
 
 // ─── Accounts (employee wallet / expense tracking) ─────────────────────
 
-// Repeatable log of money the boss gave an employee — immutable once
-// added (no update/delete endpoint), adds to the employee's wallet.
+// Repeatable log of money the boss gave an employee, adds to the
+// employee's wallet. Employees can only append; Admins can additionally
+// correct or void an entry (both are recorded in AccountAuditLog).
 model AccountMoneyReceived {
-  id           BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
-  employeeId   BigInt?  @map("employee_id") @db.UnsignedBigInt
-  amount       Decimal  @db.Decimal(12, 2)
-  receivedDate DateTime @map("received_date") @db.Date
-  note         String?  @db.VarChar(255)
-  createdAt    DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  id               BigInt              @id @default(autoincrement()) @db.UnsignedBigInt
+  employeeId       BigInt?             @map("employee_id") @db.UnsignedBigInt
+  amount           Decimal             @db.Decimal(12, 2)
+  receivedDate     DateTime            @map("received_date") @db.Date
+  note             String?             @db.VarChar(255)
+  source           AccountEntrySource  @default(employee)
+  createdByAdminId BigInt?             @map("created_by_admin_id") @db.UnsignedBigInt
+  status           AccountRecordStatus @default(active)
+  voidReason       String?             @map("void_reason") @db.VarChar(255)
+  voidedByAdminId  BigInt?             @map("voided_by_admin_id") @db.UnsignedBigInt
+  voidedAt         DateTime?           @map("voided_at") @db.DateTime(0)
+  createdAt        DateTime            @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt        DateTime            @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
 
-  employee Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_money_received_employee")
+  employee       Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_money_received_employee")
+  createdByAdmin Employee? @relation("AccountMoneyReceivedCreatedByAdmin", fields: [createdByAdminId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_money_received_created_admin")
+  voidedByAdmin  Employee? @relation("AccountMoneyReceivedVoidedByAdmin", fields: [voidedByAdminId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_money_received_voided_admin")
 
   @@index([employeeId], map: "fk_account_money_received_employee")
+  @@index([createdByAdminId], map: "fk_account_money_received_created_admin")
+  @@index([voidedByAdminId], map: "fk_account_money_received_voided_admin")
+  @@index([receivedDate], map: "idx_account_money_received_date")
   @@map("account_money_received")
+}
+
+// Who originally entered a financial record.
+enum AccountEntrySource {
+  employee
+  admin
+
+  @@map("account_entry_source")
+}
+
+// Financial records are never hard-deleted; voiding reverses the
+// wallet/vendor effect while the original row stays visible.
+enum AccountRecordStatus {
+  active
+  void
+
+  @@map("account_record_status")
+}
+
+// Where the money for an expense came from. "employee_wallet" is the
+// normal employee submission; "company" is an Admin-created direct cost or
+// vendor payment that must not touch any employee wallet.
+enum AccountPaymentSource {
+  employee_wallet
+  company
+
+  @@map("account_payment_source")
 }
 
 enum AccountCostType {
@@ -617,11 +662,16 @@ enum VendorPaymentStatus {
 // Admin-only (UI pending); isActive is the only lifecycle control, there
 // is no delete endpoint so history never dangles.
 model Vendor {
-  id        BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
-  name      String   @db.VarChar(190)
-  category  String?  @db.VarChar(100)
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  id           BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  name         String   @db.VarChar(190)
+  category     String?  @db.VarChar(100)
+  contactName  String?  @map("contact_name") @db.VarChar(190)
+  contactPhone String?  @map("contact_phone") @db.VarChar(50)
+  contactEmail String?  @map("contact_email") @db.VarChar(190)
+  notes        String?  @db.VarChar(500)
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
 
   expenseItems AccountExpenseItem[]
   balance      VendorBalance?
@@ -661,13 +711,27 @@ model AccountExpense {
   eventDateSnapshot       DateTime?       @map("event_date_snapshot") @db.Date
   totalAmount             Decimal         @map("total_amount") @db.Decimal(12, 2)
   walletDeductionAmount   Decimal         @default(0) @map("wallet_deduction_amount") @db.Decimal(12, 2)
+  // "company" rows are Admin direct costs/payments with employeeId = null;
+  // they hit the vendor ledger only and never deduct an employee wallet.
+  paymentSource           AccountPaymentSource @default(employee_wallet) @map("payment_source")
+  createdByAdminId        BigInt?             @map("created_by_admin_id") @db.UnsignedBigInt
+  status                  AccountRecordStatus @default(active)
+  voidReason              String?             @map("void_reason") @db.VarChar(255)
+  voidedByAdminId         BigInt?             @map("voided_by_admin_id") @db.UnsignedBigInt
+  voidedAt                DateTime?           @map("voided_at") @db.DateTime(0)
   createdAt               DateTime        @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt               DateTime        @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
 
-  employee Employee?            @relation(fields: [employeeId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_expenses_employee")
-  items    AccountExpenseItem[]
+  employee       Employee?            @relation(fields: [employeeId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_expenses_employee")
+  createdByAdmin Employee?            @relation("AccountExpenseCreatedByAdmin", fields: [createdByAdminId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_expenses_created_admin")
+  voidedByAdmin  Employee?            @relation("AccountExpenseVoidedByAdmin", fields: [voidedByAdminId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_expenses_voided_admin")
+  items          AccountExpenseItem[]
 
   @@index([employeeId], map: "fk_account_expenses_employee")
+  @@index([createdByAdminId], map: "fk_account_expenses_created_admin")
+  @@index([voidedByAdminId], map: "fk_account_expenses_voided_admin")
   @@index([linkedRowKey], map: "idx_account_expenses_row")
+  @@index([createdAt], map: "idx_account_expenses_created")
   @@map("account_expenses")
 }
 
@@ -694,6 +758,7 @@ model AccountExpenseItem {
   vendorId                BigInt?              @map("vendor_id") @db.UnsignedBigInt
   paymentStatus           VendorPaymentStatus? @map("payment_status")
   createdAt               DateTime             @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt               DateTime             @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
 
   expense AccountExpense @relation(fields: [expenseId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_account_expense_items_expense")
   vendor  Vendor?        @relation(fields: [vendorId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_expense_items_vendor")
@@ -714,4 +779,48 @@ model AccountWallet {
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_account_wallets_employee")
 
   @@map("account_wallets")
+}
+
+// What kind of record an audit entry describes.
+enum AccountAuditEntity {
+  money_received
+  expense
+  expense_item
+  vendor
+
+  @@map("account_audit_entity")
+}
+
+enum AccountAuditAction {
+  create
+  update
+  void
+
+  @@map("account_audit_action")
+}
+
+// Append-only trail of every Admin financial correction. beforeData /
+// afterData hold the full serialized record so the original values are
+// never lost, even after several corrections.
+model AccountAuditLog {
+  id         BigInt             @id @default(autoincrement()) @db.UnsignedBigInt
+  entityType AccountAuditEntity @map("entity_type")
+  entityId   BigInt             @map("entity_id") @db.UnsignedBigInt
+  action     AccountAuditAction
+  adminId    BigInt?            @map("admin_id") @db.UnsignedBigInt
+  employeeId BigInt?            @map("employee_id") @db.UnsignedBigInt
+  vendorId   BigInt?            @map("vendor_id") @db.UnsignedBigInt
+  reason     String             @db.VarChar(500)
+  beforeData Json?              @map("before_data")
+  afterData  Json?              @map("after_data")
+  createdAt  DateTime           @default(now()) @map("created_at") @db.DateTime(0)
+
+  admin Employee? @relation("AccountAuditLogAdmin", fields: [adminId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_audit_logs_admin")
+
+  @@index([entityType, entityId], map: "idx_account_audit_logs_entity")
+  @@index([adminId], map: "fk_account_audit_logs_admin")
+  @@index([employeeId], map: "idx_account_audit_logs_employee")
+  @@index([vendorId], map: "idx_account_audit_logs_vendor")
+  @@index([createdAt], map: "idx_account_audit_logs_created")
+  @@map("account_audit_logs")
 }
