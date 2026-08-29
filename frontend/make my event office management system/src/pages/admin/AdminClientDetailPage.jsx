@@ -7,10 +7,10 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import BackButton from "../components/BackButton";
-import AdminLayout from "../components/AdminLayout";
-import { adminLogout, fetchAdminMe } from "../services/adminService";
-import { fetchAdminClientDetail } from "../services/adminDashboardService";
+import BackButton from "../../components/BackButton";
+import AdminLayout from "../../components/AdminLayout";
+import { adminLogout, fetchAdminMe } from "../../services/adminService";
+import { fetchAdminClientDetail } from "../../services/adminDashboardService";
 
 // "YYYY-MM-DD HH:MM:SS" (backend shape) → readable local string.
 function formatDisplay(dbDatetime) {

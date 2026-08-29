@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { Eye, EyeOff, Shield, X } from "lucide-react";
-import { adminLogin, fetchAdminMe } from "../services/adminService";
+import { adminLogin, fetchAdminMe } from "../../services/adminService";
 
 // Standalone admin sign-in page, fully separate from the Employee
 // Management dashboard (AdminPage) — /admin-dashboard and
