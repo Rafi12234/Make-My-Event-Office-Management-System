@@ -59,12 +59,11 @@ export default function AccountsPage() {
   const totalReceived = (summary?.moneyReceived || []).reduce((sum, e) => sum + e.amount, 0);
   const totalSpent = (summary?.expenses || []).reduce((sum, e) => sum + e.totalAmount, 0);
 
-  // Outstanding grouped per vendor for the right rail — netted per vendor
-  // ("to_pay" items owed minus "paid" items settled, e.g. a Pay Vendor
-  // settlement), not a raw sum of every "to_pay" item ever logged, so a
-  // vendor already settled back to zero drops off instead of still
-  // showing its old debt.
-  const vendorOutstanding = useMemo(() => {
+  // Net balance per vendor for the right rail — "to_pay" items owed minus
+  // "paid"/advance items, so a vendor can show as either still owed
+  // (negative net) or advanced/settled ahead (positive net), sorted by the
+  // size of the balance regardless of direction.
+  const vendorNetBalances = useMemo(() => {
     const byVendor = new Map();
     for (const payment of summary?.vendorPayments || []) {
       const name = payment.vendorName || "Vendor";
@@ -72,12 +71,14 @@ export default function AccountsPage() {
       byVendor.set(name, (byVendor.get(name) || 0) + delta);
     }
     return [...byVendor.entries()]
-      .map(([name, net]) => ({ name, amount: net < 0 ? -net : 0 }))
-      .filter((vendor) => vendor.amount > 0)
-      .sort((a, b) => b.amount - a.amount);
+      .map(([name, net]) => ({ name, net }))
+      .filter((vendor) => vendor.net !== 0)
+      .sort((a, b) => Math.abs(b.net) - Math.abs(a.net));
   }, [summary]);
 
-  const totalPending = vendorOutstanding.reduce((sum, vendor) => sum + vendor.amount, 0);
+  const totalPending = vendorNetBalances
+    .filter((vendor) => vendor.net < 0)
+    .reduce((sum, vendor) => sum - vendor.net, 0);
 
   return (
     <EmployeeLayout>
@@ -192,7 +193,7 @@ export default function AccountsPage() {
                     />
                   </div>
                   <aside className="mm-rise xl:col-span-4 xl:sticky xl:top-24" style={{ animationDelay: "0.2s" }}>
-                    <VendorWatchPanel vendorOutstanding={vendorOutstanding} totalPending={totalPending} />
+                    <VendorWatchPanel vendorNetBalances={vendorNetBalances} totalPending={totalPending} />
                   </aside>
                 </div>
               </div>

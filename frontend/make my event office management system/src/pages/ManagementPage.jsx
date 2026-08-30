@@ -1479,6 +1479,10 @@ export default function ManagementPage() {
           background-image: radial-gradient(rgba(255,255,255,.16) 1px, transparent 1px);
           background-size: 22px 22px;
         }
+        @keyframes navSheen {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(400%); }
+        }
         @media (prefers-reduced-motion: reduce) {
           .animate-hero-drift { animation: none !important; }
           .btn-sheen:hover::after { animation: none !important; }
@@ -1562,24 +1566,26 @@ export default function ManagementPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-1 rounded-2xl border border-[#d6d6d6]/60 bg-white p-1.5 shadow-sm shadow-black/5 transition-shadow duration-300 hover:shadow-md sm:gap-1.5">
             <button
               onClick={() => handleSaveChanges()}
               disabled={!hasUnsavedChanges || isSaving || !employee?.id}
-              className={`btn-sheen hidden items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold transition-all duration-200 md:flex ${
+              className={`btn-sheen hidden items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold transition-all duration-200 md:flex ${
                 hasUnsavedChanges && !isSaving
-                  ? "border-black bg-black text-white shadow-md shadow-black/20 hover:-translate-y-0.5 hover:bg-[#222222] hover:shadow-lg hover:shadow-black/30 active:scale-[0.97] cursor-pointer"
-                  : "pointer-events-none border-[#d6d6d6]/60 bg-[#ffffff] text-black/40 opacity-60 cursor-not-allowed"
+                  ? "bg-black text-white shadow-md shadow-black/20 hover:-translate-y-0.5 hover:bg-[#222222] hover:shadow-lg hover:shadow-black/30 active:scale-[0.97] cursor-pointer"
+                  : "pointer-events-none bg-transparent text-black/35 cursor-not-allowed"
               }`}
             >
               {isSaving
                 ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current/30 border-t-current" />
-                : hasUnsavedChanges ? <Save size={15} /> : <Check size={15} className="text-[#333333]" />}
+                : hasUnsavedChanges ? <Save size={15} /> : <Check size={15} className="text-emerald-500" />}
               {isSaving ? "Saving..." : hasUnsavedChanges ? "Save Changes" : "Saved"}
             </button>
 
-            <button onClick={requestLogout} title="Logout" className="group flex items-center gap-2 rounded-2xl border border-[#d6d6d6]/70 bg-white px-3 py-2.5 text-left transition-all duration-300 hover:-translate-y-0.5 hover:border-red-200 hover:bg-red-50 hover:shadow-md hover:shadow-red-100/50 sm:px-4">
-              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#f4f4f4] text-black transition-colors duration-200 group-hover:bg-red-100 group-hover:text-red-500"><UserRound size={16} /></div>
+            <div className="hidden h-7 w-px bg-[#d6d6d6]/60 md:block" />
+
+            <button onClick={requestLogout} title="Logout" className="group flex items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-all duration-300 hover:bg-red-50 sm:px-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#f4f4f4] text-black transition-colors duration-200 group-hover:bg-red-100 group-hover:text-red-500"><UserRound size={16} /></div>
               <div className="hidden sm:block">
                 <p className="max-w-36 truncate text-xs font-black text-black">{employee?.fullName || "Employee"}</p>
                 <p className="max-w-36 truncate text-[10px] text-red-400 font-semibold">Logout</p>
@@ -1588,12 +1594,16 @@ export default function ManagementPage() {
             </button>
           </div>
         </div>
+
+        <div className="h-[3px] w-full overflow-hidden bg-[#f4f4f4]">
+          <div className="h-full w-1/3 bg-gradient-to-r from-transparent via-black/60 to-transparent animate-[navSheen_2.6s_ease-in-out_infinite]" />
+        </div>
       </header>
 
       {/* ─── Main ─── */}
       <main className="px-3 py-5 sm:px-5 lg:px-7">
-        <section className="mx-auto max-w-[1800px] animate-[fadeInUp_0.4s_ease-out]">
-          <div className="relative mb-6 overflow-hidden rounded-[28px] bg-[#0B0B0F] p-6 text-white shadow-[0_30px_80px_-24px_rgba(0,0,0,.55)] ring-1 ring-white/10 sm:p-8">
+        <section className="mx-auto max-w-[1800px]">
+          <div className="animate-[fadeInUp_0.4s_ease-out_both] relative mb-6 overflow-hidden rounded-[28px] bg-[#0B0B0F] p-6 text-white shadow-[0_30px_80px_-24px_rgba(0,0,0,.55)] ring-1 ring-white/10 sm:p-8">
             <div className="pointer-events-none absolute inset-0 overflow-hidden">
               <div className="animate-hero-drift absolute -left-24 -top-32 h-80 w-80 rounded-full bg-violet-600/40 blur-[100px]" />
               <div
@@ -1630,31 +1640,37 @@ export default function ManagementPage() {
           </div>
 
           {/* ─── Sheet Container ─── */}
-          <div className="overflow-hidden rounded-[24px] border border-[#d6d6d6]/60 bg-white shadow-[0_20px_60px_rgba(0,0,0,0.08)] transition-shadow duration-300 hover:shadow-[0_20px_60px_rgba(0,0,0,0.12)]">
+          <div className="animate-[fadeInUp_0.5s_ease-out_0.08s_both] overflow-hidden rounded-[24px] border border-[#d6d6d6]/60 bg-white shadow-[0_20px_60px_rgba(0,0,0,0.08)] transition-shadow duration-300 hover:shadow-[0_20px_60px_rgba(0,0,0,0.12)]">
             {/* Toolbar */}
             <div className="flex flex-col gap-3 border-b border-[#d6d6d6]/50 bg-white p-3.5 animate-[fadeIn_0.5s_ease-out] lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex flex-wrap gap-2">
-                <button onClick={addRow} className="btn-sheen inline-flex items-center gap-2 rounded-xl bg-black px-4 py-2.5 text-sm font-black text-white shadow-md shadow-black/15 transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#222222] hover:shadow-lg hover:shadow-black/25 active:scale-[0.97]">
-                  <Plus size={17} /> Add row
-                </button>
-                <button onClick={() => setShowAddColumn(true)} className="btn-sheen inline-flex items-center gap-2 rounded-xl bg-[#36454F] px-4 py-2.5 text-sm font-black text-white shadow-md shadow-[#36454F]/30 transition-all duration-200 hover:-translate-y-0.5 hover:brightness-110 hover:shadow-lg hover:shadow-[#36454F]/40 active:scale-[0.97]">
-                  <Columns3 size={17} /> Add column
-                </button>
-                <button disabled={isImporting} onClick={() => fileInputRef.current?.click()} className="btn-sheen inline-flex items-center gap-2 rounded-xl bg-[#023020] px-4 py-2.5 text-sm font-black text-white shadow-md shadow-[#023020]/30 transition-all duration-200 hover:-translate-y-0.5 hover:brightness-110 hover:shadow-lg hover:shadow-[#023020]/40 active:scale-[0.97] disabled:opacity-60 disabled:hover:translate-y-0 disabled:hover:shadow-none">
-                  {isImporting ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" /> : <FileSpreadsheet size={17} />}
-                  {isImporting ? "Reading file..." : "Upload Excel"}
-                </button>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <div className="flex shrink-0 items-center divide-x divide-white/10 overflow-hidden rounded-2xl bg-black shadow-md shadow-black/20">
+                  <button onClick={addRow} className="group flex items-center gap-2 px-4 py-2.5 text-sm font-black text-white transition-colors duration-200 hover:bg-white/10 active:scale-[0.97]">
+                    <Plus size={17} className="transition-transform duration-300 group-hover:rotate-90" /> Add row
+                  </button>
+                  <button onClick={() => setShowAddColumn(true)} className="group flex items-center gap-2 px-4 py-2.5 text-sm font-black text-white transition-colors duration-200 hover:bg-white/10 active:scale-[0.97]">
+                    <Columns3 size={17} className="transition-transform duration-300 group-hover:scale-110" /> Add column
+                  </button>
+                  <button disabled={isImporting} onClick={() => fileInputRef.current?.click()} className="group flex items-center gap-2 px-4 py-2.5 text-sm font-black text-white transition-colors duration-200 hover:bg-white/10 active:scale-[0.97] disabled:opacity-50">
+                    {isImporting ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" /> : <FileSpreadsheet size={17} className="transition-transform duration-300 group-hover:scale-110" />}
+                    {isImporting ? "Reading..." : "Upload Excel"}
+                  </button>
+                </div>
 
                 {/* ── Filters dropdown ── */}
-                <div className="relative" ref={filterDropdownRef}>
+                <div className="relative shrink-0" ref={filterDropdownRef}>
                   <button
                     onClick={() => { setShowFilters((v) => !v); setHoveredSection(null); }}
-                    className="btn-sheen inline-flex items-center gap-2 rounded-xl bg-[#191970] px-4 py-2.5 text-sm font-black text-white shadow-md shadow-[#191970]/30 transition-all duration-200 hover:-translate-y-0.5 hover:brightness-110 hover:shadow-lg hover:shadow-[#191970]/40 active:scale-[0.97]"
+                    className={`group flex items-center gap-2 rounded-2xl border px-4 py-2.5 text-sm font-black transition-all duration-200 active:scale-[0.97] ${
+                      showFilters || activeFilterCount > 0
+                        ? "border-black bg-black text-white shadow-md shadow-black/20"
+                        : "border-[#d6d6d6]/70 bg-white text-black shadow-sm hover:border-black/30 hover:shadow-md"
+                    }`}
                   >
-                    <SlidersHorizontal size={17} />
+                    <SlidersHorizontal size={17} className="transition-transform duration-300 group-hover:rotate-12" />
                     Filters
                     {activeFilterCount > 0 && (
-                      <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-xs font-black text-white transition-colors duration-200">{activeFilterCount}</span>
+                      <span className={`rounded-full px-1.5 py-0.5 text-xs font-black transition-colors duration-200 ${showFilters ? "bg-white/20 text-white" : "bg-black text-white"}`}>{activeFilterCount}</span>
                     )}
                     <ChevronDown size={15} className={`transition-transform duration-300 ${showFilters ? "rotate-180" : ""}`} />
                   </button>
@@ -1799,14 +1815,17 @@ export default function ManagementPage() {
                 <button
                   onClick={() => setUpcomingOnly((v) => !v)}
                   title={upcomingOnly ? "Showing only upcoming events — click to show all clients again" : "Hide clients whose event date is today or already passed"}
-                  className={`btn-sheen inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-black text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:brightness-110 hover:shadow-lg active:scale-[0.97] ${
+                  className={`group flex shrink-0 items-center gap-2.5 rounded-2xl border px-3.5 py-2 text-sm font-black transition-all duration-200 active:scale-[0.97] ${
                     upcomingOnly
-                      ? "bg-[#0b6e4f] shadow-[#0b6e4f]/30 hover:shadow-[#0b6e4f]/40"
-                      : "bg-[#c2410c] shadow-[#c2410c]/30 hover:shadow-[#c2410c]/40"
+                      ? "border-emerald-600/20 bg-emerald-50 text-emerald-700"
+                      : "border-[#d6d6d6]/70 bg-white text-black/60 hover:border-black/20"
                   }`}
                 >
-                  <CalendarClock size={17} />
-                  {upcomingOnly ? "Upcoming only" : "Show upcoming only"}
+                  <span className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-300 ${upcomingOnly ? "bg-emerald-500" : "bg-[#d6d6d6]"}`}>
+                    <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-300 ${upcomingOnly ? "translate-x-5" : "translate-x-0.5"}`} />
+                  </span>
+                  <CalendarClock size={16} className={upcomingOnly ? "text-emerald-600" : "text-black/40"} />
+                  {upcomingOnly ? "Upcoming only" : "Show upcoming"}
                 </button>
               </div>
 
@@ -1832,12 +1851,12 @@ export default function ManagementPage() {
                 <table className="w-full border-separate border-spacing-0 text-left" style={{ minWidth: "100%" }}>
                   <thead>
                     <tr>
-                      <th className="sticky left-0 z-30 w-14 min-w-14 border-b border-r border-[#d6d6d6]/60 bg-black px-2 py-3 text-center text-xs font-black text-white">#</th>
+                      <th className="sticky left-0 z-30 w-14 min-w-14 border-b-2 border-r border-violet-500/40 bg-gradient-to-b from-[#241b4a] via-[#15122a] to-black px-2 py-3.5 text-center text-[11px] font-black uppercase tracking-wider text-white">#</th>
                       {workspace.columns.map((column) => (
                         <th
                           key={column.id}
                           style={{ width: column.width, minWidth: column.width }}
-                          className="relative border-b border-r border-white/15 bg-black px-3 py-3 align-top text-xs font-black text-white"
+                          className="relative border-b-2 border-r border-violet-500/40 bg-gradient-to-b from-[#241b4a] via-[#15122a] to-black px-3 py-3.5 align-top text-[11px] font-black uppercase tracking-wider text-white transition-colors duration-200 hover:from-[#332658]"
                         >
                           <div className="flex items-start justify-between gap-2 pr-1">
                             <span>{Showed_Column_Name[column.name] ?? column.name}{column.required ? " *" : ""}</span>
@@ -1848,7 +1867,7 @@ export default function ManagementPage() {
                           />
                         </th>
                       ))}
-                      <th className="sticky right-0 z-30 w-[52px] min-w-[52px] border-b border-l border-white/15 bg-black px-2 py-3 text-center text-xs font-black text-white">Action</th>
+                      <th className="sticky right-0 z-30 w-[52px] min-w-[52px] border-b-2 border-l border-violet-500/40 bg-gradient-to-b from-[#241b4a] via-[#15122a] to-black px-2 py-3.5 text-center text-[11px] font-black uppercase tracking-wider text-white">Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1856,16 +1875,21 @@ export default function ManagementPage() {
                       const rowH = rowHeights[row.id];
                       const isAlreadyBooked = Boolean(row.alreadyBooked);
                       const isBookedFromMme = Boolean(row.bookedFromMme);
+                      const isEvenRow = index % 2 === 0;
                       const stickyBg = isBookedFromMme
                         ? "bg-emerald-100 group-hover:bg-emerald-300/80"
                         : isAlreadyBooked
                         ? "bg-rose-100 group-hover:bg-rose-300/80"
-                        : "bg-[#ffffff] group-hover:bg-[#f8f8f8]";
+                        : isEvenRow
+                        ? "bg-[#ffffff] group-hover:bg-violet-50"
+                        : "bg-[#f2f2f7] group-hover:bg-violet-50";
                       const cellBg = isBookedFromMme
                         ? "bg-emerald-100/80 group-hover:bg-emerald-200/70"
                         : isAlreadyBooked
                         ? "bg-rose-100/80 group-hover:bg-rose-200/70"
-                        : "bg-white group-hover:bg-[#fafafa]";
+                        : isEvenRow
+                        ? "bg-white group-hover:bg-violet-50/60"
+                        : "bg-[#f2f2f7] group-hover:bg-violet-50/60";
                       const cellBorder = isBookedFromMme
                         ? "border-emerald-300/70"
                         : isAlreadyBooked

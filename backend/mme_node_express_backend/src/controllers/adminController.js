@@ -5,7 +5,9 @@ import { prisma } from "../config/prisma.js";
 // Returns all employees with role + created-by info.
 export async function listEmployees(req, res, next) {
   try {
+    const includeAdmins = req.query.includeAdmins === "true";
     const employees = await prisma.employee.findMany({
+      where: includeAdmins ? undefined : { NOT: { role: { name: "Admin" } } },
       include: {
         role: true,
         createdBy: { select: { fullName: true } },

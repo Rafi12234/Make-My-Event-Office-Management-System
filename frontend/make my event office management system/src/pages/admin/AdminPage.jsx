@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
-import BackButton from "../components/BackButton";
-import AdminLayout from "../components/AdminLayout";
+import BackButton from "../../components/BackButton";
+import AdminLayout from "../../components/AdminLayout";
 import {
   CalendarClock,
   Eye,
@@ -11,10 +11,10 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
-import { fetchAdminMe, adminLogout, fetchAllEmployees } from "../services/adminService";
-import { fetchAllCalls, fetchAllMeetings } from "../services/adminActivityService";
-import { buildEmployeeActivity, initials } from "../utils/employeeActivity";
-import { StatChip } from "../components/EmployeeActivityWidgets";
+import { fetchAdminMe, adminLogout, fetchAllEmployees } from "../../services/adminService";
+import { fetchAllCalls, fetchAllMeetings } from "../../services/adminActivityService";
+import { buildEmployeeActivity, initials } from "../../utils/employeeActivity";
+import { StatChip } from "../../components/EmployeeActivityWidgets";
 
 // ─── Employee Activity Row ───────────────────────────────────────────────────
 // A flat, non-expanding row: stats at a glance, "eye" button opens the full

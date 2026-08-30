@@ -260,7 +260,7 @@ export default function AdminEmployeeAccountsPage() {
   useEffect(() => {
     if (!admin) return;
     setIsLoading(true);
-    fetchAllEmployees()
+    fetchAllEmployees({ includeAdmins: true })
       .then(setEmployees)
       .catch((err) => setNotice({ type: "error", message: err.message }))
       .finally(() => setIsLoading(false));

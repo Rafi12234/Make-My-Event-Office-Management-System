@@ -11,9 +11,9 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
-import AdminLayout from "../components/AdminLayout";
-import { adminLogout, fetchAdminMe } from "../services/adminService";
-import { fetchAdminDashboard } from "../services/adminDashboardService";
+import AdminLayout from "../../components/AdminLayout";
+import { adminLogout, fetchAdminMe } from "../../services/adminService";
+import { fetchAdminDashboard } from "../../services/adminDashboardService";
 
 // Deterministic fallback palette so an employee without a saved colorHex
 // still gets a distinct-looking avatar (mirrors the backend's calendar

@@ -28,8 +28,11 @@ export async function adminLogout() {
   });
 }
 
-export async function fetchAllEmployees() {
-  const res = await fetch(`${API_BASE_URL}/admin/employees`, {
+export async function fetchAllEmployees({ includeAdmins = false } = {}) {
+  const url = includeAdmins
+    ? `${API_BASE_URL}/admin/employees?includeAdmins=true`
+    : `${API_BASE_URL}/admin/employees`;
+  const res = await fetch(url, {
     credentials: "include",
   });
   const body = await res.json();
