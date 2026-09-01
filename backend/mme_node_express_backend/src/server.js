@@ -18,8 +18,10 @@ import adminRoutes from "./routes/admin.js";
 import adminActivityRoutes from "./routes/adminActivity.js";
 import adminCalendarRoutes from "./routes/adminCalendar.js";
 import adminDashboardRoutes from "./routes/adminDashboard.js";
+import adminAttendanceRoutes from "./routes/adminAttendance.js";
 import meetingRoutes, { uploadsRootDirectory } from "./routes/meetings.js";
 import callRoutes from "./routes/calls.js";
+import mobileAuthRoutes from "./routes/mobileAuth.js";
 
 import {
   errorHandler,
@@ -27,6 +29,7 @@ import {
 } from "./middleware/errorHandler.js";
 import { requireEmployee, isValidSession } from "./middleware/employeeAuth.js";
 import { requireAdmin } from "./middleware/adminAuth.js";
+import { attachBearerToken } from "./middleware/attachBearerToken.js";
 
 const app = express();
 
@@ -91,6 +94,25 @@ const {
 
 const { default: adminAccountsRoutes } = require(
   path.join(accountsBackendDirectory, "routes/adminAccounts.js"),
+);
+
+/*
+|--------------------------------------------------------------------------
+| Resolve the Attendance module
+|--------------------------------------------------------------------------
+|
+| Same idea as the Accounts module above, but nested one level deeper
+| (mobile/Attendance/backend instead of a repo-root sibling) since this
+| module is dedicated to the mobile app. ATTENDANCE_BACKEND_DIR overrides
+| the resolved path for deployment, same as ACCOUNTS_BACKEND_DIR.
+*/
+
+const attendanceBackendDirectory = process.env.ATTENDANCE_BACKEND_DIR
+  ? path.resolve(process.env.ATTENDANCE_BACKEND_DIR)
+  : path.resolve(__dirname, "../../../mobile/Attendance/backend");
+
+const { default: attendanceRoutes } = require(
+  path.join(attendanceBackendDirectory, "routes/attendance.js"),
 );
 
 /*
@@ -179,9 +201,10 @@ app.get("/api/health", async (req, res, next) => {
 |--------------------------------------------------------------------------
 */
 
-app.use("/api/employees", employeeRoutes);
-app.use("/api/workspace", requireEmployee, workspaceRoutes);
-app.use("/api/calendar", requireEmployee, calendarRoutes);
+app.use("/api/employees", attachBearerToken, employeeRoutes);
+app.use("/api/mobile/auth", mobileAuthRoutes);
+app.use("/api/workspace", attachBearerToken, requireEmployee, workspaceRoutes);
+app.use("/api/calendar", attachBearerToken, requireEmployee, calendarRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin", adminActivityRoutes);
@@ -191,6 +214,11 @@ app.use("/api/meetings", requireEmployee, meetingRoutes);
 app.use("/api/calls", requireEmployee, callRoutes);
 app.use("/api/accounts", requireEmployee, accountsRoutes);
 app.use("/api/admin/accounts", requireAdmin, adminAccountsRoutes);
+app.use("/api/admin", adminAttendanceRoutes);
+app.use("/api/meetings", attachBearerToken, requireEmployee, meetingRoutes);
+app.use("/api/calls", attachBearerToken, requireEmployee, callRoutes);
+app.use("/api/accounts", attachBearerToken, requireEmployee, accountsRoutes);
+app.use("/api/attendance", attachBearerToken, requireEmployee, attendanceRoutes);
 
 /*
 |--------------------------------------------------------------------------
