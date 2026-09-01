@@ -447,7 +447,8 @@ export async function createMeeting(req, res, next) {
   // never employee-editable — so a meeting can't be logged as having
   // happened earlier (or later) than it really did.
   const meetingDatetime = nowInBusinessTimezone();
-  const employeeId = isValidId(req.body.employeeId);
+  // Acting employee always comes from the authenticated session, not the body.
+  const employeeId = isValidId(req.employee.id);
 
   try {
     // If this client has a pending next-meeting assignment (set on a
@@ -499,7 +500,8 @@ export async function updateMeeting(req, res, next) {
   // `meetingDatetime` is fixed at creation (server time) and is never
   // accepted here — only requirements/next-meeting fields are editable.
   const nextMeetingDatetime = parseDateTimeLocal(req.body.nextMeetingDatetime);
-  const employeeId = isValidId(req.body.employeeId);
+  // Acting employee always comes from the authenticated session, not the body.
+  const employeeId = isValidId(req.employee.id);
   const nextMeetingAssignedEmployeeId = isValidId(req.body.nextMeetingAssignedEmployeeId);
 
   // `requirements` is legacy (superseded by the Items feature below) and
@@ -737,7 +739,8 @@ export async function finalizeMeeting(req, res, next) {
     return res.status(400).json({ message: "Invalid client reference." });
   }
 
-  const employeeId = isValidId(req.body.employeeId);
+  // Acting employee always comes from the authenticated session, not the body.
+  const employeeId = isValidId(req.employee.id);
   const budget = parseBudget(req.body.budget);
   const rawItems = Array.isArray(req.body.items) ? req.body.items : [];
 
@@ -931,7 +934,8 @@ export async function uploadMeetingImages(req, res, next) {
     return res.status(422).json({ message: "At least one image is required." });
   }
 
-  const employeeId = isValidId(req.body.employeeId);
+  // Acting employee always comes from the authenticated session, not the body.
+  const employeeId = isValidId(req.employee.id);
 
   // Optional per-file tag names, sent as a JSON array of strings aligned
   // by index with the uploaded files (e.g. ["Stage", "Entry Gate"]).
@@ -1041,7 +1045,8 @@ export async function createMeetingItem(req, res, next) {
 
   const description = String(req.body.description || "").slice(0, 2000);
   const quantity = parseQuantity(req.body.quantity);
-  const employeeId = isValidId(req.body.employeeId);
+  // Acting employee always comes from the authenticated session, not the body.
+  const employeeId = isValidId(req.employee.id);
 
   try {
     const meeting = await prisma.clientMeeting.findFirst({
@@ -1104,7 +1109,8 @@ export async function updateMeetingItem(req, res, next) {
 
   const description = String(req.body.description || "").slice(0, 2000);
   const quantity = parseQuantity(req.body.quantity);
-  const employeeId = isValidId(req.body.employeeId);
+  // Acting employee always comes from the authenticated session, not the body.
+  const employeeId = isValidId(req.employee.id);
 
   try {
     const item = await prisma.meetingItem.findFirst({
@@ -1203,7 +1209,8 @@ export async function uploadItemImages(req, res, next) {
     return res.status(422).json({ message: "At least one image is required." });
   }
 
-  const employeeId = isValidId(req.body.employeeId);
+  // Acting employee always comes from the authenticated session, not the body.
+  const employeeId = isValidId(req.employee.id);
 
   try {
     const item = await prisma.meetingItem.findFirst({

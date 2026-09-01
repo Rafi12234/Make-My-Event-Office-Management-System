@@ -139,7 +139,10 @@ export async function createCall(req, res, next) {
   const callDiscussion = req.body.callDiscussion
     ? String(req.body.callDiscussion)
     : null;
-  const employeeId = isValidId(req.body.employeeId);
+  // Acting employee always comes from the authenticated session (cookie or
+  // mobile Bearer token), never from the request body — a client can never
+  // forge who performed the action.
+  const employeeId = isValidId(req.employee.id);
 
   try {
     // If this client has a pending next-call assignment (set on a previous
@@ -192,7 +195,8 @@ export async function updateCall(req, res, next) {
     ? String(req.body.callDiscussion)
     : null;
   const nextCallDatetime = parseDateTimeLocal(req.body.nextCallDatetime);
-  const employeeId = isValidId(req.body.employeeId);
+  // Acting employee always comes from the authenticated session, not the body.
+  const employeeId = isValidId(req.employee.id);
   const nextCallAssignedEmployeeId = isValidId(req.body.nextCallAssignedEmployeeId);
 
   try {
