@@ -101,7 +101,7 @@ export default function AdminAccountsEventsPage() {
         <button
           type="button"
           onClick={handleExport}
-          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-black text-slate-600 hover:bg-slate-50"
+          className="acc-press inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-black text-slate-600 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
         >
           <Download size={15} />
           Export
@@ -112,13 +112,13 @@ export default function AdminAccountsEventsPage() {
 
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <StatCard
-          label="Total event recorded cost"
+          index={0} label="Total event recorded cost"
           value={formatTaka(totals.recorded)}
           tone="slate"
           icon={CalendarRange}
         />
-        <StatCard label="Actually paid" value={formatTaka(totals.paid)} tone="emerald" />
-        <StatCard label="Still to pay" value={formatTaka(totals.toPay)} tone="amber" />
+        <StatCard index={1} label="Actually paid" value={formatTaka(totals.paid)} tone="emerald" />
+        <StatCard index={2} label="Still to pay" value={formatTaka(totals.toPay)} tone="amber" />
       </div>
 
       <SectionCard
@@ -173,17 +173,17 @@ export default function AdminAccountsEventsPage() {
         {summary ? (
           <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard
-              label="Money given to employees"
+              index={3} label="Money given to employees"
               value={formatTaka(summary.moneyGivenToEmployees)}
               tone="violet"
             />
-            <StatCard label="Recorded cost" value={formatTaka(summary.recordedCost)} tone="slate" />
-            <StatCard label="Actually paid" value={formatTaka(summary.actuallyPaid)} tone="emerald" />
-            <StatCard label="Still to pay" value={formatTaka(summary.stillToPay)} tone="amber" />
-            <StatCard label="Event costs" value={formatTaka(summary.eventCost)} tone="slate" />
-            <StatCard label="Regular costs" value={formatTaka(summary.regularCost)} tone="slate" />
-            <StatCard label="Vendor billed" value={formatTaka(summary.vendorBilled)} tone="slate" />
-            <StatCard label="Vendor paid" value={formatTaka(summary.vendorPaid)} tone="emerald" />
+            <StatCard index={4} label="Recorded cost" value={formatTaka(summary.recordedCost)} tone="slate" />
+            <StatCard index={5} label="Actually paid" value={formatTaka(summary.actuallyPaid)} tone="emerald" />
+            <StatCard index={6} label="Still to pay" value={formatTaka(summary.stillToPay)} tone="amber" />
+            <StatCard index={7} label="Event costs" value={formatTaka(summary.eventCost)} tone="slate" />
+            <StatCard index={8} label="Regular costs" value={formatTaka(summary.regularCost)} tone="slate" />
+            <StatCard index={9} label="Vendor billed" value={formatTaka(summary.vendorBilled)} tone="slate" />
+            <StatCard index={10} label="Vendor paid" value={formatTaka(summary.vendorPaid)} tone="emerald" />
           </div>
         ) : null}
       </SectionCard>
@@ -247,7 +247,7 @@ export default function AdminAccountsEventsPage() {
                       {row.linkedRowKey ? (
                         <Link
                           to={`/admin/accounts/expenses?linkedRowKey=${row.linkedRowKey}`}
-                          className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-black text-slate-600 hover:bg-slate-50"
+                          className="acc-press inline-block rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-black text-slate-600 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
                         >
                           Costs
                         </Link>

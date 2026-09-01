@@ -47,7 +47,7 @@ export default function AdminAccountsEmployeeProfilePage() {
       actions={
         <Link
           to="/admin/accounts/employees"
-          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-black text-slate-600 hover:bg-slate-50"
+          className="acc-press inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-black text-slate-600 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
         >
           <ArrowLeft size={15} />
           All employees
@@ -62,31 +62,36 @@ export default function AdminAccountsEmployeeProfilePage() {
         <div className="space-y-6">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             <StatCard
-              label="Current wallet"
+              index={0} label="Current wallet"
               value={formatTaka(data.currentBalance)}
               tone={data.currentBalance < 0 ? "rose" : "emerald"}
               icon={Wallet}
             />
             <StatCard
-              label="Total money received"
+              index={1} label="Total money received"
               value={formatTaka(data.totalMoneyIn)}
               tone="violet"
               icon={Banknote}
             />
             <StatCard
-              label="Total recorded cost"
+              index={2} label="Total recorded cost"
               value={formatTaka(data.totalRecordedCost)}
-              hint="Includes unpaid vendor bills"
+              hint="Paid only — To Pay not counted"
               tone="slate"
               icon={ClipboardList}
             />
             <StatCard
-              label="Actually paid"
+              index={3} label="Still payable to vendors"
+              value={formatTaka(data.totalStillPayable)}
+              tone="amber"
+            />
+            <StatCard
+              index={4} label="Actually paid"
               value={formatTaka(data.totalActuallyPaid)}
               tone="emerald"
             />
-            <StatCard label="Event based costs" value={formatTaka(data.eventCostTotal)} tone="amber" />
-            <StatCard label="Regular costs" value={formatTaka(data.regularCostTotal)} tone="slate" />
+            <StatCard index={5} label="Event based costs" value={formatTaka(data.eventCostTotal)} tone="amber" />
+            <StatCard index={6} label="Regular costs" value={formatTaka(data.regularCostTotal)} tone="slate" />
           </div>
 
           <div className="flex flex-wrap gap-1.5 rounded-2xl border border-rose-100 bg-white/80 p-1.5 shadow-sm">
@@ -95,7 +100,7 @@ export default function AdminAccountsEmployeeProfilePage() {
                 key={entry.key}
                 type="button"
                 onClick={() => setTab(entry.key)}
-                className={`rounded-xl px-3.5 py-2 text-sm font-bold transition ${
+                className={`acc-press rounded-xl px-3.5 py-2 text-sm font-bold ${
                   tab === entry.key
                     ? "bg-gradient-to-r from-rose-500 to-pink-500 text-white shadow"
                     : "text-slate-600 hover:bg-rose-50 hover:text-rose-600"
@@ -160,7 +165,7 @@ export default function AdminAccountsEmployeeProfilePage() {
                   {data.expenseHistory.map((expense) => (
                     <div
                       key={expense.id}
-                      className={`rounded-2xl border border-slate-200 p-4 ${
+                      className={`acc-stagger-fast acc-lift rounded-2xl border border-slate-200 p-4 ${
                         expense.status === "void" ? "bg-slate-50 opacity-70" : "bg-white"
                       }`}
                     >
@@ -179,7 +184,7 @@ export default function AdminAccountsEmployeeProfilePage() {
                         </div>
                         <Link
                           to={`/admin/accounts/expenses/${expense.id}`}
-                          className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-black text-slate-600 hover:bg-slate-50"
+                          className="acc-press inline-block rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-black text-slate-600 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
                         >
                           Open
                         </Link>

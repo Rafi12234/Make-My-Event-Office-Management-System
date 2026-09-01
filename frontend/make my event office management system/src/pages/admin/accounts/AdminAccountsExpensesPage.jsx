@@ -106,7 +106,7 @@ export default function AdminAccountsExpensesPage() {
         <button
           type="button"
           onClick={handleExport}
-          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-black text-slate-600 hover:bg-slate-50"
+          className="acc-press inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-black text-slate-600 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
         >
           <Download size={15} />
           Export
@@ -118,22 +118,22 @@ export default function AdminAccountsExpensesPage() {
       {result ? (
         <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard
-            label="Recorded cost"
+            index={0} label="Recorded cost"
             value={formatTaka(result.filteredTotals.recordedCost)}
             hint="Includes unpaid vendor bills"
             tone="slate"
           />
           <StatCard
-            label="Actually paid"
+            index={1} label="Actually paid"
             value={formatTaka(result.filteredTotals.actuallyPaid)}
             tone="emerald"
           />
           <StatCard
-            label="Still to pay"
+            index={2} label="Still to pay"
             value={formatTaka(result.filteredTotals.stillToPay)}
             tone="amber"
           />
-          <StatCard label="Records matched" value={result.total} tone="violet" />
+          <StatCard index={3} label="Records matched" value={result.total} tone="violet" />
         </div>
       ) : null}
 
@@ -307,7 +307,7 @@ export default function AdminAccountsExpensesPage() {
             setFilters(EMPTY_FILTERS);
             setPage(1);
           }}
-          className="mt-3 rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-black text-slate-500 hover:bg-slate-50"
+          className="mt-3 acc-press rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-black text-slate-500 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
         >
           Reset filters
         </button>
@@ -324,7 +324,7 @@ export default function AdminAccountsExpensesPage() {
               {result.rows.map((expense) => (
                 <div
                   key={expense.id}
-                  className={`rounded-2xl border p-4 ${
+                  className={`acc-stagger-fast acc-lift rounded-2xl border p-4 ${
                     expense.status === "void"
                       ? "border-slate-200 bg-slate-50 opacity-70"
                       : "border-slate-200 bg-white"
@@ -353,7 +353,7 @@ export default function AdminAccountsExpensesPage() {
                     </div>
                     <Link
                       to={`/admin/accounts/expenses/${expense.id}`}
-                      className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-black text-slate-600 hover:bg-slate-50"
+                      className="acc-press inline-block rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-black text-slate-600 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
                     >
                       Open & edit
                     </Link>

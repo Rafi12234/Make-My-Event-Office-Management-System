@@ -112,7 +112,7 @@ export default function AdminAccountsMoneyInPage() {
         <button
           type="button"
           onClick={handleExport}
-          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-black text-slate-600 hover:bg-slate-50"
+          className="acc-press inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-black text-slate-600 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
         >
           <Download size={15} />
           Export
@@ -124,12 +124,12 @@ export default function AdminAccountsMoneyInPage() {
       {result ? (
         <div className="mb-6 grid gap-4 sm:grid-cols-2">
           <StatCard
-            label="Filtered active total"
+            index={0} label="Filtered active total"
             value={formatTaka(result.filteredActiveTotal)}
             hint="Voided entries excluded"
             tone="violet"
           />
-          <StatCard label="Records matched" value={result.total} tone="slate" />
+          <StatCard index={1} label="Records matched" value={result.total} tone="slate" />
         </div>
       ) : null}
 
@@ -214,7 +214,7 @@ export default function AdminAccountsMoneyInPage() {
             setFilters(EMPTY_FILTERS);
             setPage(1);
           }}
-          className="mt-3 rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-black text-slate-500 hover:bg-slate-50"
+          className="mt-3 acc-press rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-black text-slate-500 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
         >
           Reset filters
         </button>
@@ -277,7 +277,7 @@ export default function AdminAccountsMoneyInPage() {
                             <button
                               type="button"
                               onClick={() => setEditing(row)}
-                              className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-50 hover:text-rose-600"
+                              className="acc-press rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
                               title="Edit record"
                             >
                               <Pencil size={14} />
@@ -285,7 +285,7 @@ export default function AdminAccountsMoneyInPage() {
                             <button
                               type="button"
                               onClick={() => setVoiding(row)}
-                              className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
+                              className="acc-press rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
                               title="Void record"
                             >
                               <Ban size={14} />
@@ -442,14 +442,14 @@ function EditMoneyInModal({ entry, onClose, onSaved, onError }) {
           <button
             type="button"
             onClick={onClose}
-            className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-black text-slate-600 hover:bg-slate-50"
+            className="acc-press rounded-xl border border-slate-200 px-4 py-2 text-sm font-black text-slate-600 hover:bg-slate-50"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={busy || reason.trim().length < 3}
-            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 px-4 py-2 text-sm font-black text-white shadow disabled:opacity-40"
+            className="acc-press inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 px-4 py-2 text-sm font-black text-white shadow-lg shadow-rose-500/25 enabled:hover:shadow-xl enabled:hover:shadow-rose-500/30 disabled:opacity-40"
           >
             {busy ? <Loader2 size={14} className="animate-spin" /> : null}
             Save correction

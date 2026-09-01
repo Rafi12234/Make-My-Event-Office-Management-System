@@ -60,7 +60,7 @@ export function formatDisplayDateTime(value) {
 
 // ─── Overview / dashboards ─────────────────────────────────────
 
-export const loadOverview = () => apiRequest("/overview");
+export const loadOverview = (params) => apiRequest(`/overview${toQuery(params)}`);
 export const loadActivityFeed = () => apiRequest("/activity");
 export const loadReconciliation = () => apiRequest("/reconciliation");
 export const loadRangeSummary = (params) => apiRequest(`/summary${toQuery(params)}`);
@@ -103,6 +103,11 @@ export const voidExpense = (id, reason) =>
 
 export const loadVendors = (params) => apiRequest(`/vendors${toQuery(params)}`);
 export const loadVendorProfile = (id) => apiRequest(`/vendors/${id}`);
+
+// Every still-open bill for this vendor — powers the "Which bill is this
+// settling?" picker so a payment never silently nets against an
+// unrelated purchase that just happens to share the same vendor/event.
+export const loadVendorOutstandingItems = (id) => apiRequest(`/vendors/${id}/outstanding`);
 
 export const createVendor = (payload) =>
   apiRequest("/vendors", { method: "POST", body: JSON.stringify(payload) });

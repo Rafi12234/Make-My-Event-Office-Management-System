@@ -64,6 +64,50 @@ export function negateDeltas(deltas) {
   return out;
 }
 
+// A "to_pay" item is a specific bill. A "paid" item only ever reduces a
+// bill it explicitly targets via settlesItemId — sharing the same vendor
+// (even the same event) is NOT enough to net two items against each
+// other. An unlinked "paid" item (e.g. an instant, unrelated buy from the
+// same vendor under the same event) never reduces any bill's balance.
+// Takes any flat list of items shaped { id, vendorId, paymentStatus,
+// totalAmount, settlesItemId } and returns a Map(bill itemId string ->
+// amount still owed on that specific bill, only entries with amount > 0).
+export function computeVendorOutstandingBills(items) {
+  const bills = new Map();
+  for (const item of items) {
+    if (item.vendorId && item.paymentStatus === "to_pay") {
+      bills.set(String(item.id), Number(item.totalAmount));
+    }
+  }
+  for (const item of items) {
+    if (!item.vendorId || item.paymentStatus !== "paid" || !item.settlesItemId) continue;
+    const key = String(item.settlesItemId);
+    if (!bills.has(key)) continue;
+    bills.set(key, roundMoney(bills.get(key) - Number(item.totalAmount)));
+  }
+  const remainingById = new Map();
+  for (const [itemId, remaining] of bills) {
+    const clamped = Math.max(0, roundMoney(remaining));
+    if (clamped > 0) remainingById.set(itemId, clamped);
+  }
+  return remainingById;
+}
+
+// Per-vendor rollup of computeVendorOutstandingBills — same item shape,
+// returns a Map(vendorId string -> total still owed across all its bills).
+export function computeVendorStillOwed(items) {
+  const remainingById = computeVendorOutstandingBills(items);
+  const stillOwedBy = new Map();
+  for (const item of items) {
+    if (!item.vendorId || item.paymentStatus !== "to_pay") continue;
+    const remaining = remainingById.get(String(item.id));
+    if (!remaining) continue;
+    const vendorKey = String(item.vendorId);
+    stillOwedBy.set(vendorKey, roundMoney((stillOwedBy.get(vendorKey) || 0) + remaining));
+  }
+  return stillOwedBy;
+}
+
 export function mergeDeltas(first, second) {
   const out = new Map(first);
   for (const [key, value] of second) {
@@ -197,6 +241,7 @@ export function serializeAdminExpenseItem(item) {
     vendorId: item.vendorId ? String(item.vendorId) : null,
     vendorName: item.vendor?.name || null,
     paymentStatus: item.paymentStatus || null,
+    settlesItemId: item.settlesItemId ? String(item.settlesItemId) : null,
     createdAt: formatDateTime(item.createdAt),
     updatedAt: formatDateTime(item.updatedAt),
   };
@@ -288,3 +333,78 @@ export function serializeAuditLog(entry) {
 // Only active rows ever count toward balances or totals; voided rows stay
 // readable but are financially neutral.
 export const ACTIVE_ONLY = { status: "active" };
+
+/*
+|--------------------------------------------------------------------------
+| Explicit bill settlement
+|--------------------------------------------------------------------------
+*/
+
+// Validates a "which bill does this payment settle?" reference before it's
+// stored — must be a real, active, still-outstanding "to_pay" item for the
+// SAME vendor. Returns { settlesItemId: BigInt|null } or { error }.
+export async function resolveSettlementTarget(vendorId, rawSettlesItemId) {
+  if (rawSettlesItemId === undefined || rawSettlesItemId === null || rawSettlesItemId === "") {
+    return { settlesItemId: null };
+  }
+  let candidateId;
+  try {
+    candidateId = BigInt(rawSettlesItemId);
+  } catch {
+    return { error: "Invalid bill reference." };
+  }
+  const target = await prisma.accountExpenseItem.findUnique({
+    where: { id: candidateId },
+    select: { id: true, vendorId: true, paymentStatus: true, expense: { select: { status: true } } },
+  });
+  if (
+    !target ||
+    !target.vendorId ||
+    String(target.vendorId) !== String(vendorId) ||
+    target.paymentStatus !== "to_pay" ||
+    target.expense.status !== "active"
+  ) {
+    return { error: "That bill is no longer available to settle." };
+  }
+  return { settlesItemId: target.id };
+}
+
+// Every still-outstanding "to_pay" bill for one vendor — powers the
+// "Which bill is this payment settling?" picker on both panels.
+export async function listVendorOutstandingBills(vendorId) {
+  const items = await prisma.accountExpenseItem.findMany({
+    where: { vendorId, expense: ACTIVE_ONLY },
+    select: {
+      id: true,
+      purpose: true,
+      costDate: true,
+      totalAmount: true,
+      paymentStatus: true,
+      settlesItemId: true,
+      expense: { select: { costType: true, eventClientNameSnapshot: true } },
+    },
+  });
+
+  const remainingById = computeVendorOutstandingBills(
+    items.map((item) => ({
+      id: item.id,
+      vendorId,
+      paymentStatus: item.paymentStatus,
+      totalAmount: item.totalAmount,
+      settlesItemId: item.settlesItemId,
+    })),
+  );
+
+  return items
+    .filter((item) => item.paymentStatus === "to_pay" && remainingById.has(String(item.id)))
+    .map((item) => ({
+      id: String(item.id),
+      purpose: item.purpose,
+      costDate: formatDateOnly(item.costDate),
+      costType: item.expense.costType,
+      eventClientName: item.expense.eventClientNameSnapshot || null,
+      originalAmount: Number(item.totalAmount),
+      stillOwed: remainingById.get(String(item.id)),
+    }))
+    .sort((a, b) => Number(b.id) - Number(a.id));
+}

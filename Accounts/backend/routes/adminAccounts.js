@@ -24,6 +24,7 @@ import {
   updateVendor,
   setVendorStatus,
   getVendorProfile,
+  getVendorOutstandingItems,
   createDirectVendorCost,
   createDirectVendorPayment,
 } from "../controllers/adminVendorsController.js";
@@ -57,6 +58,7 @@ router.post("/expenses/:id/void", voidExpense);
 router.get("/vendors", listVendors);
 router.post("/vendors", createVendor);
 router.get("/vendors/:id", getVendorProfile);
+router.get("/vendors/:id/outstanding", getVendorOutstandingItems);
 router.patch("/vendors/:id", updateVendor);
 router.patch("/vendors/:id/status", setVendorStatus);
 router.post("/vendors/:id/cost", createDirectVendorCost);

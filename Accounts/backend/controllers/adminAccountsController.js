@@ -5,6 +5,8 @@ import {
   roundMoney,
   computeWalletDeduction,
   computeVendorDeltas,
+  computeVendorStillOwed,
+  computeVendorOutstandingBills,
   negateDeltas,
   applyWalletDelta,
   applyVendorDeltas,
@@ -14,6 +16,7 @@ import {
   parseOptionalBigInt,
   parseOptionalNumber,
   requireReason,
+  resolveSettlementTarget,
   serializeAdminExpense,
   serializeAdminMoneyIn,
   serializeAuditLog,
@@ -27,8 +30,8 @@ import {
 |
 | Reads and corrects the SAME tables the employee Accounts module writes —
 | there is no parallel admin ledger. Every figure is kept deliberately
-| distinct (recorded cost vs. actually paid vs. still payable) rather than
-| collapsed into one vague "total expense".
+| distinct (total expense vs. wallet-only paid vs. still payable) rather
+| than collapsed into one vague number.
 |
 | Admin identity always comes from req.adminId (set by requireAdmin), never
 | from anything the frontend sends.
@@ -51,28 +54,74 @@ const MONEY_IN_INCLUDE = {
 
 export async function getOverview(req, res, next) {
   try {
+    const dateFrom = parseOptionalDate(req.query.dateFrom);
+    const dateTo = parseOptionalDate(req.query.dateTo);
+    const isFiltered = Boolean(dateFrom && dateTo);
+    const moneyInWhere = isFiltered ? { receivedDate: { gte: dateFrom, lte: dateTo } } : {};
+    const itemDateWhere = isFiltered ? { costDate: { gte: dateFrom, lte: dateTo } } : {};
+
     const [
       moneyInTotal,
-      expenseTotals,
+      paidItemsTotal,
+      paidToVendorsTotal,
+      stillPayableTotal,
       wallets,
       vendorBalances,
+      vendorDebtItems,
       recentExpenses,
       recentMoneyIn,
       recentVendorItems,
     ] = await Promise.all([
       prisma.accountMoneyReceived.aggregate({
-        where: ACTIVE_ONLY,
+        where: { ...ACTIVE_ONLY, ...moneyInWhere },
         _sum: { amount: true },
       }),
-      prisma.accountExpense.aggregate({
-        where: ACTIVE_ONLY,
-        _sum: { totalAmount: true, walletDeductionAmount: true },
+      // Company-wide total actually spent so far: every item EXCEPT an
+      // open vendor "To Pay" liability. Excluding To Pay here (rather than
+      // summing whole-expense totalAmount) is what stops a later "Paid"
+      // entry that settles an earlier To Pay from being counted twice.
+      prisma.accountExpenseItem.aggregate({
+        where: {
+          expense: ACTIVE_ONLY,
+          ...itemDateWhere,
+          NOT: { AND: [{ vendorId: { not: null } }, { paymentStatus: "to_pay" }] },
+        },
+        _sum: { totalAmount: true },
       }),
+      // Money that's actually gone out the door specifically TO A VENDOR —
+      // excludes non-vendor cost items (e.g. cash purchases with no vendor)
+      // and excludes open "To Pay" liabilities not yet settled.
+      prisma.accountExpenseItem.aggregate({
+        where: { expense: ACTIVE_ONLY, ...itemDateWhere, vendorId: { not: null }, paymentStatus: "paid" },
+        _sum: { totalAmount: true },
+      }),
+      // Only used when a date range is picked — otherwise the running
+      // vendorBalances total below (unaffected by which period a bill was
+      // recorded in) is the more accurate "as of now" figure.
+      isFiltered
+        ? prisma.accountExpenseItem.aggregate({
+            where: { expense: ACTIVE_ONLY, ...itemDateWhere, vendorId: { not: null }, paymentStatus: "to_pay" },
+            _sum: { totalAmount: true },
+          })
+        : Promise.resolve(null),
       prisma.accountWallet.findMany({
         include: { employee: { select: { fullName: true, isActive: true } } },
       }),
       prisma.vendorBalance.findMany({
         include: { vendor: { select: { name: true, isActive: true } } },
+      }),
+      // A "paid" item only settles the specific bill it targets via
+      // settlesItemId — sharing the same vendor/event is not enough to net
+      // two items against each other.
+      prisma.accountExpenseItem.findMany({
+        where: { vendorId: { not: null }, expense: ACTIVE_ONLY },
+        select: {
+          id: true,
+          vendorId: true,
+          paymentStatus: true,
+          totalAmount: true,
+          settlesItemId: true,
+        },
       }),
       prisma.accountExpense.findMany({
         where: ACTIVE_ONLY,
@@ -97,8 +146,8 @@ export async function getOverview(req, res, next) {
       }),
     ]);
 
-    const totalRecordedCost = Number(expenseTotals._sum.totalAmount || 0);
-    const totalActuallyPaid = Number(expenseTotals._sum.walletDeductionAmount || 0);
+    const totalPaidToVendors = Number(paidToVendorsTotal._sum.totalAmount || 0);
+    const totalExpense = Number(paidItemsTotal._sum.totalAmount || 0);
 
     const negativeWallets = wallets
       .filter((wallet) => Number(wallet.currentBalance) < 0)
@@ -109,28 +158,44 @@ export async function getOverview(req, res, next) {
       }))
       .sort((a, b) => a.currentBalance - b.currentBalance);
 
-    const vendorDues = vendorBalances
-      .filter((balance) => Number(balance.currentBalance) < 0)
-      .map((balance) => ({
-        vendorId: String(balance.vendorId),
-        vendorName: balance.vendor?.name || "Unknown",
-        amountPayable: roundMoney(-Number(balance.currentBalance)),
+    const vendorNameById = new Map(
+      vendorBalances.map((balance) => [String(balance.vendorId), balance.vendor?.name || "Unknown"]),
+    );
+    const stillOwedBy = computeVendorStillOwed(
+      vendorDebtItems.map((item) => ({
+        id: item.id,
+        vendorId: item.vendorId,
+        paymentStatus: item.paymentStatus,
+        totalAmount: item.totalAmount,
+        settlesItemId: item.settlesItemId,
+      })),
+    );
+    const vendorDues = [...stillOwedBy.entries()]
+      .filter(([, amount]) => amount > 0)
+      .map(([vendorId, amount]) => ({
+        vendorId,
+        vendorName: vendorNameById.get(vendorId) || "Unknown",
+        amountPayable: roundMoney(amount),
       }))
       .sort((a, b) => b.amountPayable - a.amountPayable);
 
+    const totalStillPayableToVendors = isFiltered
+      ? roundMoney(Number(stillPayableTotal._sum.totalAmount || 0))
+      : roundMoney(vendorDues.reduce((sum, vendor) => sum + vendor.amountPayable, 0));
+
     res.json({
       data: {
+        dateFrom: dateFrom ? formatDateOnly(dateFrom) : null,
+        dateTo: dateTo ? formatDateOnly(dateTo) : null,
         totalMoneyGivenToEmployees: roundMoney(Number(moneyInTotal._sum.amount || 0)),
         totalWalletBalance: roundMoney(
           wallets.reduce((sum, wallet) => sum + Number(wallet.currentBalance), 0),
         ),
-        totalRecordedCost: roundMoney(totalRecordedCost),
-        totalActuallyPaid: roundMoney(totalActuallyPaid),
-        totalStillPayableToVendors: roundMoney(
-          vendorDues.reduce((sum, vendor) => sum + vendor.amountPayable, 0),
-        ),
+        totalExpense: roundMoney(totalExpense),
+        totalPaidToVendors: roundMoney(totalPaidToVendors),
+        totalStillPayableToVendors,
         totalVendorBalance: roundMoney(
-          vendorBalances.reduce((sum, balance) => sum + Number(balance.currentBalance), 0),
+          -vendorDues.reduce((sum, vendor) => sum + vendor.amountPayable, 0),
         ),
         negativeWalletCount: negativeWallets.length,
         negativeWallets: negativeWallets.slice(0, 10),
@@ -156,6 +221,38 @@ export async function getOverview(req, res, next) {
   }
 }
 
+// A "to_pay" bill belongs to exactly the one employee who logged it — a
+// "paid" item only reduces the specific bill it explicitly targets via
+// settlesItemId (see computeVendorOutstandingBills), never anything else
+// that merely shares the same vendor/event. No proportional splitting is
+// needed anymore: each employee's remaining balance is just the sum of
+// their own bills' own remaining amounts.
+async function computeStillPayableByEmployee() {
+  const items = await prisma.accountExpenseItem.findMany({
+    where: { expense: ACTIVE_ONLY, vendorId: { not: null } },
+    select: {
+      id: true,
+      totalAmount: true,
+      paymentStatus: true,
+      vendorId: true,
+      settlesItemId: true,
+      expense: { select: { employeeId: true } },
+    },
+  });
+
+  const remainingById = computeVendorOutstandingBills(items);
+
+  const stillPayableBy = new Map();
+  for (const item of items) {
+    if (item.paymentStatus !== "to_pay" || !item.expense.employeeId) continue;
+    const remaining = remainingById.get(String(item.id));
+    if (!remaining) continue;
+    const employeeKey = String(item.expense.employeeId);
+    stillPayableBy.set(employeeKey, roundMoney((stillPayableBy.get(employeeKey) || 0) + remaining));
+  }
+  return stillPayableBy;
+}
+
 // ─── GET /api/admin/accounts/employees ─────────────────────────
 // Every employee appears, including those with no wallet activity (৳0).
 
@@ -167,30 +264,46 @@ export async function listEmployeeWallets(req, res, next) {
       orderBy: { fullName: "asc" },
     });
 
-    const [wallets, moneyInGroups, expenseGroups] = await Promise.all([
+    const [wallets, moneyInGroups, items, stillPayableBy] = await Promise.all([
       prisma.accountWallet.findMany(),
       prisma.accountMoneyReceived.groupBy({
         by: ["employeeId"],
         where: ACTIVE_ONLY,
         _sum: { amount: true },
       }),
-      prisma.accountExpense.groupBy({
-        by: ["employeeId"],
-        where: ACTIVE_ONLY,
-        _sum: { totalAmount: true, walletDeductionAmount: true },
+      // No employeeId column on the item table — group in JS via the parent.
+      prisma.accountExpenseItem.findMany({
+        where: { expense: ACTIVE_ONLY },
+        select: {
+          totalAmount: true,
+          vendorId: true,
+          paymentStatus: true,
+          expense: { select: { employeeId: true } },
+        },
       }),
+      computeStillPayableByEmployee(),
     ]);
 
     const walletBy = new Map(wallets.map((w) => [String(w.employeeId), Number(w.currentBalance)]));
     const moneyInBy = new Map(
       moneyInGroups.map((g) => [String(g.employeeId), Number(g._sum.amount || 0)]),
     );
-    const recordedBy = new Map(
-      expenseGroups.map((g) => [String(g.employeeId), Number(g._sum.totalAmount || 0)]),
-    );
-    const paidBy = new Map(
-      expenseGroups.map((g) => [String(g.employeeId), Number(g._sum.walletDeductionAmount || 0)]),
-    );
+
+    // "Paid to vendors" is each employee's own raw paid total — unrelated to
+    // the cross-employee still-payable netting above.
+    const ownExpensesBy = new Map();
+    const paidToVendorsBy = new Map();
+    for (const item of items) {
+      const employeeKey = String(item.expense.employeeId);
+      const amount = Number(item.totalAmount);
+      if (item.vendorId) {
+        if (item.paymentStatus !== "to_pay") {
+          paidToVendorsBy.set(employeeKey, roundMoney((paidToVendorsBy.get(employeeKey) || 0) + amount));
+        }
+      } else {
+        ownExpensesBy.set(employeeKey, roundMoney((ownExpensesBy.get(employeeKey) || 0) + amount));
+      }
+    }
 
     res.json({
       data: employees.map((employee) => {
@@ -202,8 +315,9 @@ export async function listEmployeeWallets(req, res, next) {
           isActive: employee.isActive,
           currentBalance: roundMoney(walletBy.get(key) || 0),
           totalMoneyIn: roundMoney(moneyInBy.get(key) || 0),
-          totalRecordedCost: roundMoney(recordedBy.get(key) || 0),
-          totalPaidExpenses: roundMoney(paidBy.get(key) || 0),
+          totalStillPayable: roundMoney(stillPayableBy.get(key) || 0),
+          totalPaidToVendors: roundMoney(paidToVendorsBy.get(key) || 0),
+          totalExpenses: roundMoney(ownExpensesBy.get(key) || 0),
         };
       }),
     });
@@ -225,7 +339,7 @@ export async function getEmployeeAccountProfile(req, res, next) {
     });
     if (!employee) return res.status(404).json({ message: "Employee not found." });
 
-    const [wallet, moneyIn, expenses] = await Promise.all([
+    const [wallet, moneyIn, expenses, stillPayableBy] = await Promise.all([
       prisma.accountWallet.findUnique({ where: { employeeId } }),
       prisma.accountMoneyReceived.findMany({
         where: { employeeId },
@@ -237,11 +351,30 @@ export async function getEmployeeAccountProfile(req, res, next) {
         include: EXPENSE_INCLUDE,
         orderBy: { id: "desc" },
       }),
+      computeStillPayableByEmployee(),
     ]);
 
     const active = expenses.filter((expense) => expense.status === "active");
     const sumBy = (list, key) =>
       roundMoney(list.reduce((sum, expense) => sum + Number(expense[key]), 0));
+
+    // Paid-only total (no double count) vs. the still-open "To Pay" balance —
+    // same split used on the Overview page.
+    const paidOnlyTotal = (list) =>
+      roundMoney(
+        list.reduce(
+          (sum, expense) =>
+            sum +
+            expense.items.reduce(
+              (itemSum, item) =>
+                item.vendorId && item.paymentStatus === "to_pay"
+                  ? itemSum
+                  : itemSum + Number(item.totalAmount),
+              0,
+            ),
+          0,
+        ),
+      );
 
     const vendorItems = active.flatMap((expense) =>
       expense.items
@@ -273,10 +406,11 @@ export async function getEmployeeAccountProfile(req, res, next) {
             .filter((entry) => entry.status === "active")
             .reduce((sum, entry) => sum + Number(entry.amount), 0),
         ),
-        totalRecordedCost: sumBy(active, "totalAmount"),
+        totalRecordedCost: paidOnlyTotal(active),
+        totalStillPayable: roundMoney(stillPayableBy.get(String(employee.id)) || 0),
         totalActuallyPaid: sumBy(active, "walletDeductionAmount"),
-        eventCostTotal: sumBy(active.filter((e) => e.costType === "event"), "totalAmount"),
-        regularCostTotal: sumBy(active.filter((e) => e.costType === "regular"), "totalAmount"),
+        eventCostTotal: paidOnlyTotal(active.filter((e) => e.costType === "event")),
+        regularCostTotal: paidOnlyTotal(active.filter((e) => e.costType === "regular")),
         vendorItems,
         vendorPaymentsMade: vendorItems.filter((item) => item.paymentStatus === "paid"),
         moneyInHistory: moneyIn.map(serializeAdminMoneyIn),
@@ -594,13 +728,14 @@ function buildExpenseWhere(query) {
   }
 
   if (Object.keys(itemWhere).length > 0) where.items = { some: itemWhere };
-  return where;
+  return { where, itemWhere };
 }
 
 export async function listExpenses(req, res, next) {
   try {
     const { page, pageSize, skip, take } = parsePagination(req.query);
-    const where = buildExpenseWhere(req.query);
+    const { where, itemWhere } = buildExpenseWhere(req.query);
+    const { items: _itemsClause, ...expenseHeaderWhere } = where;
 
     const orderBy = {
       newest: { id: "desc" },
@@ -610,17 +745,38 @@ export async function listExpenses(req, res, next) {
       employee: { employee: { fullName: "asc" } },
     }[req.query.sort] || { id: "desc" };
 
-    const [total, rows, totals] = await Promise.all([
+    const [total, rows, walletTotals, paidOnlyTotal, stillPayableTotal] = await Promise.all([
       prisma.accountExpense.count({ where }),
       prisma.accountExpense.findMany({ where, include: EXPENSE_INCLUDE, orderBy, skip, take }),
       prisma.accountExpense.aggregate({
         where: { ...where, status: "active" },
-        _sum: { totalAmount: true, walletDeductionAmount: true },
+        _sum: { walletDeductionAmount: true },
+      }),
+      // Item-level, so a filter like paymentStatus/vendorId scopes the total
+      // to matching items only (not the whole parent expense), and open
+      // "To Pay" items are excluded so nothing is double-counted.
+      prisma.accountExpenseItem.aggregate({
+        where: {
+          expense: { ...expenseHeaderWhere, status: "active" },
+          ...itemWhere,
+          NOT: { AND: [{ vendorId: { not: null } }, { paymentStatus: "to_pay" }] },
+        },
+        _sum: { totalAmount: true },
+      }),
+      prisma.accountExpenseItem.aggregate({
+        where: {
+          expense: { ...expenseHeaderWhere, status: "active" },
+          ...itemWhere,
+          vendorId: { not: null },
+          paymentStatus: "to_pay",
+        },
+        _sum: { totalAmount: true },
       }),
     ]);
 
-    const recorded = roundMoney(Number(totals._sum.totalAmount || 0));
-    const paid = roundMoney(Number(totals._sum.walletDeductionAmount || 0));
+    const recorded = roundMoney(Number(paidOnlyTotal._sum.totalAmount || 0));
+    const paid = roundMoney(Number(walletTotals._sum.walletDeductionAmount || 0));
+    const stillToPay = roundMoney(Number(stillPayableTotal._sum.totalAmount || 0));
 
     res.json({
       data: {
@@ -632,7 +788,7 @@ export async function listExpenses(req, res, next) {
         filteredTotals: {
           recordedCost: recorded,
           actuallyPaid: paid,
-          stillToPay: roundMoney(recorded - paid),
+          stillToPay,
         },
       },
     });
@@ -685,52 +841,70 @@ function prepareEditedItems(rawItems, existingItems) {
   const existingById = new Map(existingItems.map((item) => [String(item.id), item]));
   const prepared = [];
 
-  for (const raw of rawItems) {
-    const existing = existingById.get(String(raw.id));
-    if (!existing) return { error: `Unknown expense item ${raw.id}.` };
+  return (async () => {
+    for (const raw of rawItems) {
+      const existing = existingById.get(String(raw.id));
+      if (!existing) return { error: `Unknown expense item ${raw.id}.` };
 
-    const purpose = String(raw.purpose ?? existing.purpose).trim();
-    if (!purpose) return { error: "Purpose is required for every item." };
+      const purpose = String(raw.purpose ?? existing.purpose).trim();
+      if (!purpose) return { error: "Purpose is required for every item." };
 
-    const costDate =
-      raw.costDate === undefined ? existing.costDate : parseOptionalDate(raw.costDate);
-    if (!costDate) return { error: "Every item needs a valid cost date." };
+      const costDate =
+        raw.costDate === undefined ? existing.costDate : parseOptionalDate(raw.costDate);
+      if (!costDate) return { error: "Every item needs a valid cost date." };
 
-    const quantity = raw.quantity === undefined ? Number(existing.quantity) : Number(raw.quantity);
-    const perQtyAmount =
-      raw.perQtyAmount === undefined ? Number(existing.perQtyAmount) : Number(raw.perQtyAmount);
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      return { error: "Quantity must be greater than zero." };
+      const quantity = raw.quantity === undefined ? Number(existing.quantity) : Number(raw.quantity);
+      const perQtyAmount =
+        raw.perQtyAmount === undefined ? Number(existing.perQtyAmount) : Number(raw.perQtyAmount);
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        return { error: "Quantity must be greater than zero." };
+      }
+      if (!Number.isFinite(perQtyAmount) || perQtyAmount < 0) {
+        return { error: "Per quantity amount must be zero or more." };
+      }
+
+      let vendorId = existing.vendorId;
+      if (raw.vendorId !== undefined) {
+        vendorId = raw.vendorId === null || raw.vendorId === "" ? null : parseOptionalBigInt(raw.vendorId);
+      }
+
+      let paymentStatus = existing.paymentStatus;
+      if (raw.paymentStatus !== undefined) paymentStatus = raw.paymentStatus || null;
+      if (!vendorId) paymentStatus = null;
+      if (vendorId && paymentStatus !== "paid" && paymentStatus !== "to_pay") {
+        return { error: "Vendor items need a payment status of Paid or To Pay." };
+      }
+
+      // Which bill this settles never survives a vendor swap or a drop to
+      // To Pay unless the caller explicitly names a new target — carrying
+      // a stale link across a vendor change would settle the WRONG vendor.
+      const vendorChanged = String(existing.vendorId || "") !== String(vendorId || "");
+      let settlesItemId = existing.settlesItemId;
+      if (!vendorId || paymentStatus !== "paid") {
+        settlesItemId = null;
+      } else if (raw.settlesItemId !== undefined) {
+        const settlement = await resolveSettlementTarget(vendorId, raw.settlesItemId);
+        if (settlement.error) return { error: settlement.error };
+        settlesItemId = settlement.settlesItemId;
+      } else if (vendorChanged) {
+        settlesItemId = null;
+      }
+
+      prepared.push({
+        id: existing.id,
+        purpose: purpose.slice(0, 190),
+        costDate,
+        quantity,
+        perQtyAmount,
+        totalAmount: roundMoney(quantity * perQtyAmount),
+        vendorId,
+        paymentStatus,
+        settlesItemId,
+      });
     }
-    if (!Number.isFinite(perQtyAmount) || perQtyAmount < 0) {
-      return { error: "Per quantity amount must be zero or more." };
-    }
 
-    let vendorId = existing.vendorId;
-    if (raw.vendorId !== undefined) {
-      vendorId = raw.vendorId === null || raw.vendorId === "" ? null : parseOptionalBigInt(raw.vendorId);
-    }
-
-    let paymentStatus = existing.paymentStatus;
-    if (raw.paymentStatus !== undefined) paymentStatus = raw.paymentStatus || null;
-    if (!vendorId) paymentStatus = null;
-    if (vendorId && paymentStatus !== "paid" && paymentStatus !== "to_pay") {
-      return { error: "Vendor items need a payment status of Paid or To Pay." };
-    }
-
-    prepared.push({
-      id: existing.id,
-      purpose: purpose.slice(0, 190),
-      costDate,
-      quantity,
-      perQtyAmount,
-      totalAmount: roundMoney(quantity * perQtyAmount),
-      vendorId,
-      paymentStatus,
-    });
-  }
-
-  return { items: prepared };
+    return { items: prepared };
+  })();
 }
 
 // ─── PATCH /api/admin/accounts/expenses/:id ────────────────────
@@ -757,7 +931,7 @@ export async function updateExpense(req, res, next) {
       return res.status(422).json({ message: "At least one expense item is required." });
     }
 
-    const { items: nextItems, error } = prepareEditedItems(rawItems, existing.items);
+    const { items: nextItems, error } = await prepareEditedItems(rawItems, existing.items);
     if (error) return res.status(422).json({ message: error });
 
     const adminId = BigInt(req.adminId);
@@ -792,6 +966,7 @@ export async function updateExpense(req, res, next) {
             totalAmount: item.totalAmount,
             vendorId: item.vendorId,
             paymentStatus: item.paymentStatus,
+            settlesItemId: item.settlesItemId,
           },
         });
       }
@@ -845,7 +1020,7 @@ export async function previewExpenseUpdate(req, res, next) {
     if (!existing) return res.status(404).json({ message: "Expense not found." });
 
     const rawItems = Array.isArray(req.body.items) ? req.body.items : [];
-    const { items: nextItems, error } = prepareEditedItems(rawItems, existing.items);
+    const { items: nextItems, error } = await prepareEditedItems(rawItems, existing.items);
     if (error) return res.status(422).json({ message: error });
 
     const oldTotal = Number(existing.totalAmount);
@@ -959,11 +1134,22 @@ export async function voidExpense(req, res, next) {
 
 export async function listEventCostOverview(req, res, next) {
   try {
-    const expenses = await prisma.accountExpense.findMany({
-      where: { ...ACTIVE_ONLY, costType: "event" },
-      include: EXPENSE_INCLUDE,
-      orderBy: { id: "desc" },
-    });
+    const [expenses, allVendorItems] = await Promise.all([
+      prisma.accountExpense.findMany({
+        where: { ...ACTIVE_ONLY, costType: "event" },
+        include: EXPENSE_INCLUDE,
+        orderBy: { id: "desc" },
+      }),
+      // A bill can be settled by ANY payment company-wide (even a later
+      // "regular" one), so remaining amounts are resolved globally first,
+      // then attributed back to whichever event bucket each bill belongs to.
+      prisma.accountExpenseItem.findMany({
+        where: { vendorId: { not: null }, expense: ACTIVE_ONLY },
+        select: { id: true, vendorId: true, paymentStatus: true, totalAmount: true, settlesItemId: true },
+      }),
+    ]);
+
+    const remainingById = computeVendorOutstandingBills(allVendorItems);
 
     const search = String(req.query.search || "").trim().toLowerCase();
     const byEvent = new Map();
@@ -977,20 +1163,27 @@ export async function listEventCostOverview(req, res, next) {
           eventDate: formatDateOnly(expense.eventDateSnapshot),
           recordedCost: 0,
           actuallyPaid: 0,
+          stillToPay: 0,
           employees: new Set(),
           vendorCost: 0,
           expenseCount: 0,
         });
       }
       const bucket = byEvent.get(key);
-      bucket.recordedCost = roundMoney(bucket.recordedCost + Number(expense.totalAmount));
       bucket.actuallyPaid = roundMoney(
         bucket.actuallyPaid + Number(expense.walletDeductionAmount),
       );
       bucket.expenseCount += 1;
       if (expense.employee?.fullName) bucket.employees.add(expense.employee.fullName);
       for (const item of expense.items) {
-        if (item.vendorId) bucket.vendorCost = roundMoney(bucket.vendorCost + Number(item.totalAmount));
+        const amount = Number(item.totalAmount);
+        // Paid-only recorded cost vs. still-open "To Pay" — never both.
+        if (item.vendorId && item.paymentStatus === "to_pay") {
+          bucket.stillToPay = roundMoney(bucket.stillToPay + (remainingById.get(String(item.id)) || 0));
+        } else {
+          bucket.recordedCost = roundMoney(bucket.recordedCost + amount);
+        }
+        if (item.vendorId) bucket.vendorCost = roundMoney(bucket.vendorCost + amount);
       }
     }
 
@@ -1001,7 +1194,7 @@ export async function listEventCostOverview(req, res, next) {
         eventDate: bucket.eventDate,
         recordedCost: bucket.recordedCost,
         actuallyPaid: bucket.actuallyPaid,
-        stillToPay: roundMoney(bucket.recordedCost - bucket.actuallyPaid),
+        stillToPay: bucket.stillToPay,
         vendorCost: bucket.vendorCost,
         expenseCount: bucket.expenseCount,
         employees: Array.from(bucket.employees),
@@ -1162,6 +1355,25 @@ export async function listAuditLogs(req, res, next) {
 
 // ─── GET /api/admin/accounts/activity ──────────────────────────
 
+const AUDIT_ENTITY_LABEL = {
+  money_received: "a Money In entry",
+  expense: "an expense",
+  expense_item: "an expense item",
+  vendor: "a vendor record",
+};
+
+// beforeData/afterData are raw Prisma snapshots (see writeAuditLog callers),
+// not the flat serializer output — nested relation names must be read the
+// same way the original include shaped them (e.g. data.employee.fullName).
+function describeAuditEntry(entry) {
+  const data = entry.afterData || entry.beforeData || {};
+  const entityLabel = AUDIT_ENTITY_LABEL[entry.entityType] || "a record";
+  const subjectName =
+    entry.entityType === "vendor" ? data.name || null : data.employee?.fullName || null;
+  const amount = data.totalAmount ?? data.amount ?? null;
+  return { entityLabel, subjectName, amount: amount === null ? null : Number(amount) };
+}
+
 export async function getActivityFeed(req, res, next) {
   try {
     const [moneyIn, expenses, audits] = await Promise.all([
@@ -1189,32 +1401,41 @@ export async function getActivityFeed(req, res, next) {
         actor: entry.source === "admin"
           ? entry.createdByAdmin?.fullName || "Admin"
           : entry.employee?.fullName || "Employee",
-        subject: entry.employee?.fullName || "Unknown",
+        employeeName: entry.employee?.fullName || "Unknown",
         amount: Number(entry.amount),
-        detail: entry.source === "admin" ? "Admin added Money In" : "added Money In",
+        source: entry.source,
         at: entry.createdAt,
       })),
-      ...expenses.map((expense) => {
-        const vendorItem = expense.items.find((item) => item.vendorId);
-        return {
-          kind: "expense",
+      // One activity row PER ITEM (not per whole expense) — a single
+      // submission can mix a vendor "Paid" item, a vendor "To Pay" item
+      // and a plain cash item, each with its own amount/status/purpose.
+      ...expenses.flatMap((expense) =>
+        expense.items.map((item) => ({
+          kind: "expense_item",
           actor: expense.paymentSource === "company"
             ? expense.createdByAdmin?.fullName || "Admin"
             : expense.employee?.fullName || "Employee",
-          subject: vendorItem?.vendor?.name || null,
-          amount: Number(expense.totalAmount),
-          detail: expense.costType === "event" ? "submitted Event Cost" : "submitted Regular Cost",
+          vendorName: item.vendor?.name || null,
+          paymentStatus: item.vendorId ? item.paymentStatus : null,
+          purpose: item.purpose,
+          costType: expense.costType,
+          eventClientName: expense.eventClientNameSnapshot || null,
+          amount: Number(item.totalAmount),
           at: expense.createdAt,
+        })),
+      ),
+      ...audits.map((entry) => {
+        const { entityLabel, subjectName, amount } = describeAuditEntry(entry);
+        return {
+          kind: entry.action === "void" ? "void" : "correction",
+          actor: entry.admin?.fullName || "Admin",
+          entityLabel,
+          subjectName,
+          amount,
+          reason: entry.reason,
+          at: entry.createdAt,
         };
       }),
-      ...audits.map((entry) => ({
-        kind: "correction",
-        actor: entry.admin?.fullName || "Admin",
-        subject: `${entry.entityType.replace("_", " ")} #${entry.entityId}`,
-        amount: null,
-        detail: entry.action === "void" ? "voided" : "corrected",
-        at: entry.createdAt,
-      })),
     ]
       .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
       .slice(0, 40)

@@ -78,7 +78,7 @@ export default function AdminAccountsAuditPage() {
             key={entry.key}
             type="button"
             onClick={() => setTab(entry.key)}
-            className={`rounded-xl px-3.5 py-2 text-sm font-bold transition ${
+            className={`acc-press rounded-xl px-3.5 py-2 text-sm font-bold ${
               tab === entry.key
                 ? "bg-gradient-to-r from-rose-500 to-pink-500 text-white shadow"
                 : "text-slate-600 hover:bg-rose-50 hover:text-rose-600"
@@ -154,7 +154,7 @@ export default function AdminAccountsAuditPage() {
                 setFilters(EMPTY_FILTERS);
                 setPage(1);
               }}
-              className="mt-3 rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-black text-slate-500 hover:bg-slate-50"
+              className="mt-3 acc-press rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-black text-slate-500 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
             >
               Reset filters
             </button>
@@ -248,14 +248,14 @@ export default function AdminAccountsAuditPage() {
           <div className="space-y-6">
             <div className="grid gap-4 sm:grid-cols-2">
               <StatCard
-                label="Wallet mismatches"
+                index={0} label="Wallet mismatches"
                 value={reconciliation.walletMismatchCount}
                 hint="Stored vs recalculated from history"
                 tone={reconciliation.walletMismatchCount > 0 ? "rose" : "emerald"}
                 icon={reconciliation.walletMismatchCount > 0 ? AlertTriangle : ShieldCheck}
               />
               <StatCard
-                label="Vendor mismatches"
+                index={1} label="Vendor mismatches"
                 value={reconciliation.vendorMismatchCount}
                 hint="Stored vs recalculated from transactions"
                 tone={reconciliation.vendorMismatchCount > 0 ? "rose" : "emerald"}

@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { AlertTriangle, Loader2, X } from "lucide-react";
 import { formatTaka } from "../services/adminAccountsService";
 
-export function StatCard({ label, value, hint, tone = "slate", icon: Icon }) {
+export function StatCard({ label, value, hint, tone = "slate", icon: Icon, index = 0 }) {
   const tones = {
     slate: "from-slate-50 to-white text-slate-900 border-slate-200",
     rose: "from-rose-50 to-white text-rose-700 border-rose-200",
@@ -11,20 +12,32 @@ export function StatCard({ label, value, hint, tone = "slate", icon: Icon }) {
     violet: "from-violet-50 to-white text-violet-700 border-violet-200",
   };
   return (
-    <div className={`rounded-2xl border bg-gradient-to-br p-4 shadow-sm ${tones[tone] || tones.slate}`}>
+    <div
+      className={`acc-stagger acc-lift group rounded-2xl border bg-gradient-to-br p-4 shadow-sm ${
+        tones[tone] || tones.slate
+      }`}
+      style={{ "--acc-i": index }}
+    >
       <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-wider opacity-70">
-        {Icon ? <Icon size={13} /> : null}
+        {Icon ? (
+          <Icon size={13} className="transition-transform duration-300 group-hover:scale-125" />
+        ) : null}
         {label}
       </div>
-      <div className="mt-2 text-2xl font-black tracking-tight">{value}</div>
+      <div className="mt-2 text-2xl font-black tracking-tight transition-transform duration-300 group-hover:translate-x-0.5">
+        {value}
+      </div>
       {hint ? <div className="mt-1 text-xs font-semibold opacity-60">{hint}</div> : null}
     </div>
   );
 }
 
-export function SectionCard({ title, subtitle, actions, children, className = "" }) {
+export function SectionCard({ title, subtitle, actions, children, className = "", index = 0 }) {
   return (
-    <section className={`rounded-2xl border border-rose-100 bg-white p-5 shadow-sm ${className}`}>
+    <section
+      className={`acc-stagger rounded-2xl border border-rose-100 bg-white p-5 shadow-sm transition-shadow duration-300 hover:shadow-md ${className}`}
+      style={{ "--acc-i": index }}
+    >
       {(title || actions) && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -61,7 +74,7 @@ export function Badge({ children, tone = "slate" }) {
   };
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide transition-transform duration-200 hover:scale-105 ${
         tones[tone] || tones.slate
       }`}
     >
@@ -157,11 +170,16 @@ export function Pagination({ page, totalPages, total, onChange }) {
   );
 }
 
+// Rendered via a portal straight into <body> — nesting it inside the page
+// tree let an animated ancestor's transform become a containing block for
+// this "fixed" overlay, shrinking the blur/dim to only the content column.
 export function Modal({ open, title, onClose, children, maxWidth = "max-w-lg" }) {
   if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
-      <div className={`w-full ${maxWidth} max-h-[90vh] overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl`}>
+  return createPortal(
+    <div className="acc-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
+      <div
+        className={`acc-panel w-full ${maxWidth} max-h-[90vh] overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl`}
+      >
         <div className="mb-4 flex items-center justify-between gap-3">
           <h3 className="text-lg font-black text-slate-900">{title}</h3>
           <button
@@ -174,7 +192,8 @@ export function Modal({ open, title, onClose, children, maxWidth = "max-w-lg" })
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -203,12 +222,17 @@ export function ReasonPicker({ value, onChange, label = "Reason for this change"
         />
       </Field>
       <div className="mt-2 flex flex-wrap gap-1.5">
-        {PRESET_REASONS.map((preset) => (
+        {PRESET_REASONS.map((preset, index) => (
           <button
             key={preset}
             type="button"
             onClick={() => onChange(preset)}
-            className="rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-500 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
+            style={{ "--acc-i": index }}
+            className={`acc-press acc-stagger-fast rounded-full border px-2.5 py-1 text-[11px] font-bold ${
+              value === preset
+                ? "border-rose-400 bg-rose-50 text-rose-600"
+                : "border-slate-200 text-slate-500 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
+            }`}
           >
             {preset}
           </button>
@@ -223,6 +247,10 @@ export function ReasonPicker({ value, onChange, label = "Reason for this change"
 export function ReasonModal({ open, title, description, confirmLabel, onCancel, onConfirm, busy }) {
   const [reason, setReason] = useState("");
 
+  useEffect(() => {
+    if (open) setReason("");
+  }, [open]);
+
   if (!open) return null;
 
   return (
@@ -235,7 +263,7 @@ export function ReasonModal({ open, title, description, confirmLabel, onCancel, 
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-black text-slate-600 hover:bg-slate-50"
+          className="acc-press rounded-xl border border-slate-200 px-4 py-2 text-sm font-black text-slate-600 hover:bg-slate-50"
         >
           Cancel
         </button>
@@ -243,7 +271,7 @@ export function ReasonModal({ open, title, description, confirmLabel, onCancel, 
           type="button"
           disabled={reason.trim().length < 3 || busy}
           onClick={() => onConfirm(reason.trim())}
-          className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 px-4 py-2 text-sm font-black text-white shadow disabled:opacity-40"
+          className="acc-press inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 px-4 py-2 text-sm font-black text-white shadow-lg shadow-rose-500/25 disabled:opacity-40 enabled:hover:shadow-xl enabled:hover:shadow-rose-500/30"
         >
           {busy ? <Loader2 size={14} className="animate-spin" /> : null}
           {confirmLabel}

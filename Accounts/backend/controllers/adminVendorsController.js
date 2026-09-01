@@ -8,8 +8,11 @@ import {
   parseOptionalDate,
   parseOptionalBigInt,
   requireReason,
+  resolveSettlementTarget,
+  listVendorOutstandingBills,
   serializeAdminVendor,
   serializeAuditLog,
+  computeVendorStillOwed,
   ACTIVE_ONLY,
 } from "../utils/accountsShared.js";
 
@@ -38,22 +41,43 @@ export async function listVendors(req, res, next) {
       orderBy: { name: "asc" },
     });
 
-    const lastTransactions = await prisma.accountExpenseItem.groupBy({
-      by: ["vendorId"],
-      where: { vendorId: { not: null }, expense: ACTIVE_ONLY },
-      _max: { costDate: true },
-    });
+    const [lastTransactions, debtItems] = await Promise.all([
+      prisma.accountExpenseItem.groupBy({
+        by: ["vendorId"],
+        where: { vendorId: { not: null }, expense: ACTIVE_ONLY },
+        _max: { costDate: true },
+      }),
+      prisma.accountExpenseItem.findMany({
+        where: { vendorId: { not: null }, expense: ACTIVE_ONLY },
+        select: {
+          id: true,
+          vendorId: true,
+          paymentStatus: true,
+          totalAmount: true,
+          settlesItemId: true,
+        },
+      }),
+    ]);
     const lastBy = new Map(
       lastTransactions.map((row) => [String(row.vendorId), row._max.costDate]),
+    );
+    const stillOwedBy = computeVendorStillOwed(
+      debtItems.map((item) => ({
+        id: item.id,
+        vendorId: item.vendorId,
+        paymentStatus: item.paymentStatus,
+        totalAmount: item.totalAmount,
+        settlesItemId: item.settlesItemId,
+      })),
     );
 
     res.json({
       data: vendors.map((vendor) => {
-        const balance = vendor.balance ? Number(vendor.balance.currentBalance) : 0;
+        const owed = roundMoney(stillOwedBy.get(String(vendor.id)) || 0);
         return {
           ...serializeAdminVendor(vendor),
-          amountPayable: balance < 0 ? roundMoney(-balance) : 0,
-          advancePaid: balance > 0 ? roundMoney(balance) : 0,
+          amountPayable: owed,
+          advancePaid: 0,
           lastTransactionDate: formatDateOnly(lastBy.get(String(vendor.id))),
         };
       }),
@@ -223,6 +247,7 @@ export async function getVendorProfile(req, res, next) {
               costType: true,
               status: true,
               paymentSource: true,
+              linkedRowKey: true,
               eventClientNameSnapshot: true,
               eventDateSnapshot: true,
               employee: { select: { id: true, fullName: true } },
@@ -249,21 +274,28 @@ export async function getVendorProfile(req, res, next) {
         .filter((item) => item.paymentStatus === "paid")
         .reduce((sum, item) => sum + Number(item.totalAmount), 0),
     );
-    const stillToPay = roundMoney(
-      activeItems
-        .filter((item) => item.paymentStatus === "to_pay")
-        .reduce((sum, item) => sum + Number(item.totalAmount), 0),
+    // A "paid" item only settles the specific bill it targets via
+    // settlesItemId — sharing the same vendor/event is not enough.
+    const stillOwed = roundMoney(
+      computeVendorStillOwed(
+        activeItems.map((item) => ({
+          id: item.id,
+          vendorId: id,
+          paymentStatus: item.paymentStatus,
+          totalAmount: item.totalAmount,
+          settlesItemId: item.settlesItemId,
+        })),
+      ).get(String(id)) || 0,
     );
-    const currentBalance = vendor.balance ? Number(vendor.balance.currentBalance) : 0;
 
     res.json({
       data: {
         vendor: serializeAdminVendor(vendor),
-        currentBalance,
+        currentBalance: -stillOwed,
         totalBilled,
         totalPaid,
-        stillToPay,
-        advancePaid: currentBalance > 0 ? roundMoney(currentBalance) : 0,
+        stillToPay: stillOwed,
+        advancePaid: 0,
         transactions: items.map((item) => ({
           id: String(item.id),
           expenseId: String(item.expenseId),
@@ -276,6 +308,7 @@ export async function getVendorProfile(req, res, next) {
           // They are never double-counted as two separate expenses.
           entryKind: item.paymentStatus === "paid" ? "payment" : "cost",
           paymentStatus: item.paymentStatus,
+          settlesItemId: item.settlesItemId ? String(item.settlesItemId) : null,
           paymentSource: item.expense?.paymentSource || "employee_wallet",
           costType: item.expense?.costType || null,
           eventClientName: item.expense?.eventClientNameSnapshot || null,
@@ -319,6 +352,13 @@ async function createCompanyVendorEntry({ req, res, paymentStatus, defaultPurpos
   const vendor = await prisma.vendor.findUnique({ where: { id: vendorId }, select: { id: true } });
   if (!vendor) return res.status(404).json({ message: "Vendor not found." });
 
+  let settlesItemId = null;
+  if (paymentStatus === "paid" && req.body.settlesItemId) {
+    const settlement = await resolveSettlementTarget(vendorId, req.body.settlesItemId);
+    if (settlement.error) return res.status(422).json({ message: settlement.error });
+    settlesItemId = settlement.settlesItemId;
+  }
+
   // "paid" settles the ledger upward, "to_pay" records a new liability —
   // identical convention to an employee-submitted vendor item.
   const vendorDelta = paymentStatus === "paid" ? amount : -amount;
@@ -342,6 +382,7 @@ async function createCompanyVendorEntry({ req, res, paymentStatus, defaultPurpos
               totalAmount: amount,
               vendorId,
               paymentStatus,
+              settlesItemId,
             },
           ],
         },
@@ -403,6 +444,20 @@ export async function createDirectVendorPayment(req, res, next) {
       paymentStatus: "paid",
       defaultPurpose: "Company vendor payment",
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// ─── GET /api/admin/accounts/vendors/:id/outstanding ────────────
+
+export async function getVendorOutstandingItems(req, res, next) {
+  try {
+    const vendorId = parseOptionalBigInt(req.params.id);
+    if (!vendorId) return res.status(422).json({ message: "Invalid vendor id." });
+    const vendor = await prisma.vendor.findUnique({ where: { id: vendorId }, select: { id: true } });
+    if (!vendor) return res.status(404).json({ message: "Vendor not found." });
+    res.json({ data: await listVendorOutstandingBills(vendorId) });
   } catch (error) {
     next(error);
   }

@@ -18,6 +18,7 @@ import {
 import {
   loadExpense,
   loadVendors,
+  loadVendorOutstandingItems,
   previewExpenseUpdate,
   updateExpense,
   voidExpense,
@@ -34,12 +35,23 @@ export default function AdminAccountsExpenseDetailPage() {
   const [auditLogs, setAuditLogs] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [draft, setDraft] = useState([]);
+  const [outstandingByVendor, setOutstandingByVendor] = useState({});
   const [isLoading, setIsLoading] = useState(true);
   const [notice, setNotice] = useState(null);
   const [preview, setPreview] = useState(null);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [voidOpen, setVoidOpen] = useState(false);
+
+  // Cached per vendor so switching between rows that share a vendor never
+  // re-fetches — only lets an already-"Paid" row pick a bill to settle.
+  function ensureOutstandingLoaded(vendorId) {
+    if (!vendorId || outstandingByVendor[vendorId] !== undefined) return;
+    setOutstandingByVendor((prev) => ({ ...prev, [vendorId]: null }));
+    loadVendorOutstandingItems(vendorId)
+      .then((bills) => setOutstandingByVendor((prev) => ({ ...prev, [vendorId]: bills })))
+      .catch(() => setOutstandingByVendor((prev) => ({ ...prev, [vendorId]: [] })));
+  }
 
   function refresh() {
     setIsLoading(true);
@@ -56,8 +68,12 @@ export default function AdminAccountsExpenseDetailPage() {
             perQtyAmount: String(item.perQtyAmount),
             vendorId: item.vendorId || "",
             paymentStatus: item.paymentStatus || "",
+            settlesItemId: item.settlesItemId || "",
           })),
         );
+        for (const item of data.expense.items) {
+          if (item.vendorId && item.paymentStatus === "paid") ensureOutstandingLoaded(item.vendorId);
+        }
       })
       .catch((error) => setNotice({ type: "error", message: error.message }))
       .finally(() => setIsLoading(false));
@@ -85,8 +101,16 @@ export default function AdminAccountsExpenseDetailPage() {
       prev.map((item, position) => {
         if (position !== index) return item;
         const next = { ...item, [key]: value };
-        if (key === "vendorId" && !value) next.paymentStatus = "";
-        if (key === "vendorId" && value && !next.paymentStatus) next.paymentStatus = "to_pay";
+        if (key === "vendorId") {
+          next.settlesItemId = "";
+          if (!value) next.paymentStatus = "";
+          if (value && !next.paymentStatus) next.paymentStatus = "to_pay";
+          if (value) ensureOutstandingLoaded(value);
+        }
+        if (key === "paymentStatus") {
+          next.settlesItemId = "";
+          if (value === "paid" && next.vendorId) ensureOutstandingLoaded(next.vendorId);
+        }
         return next;
       }),
     );
@@ -101,6 +125,7 @@ export default function AdminAccountsExpenseDetailPage() {
       perQtyAmount: Number(item.perQtyAmount),
       vendorId: item.vendorId || null,
       paymentStatus: item.vendorId ? item.paymentStatus : null,
+      settlesItemId: item.vendorId && item.paymentStatus === "paid" ? item.settlesItemId || null : null,
     }));
   }
 
@@ -157,7 +182,7 @@ export default function AdminAccountsExpenseDetailPage() {
         <>
           <Link
             to="/admin/accounts/expenses"
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-black text-slate-600 hover:bg-slate-50"
+            className="acc-press inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-black text-slate-600 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
           >
             <ArrowLeft size={15} />
             All expenses
@@ -166,7 +191,7 @@ export default function AdminAccountsExpenseDetailPage() {
             <button
               type="button"
               onClick={() => setVoidOpen(true)}
-              className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-white px-3.5 py-2 text-sm font-black text-rose-600 hover:bg-rose-50"
+              className="acc-press inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-white px-3.5 py-2 text-sm font-black text-rose-600 hover:bg-rose-50"
             >
               <Ban size={15} />
               Void
@@ -183,21 +208,21 @@ export default function AdminAccountsExpenseDetailPage() {
         <div className="space-y-6">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard
-              label="Recorded cost"
+              index={0} label="Recorded cost"
               value={formatTaka(expense.recordedTotalAmount)}
               tone="slate"
             />
             <StatCard
-              label="Actually paid"
+              index={1} label="Actually paid"
               value={formatTaka(expense.walletDeductionAmount)}
               tone="emerald"
             />
             <StatCard
-              label="Still to pay"
+              index={2} label="Still to pay"
               value={formatTaka(expense.vendorPayableAmount)}
               tone="amber"
             />
-            <StatCard label="Draft new total" value={formatTaka(draftTotal)} tone="violet" />
+            <StatCard index={3} label="Draft new total" value={formatTaka(draftTotal)} tone="violet" />
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -310,6 +335,26 @@ export default function AdminAccountsExpenseDetailPage() {
                           <option value="paid">Paid</option>
                         </select>
                       </Field>
+                      {item.vendorId && item.paymentStatus === "paid" ? (
+                        <Field label="Which bill is this settling? (optional)" className="sm:col-span-2 xl:col-span-4">
+                          <select
+                            disabled={readOnly}
+                            className={inputClass}
+                            value={item.settlesItemId}
+                            onChange={(event) => updateItem(index, "settlesItemId", event.target.value)}
+                          >
+                            <option value="">Not settling anything (instant/unrelated buy)</option>
+                            {(outstandingByVendor[item.vendorId] || [])
+                              .filter((bill) => bill.id !== item.id)
+                              .map((bill) => (
+                                <option key={bill.id} value={bill.id}>
+                                  {bill.purpose} — {formatTaka(bill.stillOwed)} still owed
+                                  {bill.eventClientName ? ` (${bill.eventClientName})` : ""}
+                                </option>
+                              ))}
+                          </select>
+                        </Field>
+                      ) : null}
                     </div>
 
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
@@ -347,7 +392,7 @@ export default function AdminAccountsExpenseDetailPage() {
                   type="button"
                   onClick={handlePreview}
                   disabled={busy}
-                  className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 px-4 py-2 text-sm font-black text-white shadow disabled:opacity-50"
+                  className="acc-press inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 px-4 py-2 text-sm font-black text-white shadow-lg shadow-rose-500/25 enabled:hover:shadow-xl enabled:hover:shadow-rose-500/30 disabled:opacity-50"
                 >
                   {busy ? <Loader2 size={14} className="animate-spin" /> : <Save size={15} />}
                   Review & save changes
@@ -427,7 +472,7 @@ export default function AdminAccountsExpenseDetailPage() {
               <button
                 type="button"
                 onClick={() => setPreview(null)}
-                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-black text-slate-600 hover:bg-slate-50"
+                className="acc-press rounded-xl border border-slate-200 px-4 py-2 text-sm font-black text-slate-600 hover:bg-slate-50"
               >
                 Cancel
               </button>
@@ -435,7 +480,7 @@ export default function AdminAccountsExpenseDetailPage() {
                 type="button"
                 onClick={handleSave}
                 disabled={busy || reason.trim().length < 3}
-                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 px-4 py-2 text-sm font-black text-white shadow disabled:opacity-40"
+                className="acc-press inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 px-4 py-2 text-sm font-black text-white shadow-lg shadow-rose-500/25 enabled:hover:shadow-xl enabled:hover:shadow-rose-500/30 disabled:opacity-40"
               >
                 {busy ? <Loader2 size={14} className="animate-spin" /> : null}
                 Confirm correction

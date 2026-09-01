@@ -113,7 +113,7 @@ export default function AdminAccountsVendorsPage() {
           <button
             type="button"
             onClick={handleExport}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-black text-slate-600 hover:bg-slate-50"
+            className="acc-press inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-black text-slate-600 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
           >
             <Download size={15} />
             Export
@@ -121,7 +121,7 @@ export default function AdminAccountsVendorsPage() {
           <button
             type="button"
             onClick={() => setCreating(true)}
-            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 px-3.5 py-2 text-sm font-black text-white shadow"
+            className="acc-press inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 px-3.5 py-2 text-sm font-black text-white shadow-lg shadow-rose-500/25 enabled:hover:shadow-xl enabled:hover:shadow-rose-500/30"
           >
             <Plus size={15} />
             New Vendor
@@ -132,9 +132,9 @@ export default function AdminAccountsVendorsPage() {
       <Notice notice={notice} onDismiss={() => setNotice(null)} />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
-        <StatCard label="Total payable" value={formatTaka(totals.payable)} tone="amber" icon={Store} />
-        <StatCard label="Total advanced" value={formatTaka(totals.advance)} tone="emerald" />
-        <StatCard label="Active vendors" value={totals.active} tone="violet" />
+        <StatCard index={0} label="Total payable" value={formatTaka(totals.payable)} tone="amber" icon={Store} />
+        <StatCard index={1} label="Total advanced" value={formatTaka(totals.advance)} tone="emerald" />
+        <StatCard index={2} label="Active vendors" value={totals.active} tone="violet" />
       </div>
 
       <SectionCard
@@ -215,7 +215,7 @@ export default function AdminAccountsVendorsPage() {
                         <button
                           type="button"
                           onClick={() => setEditing(vendor)}
-                          className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-50 hover:text-rose-600"
+                          className="acc-press rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
                           title="Edit vendor"
                         >
                           <Pencil size={14} />
@@ -223,7 +223,7 @@ export default function AdminAccountsVendorsPage() {
                         <button
                           type="button"
                           onClick={() => handleToggleStatus(vendor)}
-                          className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-50 hover:text-rose-600"
+                          className="acc-press rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
                           title={vendor.isActive ? "Deactivate" : "Reactivate"}
                         >
                           <Power size={14} />
@@ -357,14 +357,14 @@ function VendorFormModal({ open, vendor, onClose, onSaved, onError }) {
           <button
             type="button"
             onClick={onClose}
-            className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-black text-slate-600 hover:bg-slate-50"
+            className="acc-press rounded-xl border border-slate-200 px-4 py-2 text-sm font-black text-slate-600 hover:bg-slate-50"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={busy}
-            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 px-4 py-2 text-sm font-black text-white shadow disabled:opacity-50"
+            className="acc-press inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 px-4 py-2 text-sm font-black text-white shadow-lg shadow-rose-500/25 enabled:hover:shadow-xl enabled:hover:shadow-rose-500/30 disabled:opacity-50"
           >
             {busy ? <Loader2 size={14} className="animate-spin" /> : null}
             {vendor ? "Save changes" : "Create vendor"}

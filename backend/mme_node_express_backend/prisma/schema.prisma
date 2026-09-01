@@ -757,14 +757,23 @@ model AccountExpenseItem {
   // is a liability only — no wallet deduction until later paid.
   vendorId                BigInt?              @map("vendor_id") @db.UnsignedBigInt
   paymentStatus           VendorPaymentStatus? @map("payment_status")
+  // Only meaningful when paymentStatus = "paid": which specific "to_pay"
+  // bill (to the SAME vendor) this payment settles. Null means this is a
+  // standalone payment (e.g. an instant buy) that must never reduce any
+  // other bill's balance, even one to the same vendor on the same event —
+  // "same vendor + same event" alone is not enough to net two items.
+  settlesItemId           BigInt?              @map("settles_item_id") @db.UnsignedBigInt
   createdAt               DateTime             @default(now()) @map("created_at") @db.DateTime(0)
   updatedAt               DateTime             @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
 
-  expense AccountExpense @relation(fields: [expenseId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_account_expense_items_expense")
-  vendor  Vendor?        @relation(fields: [vendorId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_expense_items_vendor")
+  expense     AccountExpense       @relation(fields: [expenseId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_account_expense_items_expense")
+  vendor      Vendor?              @relation(fields: [vendorId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_expense_items_vendor")
+  settlesItem AccountExpenseItem?  @relation("ItemSettlement", fields: [settlesItemId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_expense_items_settles")
+  settledBy   AccountExpenseItem[] @relation("ItemSettlement")
 
   @@index([expenseId], map: "fk_account_expense_items_expense")
   @@index([vendorId], map: "fk_account_expense_items_vendor")
+  @@index([settlesItemId], map: "fk_account_expense_items_settles")
   @@map("account_expense_items")
 }
 

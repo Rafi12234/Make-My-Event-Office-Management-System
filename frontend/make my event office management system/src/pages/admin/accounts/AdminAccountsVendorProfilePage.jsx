@@ -15,6 +15,7 @@ import {
 } from "../../../components/AdminAccountsWidgets";
 import {
   loadVendorProfile,
+  loadVendorOutstandingItems,
   addDirectVendorCost,
   addDirectVendorPayment,
   exportRowsToCsv,
@@ -96,7 +97,7 @@ export default function AdminAccountsVendorProfilePage() {
         <>
           <Link
             to="/admin/accounts/vendors"
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-black text-slate-600 hover:bg-slate-50"
+            className="acc-press inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-black text-slate-600 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
           >
             <ArrowLeft size={15} />
             All vendors
@@ -104,7 +105,7 @@ export default function AdminAccountsVendorProfilePage() {
           <button
             type="button"
             onClick={handleExport}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-black text-slate-600 hover:bg-slate-50"
+            className="acc-press inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-black text-slate-600 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
           >
             <Download size={15} />
             Export
@@ -112,7 +113,7 @@ export default function AdminAccountsVendorProfilePage() {
           <button
             type="button"
             onClick={() => setModal("cost")}
-            className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-white px-3.5 py-2 text-sm font-black text-rose-600 hover:bg-rose-50"
+            className="acc-press inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-white px-3.5 py-2 text-sm font-black text-rose-600 hover:bg-rose-50"
           >
             <Plus size={15} />
             Company Cost
@@ -120,7 +121,7 @@ export default function AdminAccountsVendorProfilePage() {
           <button
             type="button"
             onClick={() => setModal("payment")}
-            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 px-3.5 py-2 text-sm font-black text-white shadow"
+            className="acc-press inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 px-3.5 py-2 text-sm font-black text-white shadow-lg shadow-rose-500/25 enabled:hover:shadow-xl enabled:hover:shadow-rose-500/30"
           >
             <Banknote size={15} />
             Company Payment
@@ -137,11 +138,11 @@ export default function AdminAccountsVendorProfilePage() {
           {/* Bills, payments and the still-open balance are shown separately —
               paying an existing bill is never re-counted as a new cost. */}
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <StatCard label="Total bills" value={formatTaka(data.totalBilled)} tone="slate" icon={Store} />
-            <StatCard label="Total paid" value={formatTaka(data.totalPaid)} tone="emerald" />
-            <StatCard label="Still to pay" value={formatTaka(data.stillToPay)} tone="amber" />
+            <StatCard index={0} label="Total bills" value={formatTaka(data.totalBilled)} tone="slate" icon={Store} />
+            <StatCard index={1} label="Total paid" value={formatTaka(data.totalPaid)} tone="emerald" />
+            <StatCard index={2} label="Still to pay" value={formatTaka(data.stillToPay)} tone="amber" />
             <StatCard
-              label="Current balance"
+              index={3} label="Current balance"
               value={formatTaka(data.currentBalance)}
               hint={data.currentBalance < 0 ? "We owe this vendor" : "Advance / settled"}
               tone={data.currentBalance < 0 ? "rose" : "emerald"}
@@ -261,7 +262,7 @@ export default function AdminAccountsVendorProfilePage() {
             <button
               type="button"
               onClick={() => setFilters(EMPTY_TXN_FILTERS)}
-              className="mt-3 rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-black text-slate-500 hover:bg-slate-50"
+              className="mt-3 acc-press rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-black text-slate-500 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
             >
               Reset filters
             </button>
@@ -295,9 +296,14 @@ export default function AdminAccountsVendorProfilePage() {
                         </td>
                         <td className="px-3 py-3 font-bold text-slate-700">{entry.purpose}</td>
                         <td className="px-3 py-3">
-                          <Badge tone={entry.entryKind === "payment" ? "emerald" : "amber"}>
-                            {entry.entryKind === "payment" ? "Payment" : "Cost"}
-                          </Badge>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <Badge tone={entry.entryKind === "payment" ? "emerald" : "amber"}>
+                              {entry.entryKind === "payment" ? "Payment" : "Cost"}
+                            </Badge>
+                            {entry.entryKind === "payment" && !entry.settlesItemId ? (
+                              <Badge tone="sky">Instant Buy</Badge>
+                            ) : null}
+                          </div>
                         </td>
                         <td className="px-3 py-3">
                           <Badge tone={entry.paymentSource === "company" ? "violet" : "sky"}>
@@ -377,7 +383,9 @@ function DirectEntryModal({ mode, vendorId, vendorName, onClose, onSaved, onErro
     costDate: new Date().toISOString().slice(0, 10),
     purpose: "",
     paymentStatus: "to_pay",
+    settlesItemId: "",
   });
+  const [outstandingBills, setOutstandingBills] = useState([]);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -387,8 +395,12 @@ function DirectEntryModal({ mode, vendorId, vendorName, onClose, onSaved, onErro
       costDate: new Date().toISOString().slice(0, 10),
       purpose: "",
       paymentStatus: mode === "payment" ? "paid" : "to_pay",
+      settlesItemId: "",
     });
-  }, [mode]);
+    loadVendorOutstandingItems(vendorId)
+      .then(setOutstandingBills)
+      .catch(() => setOutstandingBills([]));
+  }, [mode, vendorId]);
 
   if (!mode) return null;
   const isPayment = mode === "payment";
@@ -402,6 +414,7 @@ function DirectEntryModal({ mode, vendorId, vendorName, onClose, onSaved, onErro
         costDate: form.costDate,
         purpose: form.purpose,
         paymentStatus: form.paymentStatus,
+        settlesItemId: form.paymentStatus === "paid" ? form.settlesItemId || null : null,
       };
       if (isPayment) {
         await addDirectVendorPayment(vendorId, payload);
@@ -475,18 +488,38 @@ function DirectEntryModal({ mode, vendorId, vendorName, onClose, onSaved, onErro
           </Field>
         ) : null}
 
+        {form.paymentStatus === "paid" ? (
+          <Field label="Which bill is this settling? (optional)">
+            <select
+              className={inputClass}
+              value={form.settlesItemId}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, settlesItemId: event.target.value }))
+              }
+            >
+              <option value="">Not settling anything (instant/unrelated payment)</option>
+              {outstandingBills.map((bill) => (
+                <option key={bill.id} value={bill.id}>
+                  {bill.purpose} — {formatTaka(bill.stillOwed)} still owed
+                  {bill.eventClientName ? ` (${bill.eventClientName})` : ""}
+                </option>
+              ))}
+            </select>
+          </Field>
+        ) : null}
+
         <div className="flex justify-end gap-2 pt-2">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-black text-slate-600 hover:bg-slate-50"
+            className="acc-press rounded-xl border border-slate-200 px-4 py-2 text-sm font-black text-slate-600 hover:bg-slate-50"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={busy}
-            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 px-4 py-2 text-sm font-black text-white shadow disabled:opacity-50"
+            className="acc-press inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 px-4 py-2 text-sm font-black text-white shadow-lg shadow-rose-500/25 enabled:hover:shadow-xl enabled:hover:shadow-rose-500/30 disabled:opacity-50"
           >
             {busy ? <Loader2 size={14} className="animate-spin" /> : null}
             {isPayment ? "Record payment" : "Record cost"}

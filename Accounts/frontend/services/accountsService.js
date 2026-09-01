@@ -85,10 +85,17 @@ export async function loadVendorProfile(vendorId) {
   return apiRequest(`/accounts/vendors/${vendorId}`);
 }
 
-export async function payVendor(vendorId, { amount, paidOn, note }) {
+// Every still-open bill for this vendor — powers the "Which bill is this
+// settling?" picker so a payment never silently nets against an
+// unrelated purchase that just happens to share the same vendor/event.
+export async function loadVendorOutstandingItems(vendorId) {
+  return apiRequest(`/accounts/vendors/${vendorId}/outstanding`);
+}
+
+export async function payVendor(vendorId, { amount, paidOn, note, settlesItemId }) {
   return apiRequest(`/accounts/vendors/${vendorId}/pay`, {
     method: "POST",
-    body: JSON.stringify({ amount, paidOn, note }),
+    body: JSON.stringify({ amount, paidOn, note, settlesItemId: settlesItemId || null }),
   });
 }
 
@@ -108,13 +115,14 @@ export async function submitExpense({ costType, linkedRowKey, items }) {
   formData.append(
     "items",
     JSON.stringify(
-      items.map(({ purpose, costDate, quantity, perQtyAmount, vendorId, paymentStatus }) => ({
+      items.map(({ purpose, costDate, quantity, perQtyAmount, vendorId, paymentStatus, settlesItemId }) => ({
         purpose,
         costDate,
         quantity,
         perQtyAmount,
         vendorId: vendorId || null,
         paymentStatus: vendorId ? paymentStatus : null,
+        settlesItemId: vendorId && paymentStatus === "paid" ? settlesItemId || null : null,
       })),
     ),
   );

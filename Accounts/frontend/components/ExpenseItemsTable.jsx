@@ -10,7 +10,7 @@ import {
   Wallet,
   X,
 } from "lucide-react";
-import { formatDisplayDate, formatTaka } from "../services/accountsService";
+import { formatDisplayDate, formatTaka, loadVendorOutstandingItems } from "../services/accountsService";
 
 function emptyItem() {
   return {
@@ -21,6 +21,7 @@ function emptyItem() {
     receiptFile: null,
     vendorId: "",
     paymentStatus: "paid",
+    settlesItemId: "",
   };
 }
 
@@ -121,8 +122,19 @@ function loadStoredColWeights() {
 
 export default function ExpenseItemsTable({ items, onChange, eventDate, vendors = [], invalidIndex = -1 }) {
   const [colWeights, setColWeights] = useState(loadStoredColWeights);
+  const [outstandingByVendor, setOutstandingByVendor] = useState({});
   const tableRef = useRef(null);
   const resizeRef = useRef(null);
+
+  // Cached per vendor so switching between items that share a vendor
+  // never re-fetches — only lets an already-"Paid" item pick a bill.
+  function ensureOutstandingLoaded(vendorId) {
+    if (!vendorId || outstandingByVendor[vendorId] !== undefined) return;
+    setOutstandingByVendor((prev) => ({ ...prev, [vendorId]: null }));
+    loadVendorOutstandingItems(vendorId)
+      .then((bills) => setOutstandingByVendor((prev) => ({ ...prev, [vendorId]: bills })))
+      .catch(() => setOutstandingByVendor((prev) => ({ ...prev, [vendorId]: [] })));
+  }
 
   useEffect(() => {
     try {
@@ -352,7 +364,9 @@ export default function ExpenseItemsTable({ items, onChange, eventDate, vendors 
                         updateItem(index, {
                           vendorId,
                           paymentStatus: vendorId ? item.paymentStatus || "paid" : "paid",
+                          settlesItemId: "",
                         });
+                        if (vendorId) ensureOutstandingLoaded(vendorId);
                       }}
                       className={FIELD}
                     >
@@ -380,7 +394,10 @@ export default function ExpenseItemsTable({ items, onChange, eventDate, vendors 
                           key={option.value}
                           type="button"
                           disabled={!item.vendorId}
-                          onClick={() => updateItem(index, { paymentStatus: option.value })}
+                          onClick={() => {
+                            updateItem(index, { paymentStatus: option.value, settlesItemId: "" });
+                            if (option.value === "paid" && item.vendorId) ensureOutstandingLoaded(item.vendorId);
+                          }}
                           className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black transition-all duration-300 disabled:cursor-not-allowed ${
                             item.paymentStatus === option.value
                               ? `${option.active} text-white shadow-md`
@@ -398,6 +415,21 @@ export default function ExpenseItemsTable({ items, onChange, eventDate, vendors 
                       <Info size={10} className="mt-0.5 shrink-0" />
                       <span className="truncate">{impactNote}</span>
                     </p>
+                    {item.vendorId && item.paymentStatus === "paid" ? (
+                      <select
+                        value={item.settlesItemId}
+                        onChange={(e) => updateItem(index, { settlesItemId: e.target.value })}
+                        className="mt-1.5 w-full rounded-lg border border-black/12 bg-white px-1.5 py-1 text-[9px] font-bold text-black/75 outline-none focus:border-black"
+                        title="Which bill is this settling? Leave blank for an instant/unrelated buy."
+                      >
+                        <option value="">Not settling anything (instant buy)</option>
+                        {(outstandingByVendor[item.vendorId] || []).map((bill) => (
+                          <option key={bill.id} value={bill.id}>
+                            Settle: {bill.purpose} ({formatTaka(bill.stillOwed)} owed)
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
                   </td>
 
                   <td className="px-2 py-2">
