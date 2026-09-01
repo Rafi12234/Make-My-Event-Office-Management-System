@@ -5,7 +5,7 @@ import mmeLogo from "../../../frontend/make my event office management system/sr
 import BackButton from "../../../frontend/make my event office management system/src/components/BackButton";
 import EmployeeLayout from "../../../frontend/make my event office management system/src/components/EmployeeLayout";
 import AccountsAnimations from "../components/AccountsAnimations";
-import { loadVendorProfile, payVendor, formatDisplayDate, formatTaka } from "../services/accountsService";
+import { loadVendorProfile, loadVendorOutstandingItems, payVendor, formatDisplayDate, formatTaka } from "../services/accountsService";
 
 // Single vendor's profile: shared running balance + full transaction
 // history across every employee (the ledger is company-wide, not scoped
@@ -20,6 +20,8 @@ export default function VendorProfilePage() {
   const [payAmount, setPayAmount] = useState("");
   const [payDate, setPayDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [payNote, setPayNote] = useState("");
+  const [settlesItemId, setSettlesItemId] = useState("");
+  const [outstandingBills, setOutstandingBills] = useState([]);
   const [payError, setPayError] = useState("");
   const [isPaySubmitting, setIsPaySubmitting] = useState(false);
 
@@ -41,6 +43,23 @@ export default function VendorProfilePage() {
       isMounted = false;
     };
   }, [id]);
+
+  // Fetched only once the Pay form actually opens — no point loading it
+  // for every profile visit when most never click "Record a Payment".
+  useEffect(() => {
+    if (!showPayForm) return undefined;
+    let isMounted = true;
+    loadVendorOutstandingItems(id)
+      .then((bills) => {
+        if (isMounted) setOutstandingBills(bills);
+      })
+      .catch(() => {
+        if (isMounted) setOutstandingBills([]);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [id, showPayForm]);
 
   const transactions = data?.transactions || [];
   const balance = data?.vendor.currentBalance || 0;
@@ -65,11 +84,17 @@ export default function VendorProfilePage() {
     setIsPaySubmitting(true);
     setPayError("");
     try {
-      await payVendor(id, { amount: numericAmount, paidOn: payDate, note: payNote.trim() });
+      await payVendor(id, {
+        amount: numericAmount,
+        paidOn: payDate,
+        note: payNote.trim(),
+        settlesItemId: settlesItemId || null,
+      });
       const refreshed = await loadVendorProfile(id);
       setData(refreshed);
       setPayAmount("");
       setPayNote("");
+      setSettlesItemId("");
       setShowPayForm(false);
     } catch (err) {
       setPayError(err.message || "Could not record this payment.");
@@ -225,6 +250,30 @@ export default function VendorProfilePage() {
                                 </div>
                                 <div className="sm:col-span-2">
                                   <label className="mb-1.5 block text-[9px] font-black uppercase tracking-[0.16em] text-white/65">
+                                    Which bill is this settling? (optional)
+                                  </label>
+                                  <select
+                                    value={settlesItemId}
+                                    onChange={(e) => setSettlesItemId(e.target.value)}
+                                    className="w-full rounded-xl border border-white/15 bg-white/[0.06] px-3 py-2.5 text-sm font-bold text-white outline-none focus:border-white/40"
+                                  >
+                                    <option value="" className="text-black">
+                                      Not settling anything — this is a new/unrelated payment
+                                    </option>
+                                    {outstandingBills.map((bill) => (
+                                      <option key={bill.id} value={bill.id} className="text-black">
+                                        {bill.purpose} — {formatTaka(bill.stillOwed)} still owed
+                                        {bill.eventClientName ? ` (${bill.eventClientName})` : ""}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <p className="mt-1.5 text-[10px] leading-relaxed text-white/45">
+                                    Leave this as "Not settling anything" for an instant/unrelated buy —
+                                    picking a bill here is the only thing that reduces its still-owed amount.
+                                  </p>
+                                </div>
+                                <div className="sm:col-span-2">
+                                  <label className="mb-1.5 block text-[9px] font-black uppercase tracking-[0.16em] text-white/65">
                                     Note (optional)
                                   </label>
                                   <input
@@ -256,6 +305,7 @@ export default function VendorProfilePage() {
                                   type="button"
                                   onClick={() => {
                                     setShowPayForm(false);
+                                    setSettlesItemId("");
                                     setPayError("");
                                   }}
                                   className="rounded-xl px-4 py-2.5 text-xs font-black text-white/60 transition-colors duration-200 hover:text-white"
@@ -395,6 +445,14 @@ export default function VendorProfilePage() {
                                     >
                                       {isPending ? "To Pay" : "Paid"}
                                     </span>
+                                    {!isPending && !tx.settlesItemId ? (
+                                      <span
+                                        className="rounded-md bg-sky-100 px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wide text-sky-700"
+                                        title="Not linked to any bill — a standalone/unrelated payment."
+                                      >
+                                        Instant Buy
+                                      </span>
+                                    ) : null}
                                   </div>
                                 </div>
                               </div>

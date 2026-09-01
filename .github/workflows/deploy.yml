@@ -102,6 +102,7 @@ jobs:
           # BACKEND_DIR) - confirm it exists before the SFTP step relies on it.
           test -f "Accounts/backend/routes/accounts.js"
           test -f "Accounts/backend/controllers/accountsController.js"
+          test -f "Accounts/backend/utils/accountsShared.js"
 
           # cPanel's manual "Run NPM Install" does not run the
           # postinstall "prisma generate" hook, so the generated
@@ -294,10 +295,13 @@ jobs:
             echo "-mkdir accounts-module"
             echo "-mkdir accounts-module/controllers"
             echo "-mkdir accounts-module/routes"
+            echo "-mkdir accounts-module/utils"
             echo "lcd \"$GITHUB_WORKSPACE/Accounts/backend/controllers\""
             echo "put * accounts-module/controllers/"
             echo "lcd \"$GITHUB_WORKSPACE/Accounts/backend/routes\""
             echo "put * accounts-module/routes/"
+            echo "lcd \"$GITHUB_WORKSPACE/Accounts/backend/utils\""
+            echo "put * accounts-module/utils/"
 
             echo "-mkdir tmp"
             echo "lcd \"$GITHUB_WORKSPACE\""

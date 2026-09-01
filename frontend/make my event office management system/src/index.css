@@ -55,3 +55,136 @@ button {
   color: white;
   background: #9e6899;
 }
+
+/* ── Admin Financial Accounts motion system ──────────────────────────
+   Shared by AdminAccountsShell/Widgets and every /admin/accounts page.
+   Prefixed so they never collide with ManagementPage's inline keyframes. */
+
+@keyframes accFadeUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes accFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes accScaleIn {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes accShimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+@keyframes accSpin {
+  to { transform: rotate(360deg); }
+}
+
+.acc-fade-up { animation: accFadeUp 0.42s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.acc-fade-in { animation: accFadeIn 0.35s ease-out both; }
+.acc-scale-in { animation: accScaleIn 0.28s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* Stagger children by index: style={{ "--acc-i": index }} */
+.acc-stagger {
+  animation: accFadeUp 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--acc-i, 0) * 45ms);
+}
+
+.acc-stagger-fast {
+  animation: accFadeUp 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--acc-i, 0) * 22ms);
+}
+
+/* Cards lift slightly and deepen their shadow on hover. */
+.acc-lift {
+  transition:
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.28s ease;
+  will-change: transform;
+}
+.acc-lift:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 18px 40px -18px rgba(157, 23, 77, 0.32);
+}
+
+/* Buttons: quick hover raise, snappy press-down. */
+.acc-press {
+  transition:
+    transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.22s ease,
+    background-color 0.22s ease,
+    color 0.22s ease,
+    border-color 0.22s ease,
+    opacity 0.2s ease;
+}
+.acc-press:hover:not(:disabled) { transform: translateY(-1.5px); }
+.acc-press:active:not(:disabled) { transform: translateY(0) scale(0.96); }
+
+/* Table rows fade in and highlight smoothly on hover. */
+.acc-row {
+  transition: background-color 0.2s ease, transform 0.2s ease;
+}
+.acc-row:hover { background-color: rgb(255 241 246 / 0.7); }
+
+.acc-skeleton {
+  background: linear-gradient(90deg, #f4f4f5 25%, #fafafa 50%, #f4f4f5 75%);
+  background-size: 800px 100%;
+  animation: accShimmer 1.4s linear infinite;
+}
+
+/* Section-wide defaults so every table, link and control inside
+   /admin/accounts reacts smoothly without per-element classes. */
+.acc-section tbody tr {
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+.acc-section tbody tr:hover {
+  background-color: rgb(255 241 246 / 0.55);
+}
+
+.acc-section a,
+.acc-section select,
+.acc-section input,
+.acc-section textarea {
+  transition:
+    color 0.2s ease,
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.acc-section select:hover,
+.acc-section input:hover,
+.acc-section textarea:hover {
+  border-color: rgb(253 164 175);
+}
+
+.acc-section svg {
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Modal backdrop + panel entrance. */
+.acc-backdrop { animation: accFadeIn 0.2s ease-out both; }
+.acc-panel { animation: accScaleIn 0.3s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .acc-fade-up,
+  .acc-fade-in,
+  .acc-scale-in,
+  .acc-stagger,
+  .acc-stagger-fast,
+  .acc-backdrop,
+  .acc-panel,
+  .acc-skeleton {
+    animation: none !important;
+  }
+  .acc-lift:hover,
+  .acc-press:hover:not(:disabled),
+  .acc-press:active:not(:disabled) {
+    transform: none !important;
+  }
+}

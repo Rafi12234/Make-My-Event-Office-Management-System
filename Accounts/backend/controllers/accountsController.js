@@ -25,6 +25,12 @@ const { formatDateOnly, formatDateTime, parseDateOnly } = require(
   path.join(backendSrcDirectory, "utils/dbDates.js"),
 );
 
+import {
+  computeVendorStillOwed,
+  resolveSettlementTarget,
+  listVendorOutstandingBills,
+} from "../utils/accountsShared.js";
+
 /*
 |--------------------------------------------------------------------------
 | Uploaded cash receipt storage
@@ -152,13 +158,31 @@ async function getConfirmedEventSnapshot(rowKey) {
   };
 }
 
+// An employee can see that a record was corrected or voided by an Admin,
+// but still has no way to edit it.
+function adminTouchFields(record) {
+  const created = new Date(record.createdAt).getTime();
+  const updated = record.updatedAt ? new Date(record.updatedAt).getTime() : created;
+  return {
+    status: record.status || "active",
+    correctedByAdmin: record.status === "active" && updated - created > 1000,
+    correctedAt: updated - created > 1000 ? formatDateTime(record.updatedAt) : null,
+    voidReason: record.voidReason || null,
+    voidedAt: record.voidedAt ? formatDateTime(record.voidedAt) : null,
+  };
+}
+
 function serializeMoneyReceived(entry) {
   return {
     id: entry.id,
     amount: Number(entry.amount),
     receivedDate: formatDateOnly(entry.receivedDate),
     note: entry.note || "",
+    // "admin" means the boss/Admin entered this on the employee's behalf.
+    source: entry.source || "employee",
+    addedByAdminName: entry.createdByAdmin?.fullName || null,
     createdAt: formatDateTime(entry.createdAt),
+    ...adminTouchFields(entry),
   };
 }
 
@@ -179,13 +203,18 @@ function serializeExpenseItem(item) {
   };
 }
 
-function serializeVendor(vendor) {
+function serializeVendor(vendor, stillOwedBy) {
+  const stillOwed = stillOwedBy ? roundMoney(stillOwedBy.get(String(vendor.id)) || 0) : null;
   return {
     id: String(vendor.id),
     name: vendor.name,
     category: vendor.category || null,
     isActive: Boolean(vendor.isActive),
-    currentBalance: vendor.balance ? Number(vendor.balance.currentBalance) : 0,
+    // Corrected, event-scoped "still owed" figure (see computeVendorStillOwed)
+    // — replaces the raw vendorBalance.currentBalance, which wrongly let an
+    // unrelated regular-cost payment net against a specific event's debt.
+    currentBalance:
+      stillOwed !== null ? -stillOwed : vendor.balance ? Number(vendor.balance.currentBalance) : 0,
   };
 }
 
@@ -217,6 +246,7 @@ function serializeExpenseForHistory(expense) {
     walletDeductionAmount,
     vendorPayableAmount: roundMoney(recordedTotalAmount - walletDeductionAmount),
     createdAt: formatDateTime(expense.createdAt),
+    ...adminTouchFields(expense),
     items: paidItems.map(serializeExpenseItem),
   };
 }
@@ -229,12 +259,14 @@ function serializeVendorPaymentEntry(item, expense) {
     id: item.id,
     purpose: item.purpose,
     costType: expense.costType,
+    linkedRowKey: expense.linkedRowKey || null,
     eventClientName: expense.eventClientNameSnapshot || null,
     costDate: formatDateOnly(item.costDate),
     totalAmount: Number(item.totalAmount),
     paymentStatus: item.paymentStatus,
     vendorId: item.vendorId ? String(item.vendorId) : null,
     vendorName: item.vendor?.name || null,
+    settlesItemId: item.settlesItemId ? String(item.settlesItemId) : null,
     createdAt: formatDateTime(item.createdAt),
   };
 }
@@ -253,6 +285,7 @@ export async function getSummary(req, res, next) {
       prisma.accountWallet.findUnique({ where: { employeeId } }),
       prisma.accountMoneyReceived.findMany({
         where: { employeeId },
+        include: { createdByAdmin: { select: { fullName: true } } },
         orderBy: { id: "desc" },
       }),
       prisma.accountExpense.findMany({
@@ -361,13 +394,35 @@ export async function listBookedEvents(req, res, next) {
 // read-only here regardless of who calls it.
 export async function listVendors(req, res, next) {
   try {
-    const vendors = await prisma.vendor.findMany({
-      where: { isActive: true },
-      include: { balance: true },
-      orderBy: { name: "asc" },
-    });
+    const [vendors, items] = await Promise.all([
+      prisma.vendor.findMany({
+        where: { isActive: true },
+        include: { balance: true },
+        orderBy: { name: "asc" },
+      }),
+      prisma.accountExpenseItem.findMany({
+        where: { vendorId: { not: null }, expense: { status: "active" } },
+        select: {
+          id: true,
+          vendorId: true,
+          paymentStatus: true,
+          totalAmount: true,
+          settlesItemId: true,
+        },
+      }),
+    ]);
 
-    res.json({ data: vendors.map(serializeVendor) });
+    const stillOwedBy = computeVendorStillOwed(
+      items.map((item) => ({
+        id: item.id,
+        vendorId: item.vendorId,
+        paymentStatus: item.paymentStatus,
+        totalAmount: item.totalAmount,
+        settlesItemId: item.settlesItemId,
+      })),
+    );
+
+    res.json({ data: vendors.map((vendor) => serializeVendor(vendor, stillOwedBy)) });
   } catch (error) {
     next(error);
   }
@@ -396,6 +451,8 @@ export async function getVendorProfile(req, res, next) {
         expense: {
           select: {
             costType: true,
+            status: true,
+            linkedRowKey: true,
             eventClientNameSnapshot: true,
             eventDateSnapshot: true,
             employee: { select: { fullName: true } },
@@ -405,6 +462,18 @@ export async function getVendorProfile(req, res, next) {
       orderBy: { id: "desc" },
     });
 
+    const stillOwedBy = computeVendorStillOwed(
+      items
+        .filter((item) => item.expense.status === "active")
+        .map((item) => ({
+          id: item.id,
+          vendorId,
+          paymentStatus: item.paymentStatus,
+          totalAmount: item.totalAmount,
+          settlesItemId: item.settlesItemId,
+        })),
+    );
+
     const transactions = items.map((item) => ({
       id: item.id,
       purpose: item.purpose,
@@ -412,6 +481,7 @@ export async function getVendorProfile(req, res, next) {
       totalAmount: Number(item.totalAmount),
       paymentStatus: item.paymentStatus,
       costType: item.expense.costType,
+      settlesItemId: item.settlesItemId ? String(item.settlesItemId) : null,
       eventClientName: item.expense.eventClientNameSnapshot || null,
       employeeName: item.expense.employee?.fullName || "—",
       createdAt: formatDateTime(item.createdAt),
@@ -419,10 +489,29 @@ export async function getVendorProfile(req, res, next) {
 
     res.json({
       data: {
-        vendor: serializeVendor(vendor),
+        vendor: serializeVendor(vendor, stillOwedBy),
         transactions,
       },
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// ─── GET /api/accounts/vendors/:id/outstanding ─────────────────
+
+// Every still-open "to_pay" bill for this vendor — powers the "Which bill
+// is this settling?" picker shown whenever an employee marks a vendor
+// item "Paid", so an unrelated instant buy never gets silently netted
+// against a different bill just for sharing the same vendor/event.
+export async function getVendorOutstandingItems(req, res, next) {
+  try {
+    const vendorId = BigInt(req.params.id);
+    const vendor = await prisma.vendor.findUnique({ where: { id: vendorId }, select: { id: true } });
+    if (!vendor) {
+      return res.status(404).json({ message: "Vendor not found." });
+    }
+    res.json({ data: await listVendorOutstandingBills(vendorId) });
   } catch (error) {
     next(error);
   }
@@ -453,6 +542,11 @@ export async function payVendor(req, res, next) {
       return res.status(404).json({ message: "Vendor not found." });
     }
 
+    const settlement = await resolveSettlementTarget(vendorId, req.body.settlesItemId);
+    if (settlement.error) {
+      return res.status(422).json({ message: settlement.error });
+    }
+
     await prisma.$transaction(async (tx) => {
       await tx.accountExpense.create({
         data: {
@@ -470,6 +564,7 @@ export async function payVendor(req, res, next) {
                 totalAmount: amount,
                 vendorId,
                 paymentStatus: "paid",
+                settlesItemId: settlement.settlesItemId,
               },
             ],
           },
@@ -635,6 +730,7 @@ export async function createExpense(req, res, next) {
       const rawVendorId = String(rawItem.vendorId || "").trim();
       let vendorId = null;
       let paymentStatus = null;
+      let settlesItemId = null;
 
       if (rawVendorId) {
         const vendor = activeVendorsById.get(rawVendorId);
@@ -648,6 +744,15 @@ export async function createExpense(req, res, next) {
         }
         vendorId = vendor.id;
         paymentStatus = rawItem.paymentStatus;
+
+        if (paymentStatus === "paid" && rawItem.settlesItemId) {
+          const settlement = await resolveSettlementTarget(vendorId, rawItem.settlesItemId);
+          if (settlement.error) {
+            removeUploadedFiles(req.files);
+            return res.status(422).json({ message: `Item ${index + 1}: ${settlement.error}` });
+          }
+          settlesItemId = settlement.settlesItemId;
+        }
       }
 
       const receiptFile = filesByIndex.get(index);
@@ -664,6 +769,7 @@ export async function createExpense(req, res, next) {
         receiptFileSizeBytes: receiptFile?.size || null,
         vendorId,
         paymentStatus,
+        settlesItemId,
       });
     }
 

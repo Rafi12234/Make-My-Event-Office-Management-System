@@ -28,6 +28,7 @@ import {
   notFoundHandler,
 } from "./middleware/errorHandler.js";
 import { requireEmployee, isValidSession } from "./middleware/employeeAuth.js";
+import { requireAdmin } from "./middleware/adminAuth.js";
 import { attachBearerToken } from "./middleware/attachBearerToken.js";
 
 const app = express();
@@ -90,6 +91,10 @@ const {
   default: accountsRoutes,
   uploadsRootDirectory: accountsUploadsRootDirectory,
 } = require(path.join(accountsBackendDirectory, "routes/accounts.js"));
+
+const { default: adminAccountsRoutes } = require(
+  path.join(accountsBackendDirectory, "routes/adminAccounts.js"),
+);
 
 /*
 |--------------------------------------------------------------------------
@@ -205,6 +210,10 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/admin", adminActivityRoutes);
 app.use("/api/admin", adminCalendarRoutes);
 app.use("/api/admin", adminDashboardRoutes);
+app.use("/api/meetings", requireEmployee, meetingRoutes);
+app.use("/api/calls", requireEmployee, callRoutes);
+app.use("/api/accounts", requireEmployee, accountsRoutes);
+app.use("/api/admin/accounts", requireAdmin, adminAccountsRoutes);
 app.use("/api/admin", adminAttendanceRoutes);
 app.use("/api/meetings", attachBearerToken, requireEmployee, meetingRoutes);
 app.use("/api/calls", attachBearerToken, requireEmployee, callRoutes);
