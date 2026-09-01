@@ -36,6 +36,7 @@ import AdminAccountsEventsPage from "./pages/admin/accounts/AdminAccountsEventsP
 import AdminAccountsVendorsPage from "./pages/admin/accounts/AdminAccountsVendorsPage";
 import AdminAccountsVendorProfilePage from "./pages/admin/accounts/AdminAccountsVendorProfilePage";
 import AdminAccountsAuditPage from "./pages/admin/accounts/AdminAccountsAuditPage";
+import AdminAttendancePage from "./pages/admin/AdminAttendancePage";
 import RedirectIfAuthed from "./components/RedirectIfAuthed";
 import RequirePasswordChange from "./components/RequirePasswordChange";
 import BlockIfEmployeeSession from "./components/BlockIfEmployeeSession";
@@ -97,6 +98,7 @@ function App() {
         <Route path="/admin/calendar" element={<BlockIfEmployeeSession><AdminCalendarPage /></BlockIfEmployeeSession>} />
         <Route path="/admin/calendar/day/:date" element={<BlockIfEmployeeSession><AdminCalendarDayPage /></BlockIfEmployeeSession>} />
         <Route path="/admin/clients-management" element={<BlockIfEmployeeSession><AdminClientsManagementPage /></BlockIfEmployeeSession>} />
+        <Route path="/admin/attendance" element={<BlockIfEmployeeSession><AdminAttendancePage /></BlockIfEmployeeSession>} />
 
         {/* Admin Financial Accounts — distinct from /admin-employee-management/accounts,
             which manages employee login accounts rather than money. */}

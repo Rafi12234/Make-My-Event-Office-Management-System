@@ -397,14 +397,15 @@ export async function createCalendarEvent(req, res, next) {
     const {
       title, description, eventDate, eventTime, eventType,
       clientName, companyName, priority, status,
-      linkedRowKey, assignedEmployeeId, employeeId,
+      linkedRowKey, assignedEmployeeId,
     } = req.body;
 
     if (!title || !eventDate) {
       return res.status(422).json({ message: "Title and event date are required." });
     }
 
-    const empId = Number(employeeId) || null;
+    // Acting employee always comes from the authenticated session, not the body.
+    const empId = Number(req.employee.id) || null;
 
     const created = await prisma.calendarEvent.create({
       data: {
@@ -439,12 +440,15 @@ export async function updateCalendarEvent(req, res, next) {
     const {
       title, description, eventDate, eventTime, eventType,
       clientName, companyName, priority, status,
-      linkedRowKey, assignedEmployeeId, employeeId,
+      linkedRowKey, assignedEmployeeId,
     } = req.body;
 
     if (!title || !eventDate) {
       return res.status(422).json({ message: "Title and event date are required." });
     }
+
+    // Acting employee always comes from the authenticated session, not the body.
+    const empId = Number(req.employee.id) || null;
 
     await prisma.calendarEvent.updateMany({
       where: { id },
@@ -460,7 +464,7 @@ export async function updateCalendarEvent(req, res, next) {
         status: status || "Pending",
         linkedRowKey: linkedRowKey || null,
         assignedEmployeeId: Number(assignedEmployeeId) || null,
-        updatedById: Number(employeeId) || null,
+        updatedById: empId,
         updatedAt: new Date(),
       },
     });
