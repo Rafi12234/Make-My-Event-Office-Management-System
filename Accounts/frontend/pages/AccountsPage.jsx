@@ -59,20 +59,35 @@ export default function AccountsPage() {
   const totalReceived = (summary?.moneyReceived || []).reduce((sum, e) => sum + e.amount, 0);
   const totalSpent = (summary?.expenses || []).reduce((sum, e) => sum + e.totalAmount, 0);
 
-  // Net balance per vendor for the right rail — "to_pay" items owed minus
-  // "paid"/advance items, so a vendor can show as either still owed
-  // (negative net) or advanced/settled ahead (positive net), sorted by the
-  // size of the balance regardless of direction.
+  // Still-owed balance per vendor for the right rail — a "paid" entry only
+  // reduces the specific bill it explicitly settles (settlesItemId),
+  // mirroring the backend's computeVendorOutstandingBills exactly. An
+  // unlinked "paid" entry (an instant/unrelated buy) never nets against
+  // any bill, even one to the same vendor under the same event.
   const vendorNetBalances = useMemo(() => {
+    const payments = summary?.vendorPayments || [];
+    const bills = new Map();
+    for (const payment of payments) {
+      if (payment.paymentStatus === "to_pay") {
+        bills.set(String(payment.id), {
+          name: payment.vendorName || "Vendor",
+          remaining: payment.totalAmount,
+        });
+      }
+    }
+    for (const payment of payments) {
+      if (payment.paymentStatus !== "paid" || !payment.settlesItemId) continue;
+      const bill = bills.get(String(payment.settlesItemId));
+      if (!bill) continue;
+      bill.remaining = Math.max(0, bill.remaining - payment.totalAmount);
+    }
     const byVendor = new Map();
-    for (const payment of summary?.vendorPayments || []) {
-      const name = payment.vendorName || "Vendor";
-      const delta = payment.paymentStatus === "paid" ? payment.totalAmount : -payment.totalAmount;
-      byVendor.set(name, (byVendor.get(name) || 0) + delta);
+    for (const { name, remaining } of bills.values()) {
+      if (remaining <= 0) continue;
+      byVendor.set(name, (byVendor.get(name) || 0) + remaining);
     }
     return [...byVendor.entries()]
-      .map(([name, net]) => ({ name, net }))
-      .filter((vendor) => vendor.net !== 0)
+      .map(([name, owed]) => ({ name, net: -owed }))
       .sort((a, b) => Math.abs(b.net) - Math.abs(a.net));
   }, [summary]);
 

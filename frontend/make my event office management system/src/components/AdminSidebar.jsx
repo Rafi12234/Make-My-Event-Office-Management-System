@@ -9,6 +9,7 @@ import {
   Phone,
   Shield,
   UsersRound,
+  Wallet,
   X,
 } from "lucide-react";
 
@@ -18,6 +19,9 @@ const NAV_ITEMS = [
   { to: "/admin/clients-management", label: "Client Informations & Management", icon: LayoutGrid },
   { to: "/admin/activity", label: "Meeting & Call Oversight", icon: Phone },
   { to: "/admin/calendar", label: "Company Calendar", icon: CalendarDays },
+  // Financial Accounts — separate from Employee Management, which handles
+  // login accounts/passwords rather than money.
+  { to: "/admin/accounts", label: "Financial Accounts", icon: Wallet },
 ];
 
 function initials(name) {
