@@ -833,6 +833,8 @@ model AccountAuditLog {
   @@index([vendorId], map: "idx_account_audit_logs_vendor")
   @@index([createdAt], map: "idx_account_audit_logs_created")
   @@map("account_audit_logs")
+}
+
 // Employee GPS-based Sign In / Sign Out attendance (mobile app, V1 —
 // see mobile/Attendance/BUILD_GUIDE.md). One row per employee per business
 // date; attendanceDate/signInAt/signOutAt are always backend-generated using
