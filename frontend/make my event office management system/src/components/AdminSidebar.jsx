@@ -3,6 +3,7 @@ import { NavLink } from "react-router";
 import {
   CalendarDays,
   ChevronLeft,
+  Clock,
   Gauge,
   LayoutGrid,
   LogOut,
@@ -17,6 +18,7 @@ const NAV_ITEMS = [
   { to: "/admin-employee-management", label: "Employee Management", icon: UsersRound },
   { to: "/admin/clients-management", label: "Client Informations & Management", icon: LayoutGrid },
   { to: "/admin/activity", label: "Meeting & Call Oversight", icon: Phone },
+  { to: "/admin/attendance", label: "Attendance Management", icon: Clock },
   { to: "/admin/calendar", label: "Company Calendar", icon: CalendarDays },
 ];
 

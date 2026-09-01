@@ -26,6 +26,7 @@ import AdminCallDetailsPage from "./pages/admin/AdminCallDetailsPage";
 import AdminCalendarPage from "./pages/admin/AdminCalendarPage";
 import AdminCalendarDayPage from "./pages/admin/AdminCalendarDayPage";
 import AdminClientsManagementPage from "./pages/admin/AdminClientsManagementPage";
+import AdminAttendancePage from "./pages/admin/AdminAttendancePage";
 import RedirectIfAuthed from "./components/RedirectIfAuthed";
 import RequirePasswordChange from "./components/RequirePasswordChange";
 import BlockIfEmployeeSession from "./components/BlockIfEmployeeSession";
@@ -87,6 +88,7 @@ function App() {
         <Route path="/admin/calendar" element={<BlockIfEmployeeSession><AdminCalendarPage /></BlockIfEmployeeSession>} />
         <Route path="/admin/calendar/day/:date" element={<BlockIfEmployeeSession><AdminCalendarDayPage /></BlockIfEmployeeSession>} />
         <Route path="/admin/clients-management" element={<BlockIfEmployeeSession><AdminClientsManagementPage /></BlockIfEmployeeSession>} />
+        <Route path="/admin/attendance" element={<BlockIfEmployeeSession><AdminAttendancePage /></BlockIfEmployeeSession>} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
