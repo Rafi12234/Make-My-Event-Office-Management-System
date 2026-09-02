@@ -353,7 +353,6 @@ export async function listBookedEvents(req, res, next) {
     });
 
     const rowByKey = new Map(rows.map((row) => [row.rowKey, row]));
-    const todayStr = formatDateOnly(new Date());
 
     const events = rowKeys
       .map((rowKey) => {
@@ -376,9 +375,10 @@ export async function listBookedEvents(req, res, next) {
       // & finalized with us" (which is what flips bookedFromMme), so rows
       // flagged as booked with another company are excluded.
       .filter((event) => event.bookedFromMme && !event.alreadyBooked)
-      // Costs are logged against events that have not happened yet.
-      .filter((event) => event.eventDate && event.eventDate >= todayStr)
-      .sort((a, b) => a.eventDate.localeCompare(b.eventDate))
+      // Every confirmed event, not just upcoming ones — vendor bills for an
+      // event are typically created AFTER it has already happened. Newest
+      // event date first, since that's the one most likely being billed.
+      .sort((a, b) => (b.eventDate || "").localeCompare(a.eventDate || ""))
       .map(({ rowKey, clientName, eventDate }) => ({ rowKey, clientName, eventDate }));
 
     res.json({ data: events });
@@ -669,6 +669,9 @@ export async function createExpense(req, res, next) {
 
     let eventSnapshot = null;
     const linkedRowKey = costType === "event" ? String(req.body.linkedRowKey || "") : null;
+    // Event Based Cost is a due-bill for ONE vendor per submission (see
+    // createExpense's item loop below) — chosen once here, not per item.
+    let eventVendor = null;
 
     if (costType === "event") {
       if (!isValidRowKey(linkedRowKey)) {
@@ -681,6 +684,19 @@ export async function createExpense(req, res, next) {
         removeUploadedFiles(req.files);
         return res.status(404).json({ message: "That event is not a confirmed booked event." });
       }
+
+      const rawEventVendorId = String(req.body.vendorId || "").trim();
+      if (!rawEventVendorId) {
+        removeUploadedFiles(req.files);
+        return res.status(422).json({ message: "Select which vendor this bill is for." });
+      }
+      eventVendor = await prisma.vendor.findUnique({
+        where: { id: BigInt(rawEventVendorId) },
+      });
+      if (!eventVendor || !eventVendor.isActive) {
+        removeUploadedFiles(req.files);
+        return res.status(422).json({ message: "Select a valid, active vendor." });
+      }
     }
 
     const filesByIndex = new Map();
@@ -691,14 +707,18 @@ export async function createExpense(req, res, next) {
 
     // Collect every vendorId referenced by an item up front so each one can
     // be validated (exists + still active) in a single query below, instead
-    // of one query per item.
-    const referencedVendorIds = [
-      ...new Set(
-        items
-          .map((rawItem) => String(rawItem.vendorId || "").trim())
-          .filter((id) => /^\d+$/.test(id)),
-      ),
-    ];
+    // of one query per item. Not needed for "event" — the single vendor
+    // above already covers every item.
+    const referencedVendorIds =
+      costType === "event"
+        ? []
+        : [
+            ...new Set(
+              items
+                .map((rawItem) => String(rawItem.vendorId || "").trim())
+                .filter((id) => /^\d+$/.test(id)),
+            ),
+          ];
 
     let activeVendorsById = new Map();
     if (referencedVendorIds.length) {
@@ -727,31 +747,39 @@ export async function createExpense(req, res, next) {
         return res.status(422).json({ message: `Item ${index + 1} is missing required fields.` });
       }
 
-      const rawVendorId = String(rawItem.vendorId || "").trim();
       let vendorId = null;
       let paymentStatus = null;
       let settlesItemId = null;
 
-      if (rawVendorId) {
-        const vendor = activeVendorsById.get(rawVendorId);
-        if (!vendor) {
-          removeUploadedFiles(req.files);
-          return res.status(422).json({ message: `Item ${index + 1} has an invalid or inactive vendor.` });
-        }
-        if (!["to_pay", "paid"].includes(rawItem.paymentStatus)) {
-          removeUploadedFiles(req.files);
-          return res.status(422).json({ message: `Item ${index + 1} needs a payment status (To Pay or Paid).` });
-        }
-        vendorId = vendor.id;
-        paymentStatus = rawItem.paymentStatus;
-
-        if (paymentStatus === "paid" && rawItem.settlesItemId) {
-          const settlement = await resolveSettlementTarget(vendorId, rawItem.settlesItemId);
-          if (settlement.error) {
+      if (costType === "event") {
+        // Every line on an event bill is owed to the ONE vendor chosen
+        // above, and is always an outstanding due — nothing here was ever
+        // "paid" by the employee, so there is nothing to settle either.
+        vendorId = eventVendor.id;
+        paymentStatus = "to_pay";
+      } else {
+        const rawVendorId = String(rawItem.vendorId || "").trim();
+        if (rawVendorId) {
+          const vendor = activeVendorsById.get(rawVendorId);
+          if (!vendor) {
             removeUploadedFiles(req.files);
-            return res.status(422).json({ message: `Item ${index + 1}: ${settlement.error}` });
+            return res.status(422).json({ message: `Item ${index + 1} has an invalid or inactive vendor.` });
           }
-          settlesItemId = settlement.settlesItemId;
+          if (!["to_pay", "paid"].includes(rawItem.paymentStatus)) {
+            removeUploadedFiles(req.files);
+            return res.status(422).json({ message: `Item ${index + 1} needs a payment status (To Pay or Paid).` });
+          }
+          vendorId = vendor.id;
+          paymentStatus = rawItem.paymentStatus;
+
+          if (paymentStatus === "paid" && rawItem.settlesItemId) {
+            const settlement = await resolveSettlementTarget(vendorId, rawItem.settlesItemId);
+            if (settlement.error) {
+              removeUploadedFiles(req.files);
+              return res.status(422).json({ message: `Item ${index + 1}: ${settlement.error}` });
+            }
+            settlesItemId = settlement.settlesItemId;
+          }
         }
       }
 

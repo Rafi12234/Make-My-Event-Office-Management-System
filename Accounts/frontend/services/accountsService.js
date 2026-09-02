@@ -107,23 +107,38 @@ export async function addMoneyReceived({ amount, receivedDate, note }) {
 }
 
 // items: [{ purpose, costDate, quantity, perQtyAmount, receiptFile? }]
-// costType: "event" | "regular"; linkedRowKey required when costType is "event".
-export async function submitExpense({ costType, linkedRowKey, items }) {
+// costType: "event" | "regular"; linkedRowKey required when costType is
+// "event", along with vendorId — an Event Based Cost is always a due-bill
+// for ONE vendor, applied to every item server-side (see createExpense).
+export async function submitExpense({ costType, linkedRowKey, vendorId, items }) {
   const formData = new FormData();
   formData.append("costType", costType);
   if (linkedRowKey) formData.append("linkedRowKey", linkedRowKey);
+  if (costType === "event" && vendorId) formData.append("vendorId", vendorId);
   formData.append(
     "items",
     JSON.stringify(
-      items.map(({ purpose, costDate, quantity, perQtyAmount, vendorId, paymentStatus, settlesItemId }) => ({
-        purpose,
-        costDate,
-        quantity,
-        perQtyAmount,
-        vendorId: vendorId || null,
-        paymentStatus: vendorId ? paymentStatus : null,
-        settlesItemId: vendorId && paymentStatus === "paid" ? settlesItemId || null : null,
-      })),
+      items.map((item) => {
+        if (costType === "event") {
+          return {
+            purpose: item.purpose,
+            costDate: item.costDate,
+            quantity: item.quantity,
+            perQtyAmount: item.perQtyAmount,
+          };
+        }
+        const { purpose, costDate, quantity, perQtyAmount, vendorId: itemVendorId, paymentStatus, settlesItemId } =
+          item;
+        return {
+          purpose,
+          costDate,
+          quantity,
+          perQtyAmount,
+          vendorId: itemVendorId || null,
+          paymentStatus: itemVendorId ? paymentStatus : null,
+          settlesItemId: itemVendorId && paymentStatus === "paid" ? settlesItemId || null : null,
+        };
+      }),
     ),
   );
   items.forEach((item, index) => {
