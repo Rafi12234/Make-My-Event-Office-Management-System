@@ -5,7 +5,14 @@ import mmeLogo from "../../../frontend/make my event office management system/sr
 import BackButton from "../../../frontend/make my event office management system/src/components/BackButton";
 import EmployeeLayout from "../../../frontend/make my event office management system/src/components/EmployeeLayout";
 import AccountsAnimations from "../components/AccountsAnimations";
-import { loadVendorProfile, loadVendorOutstandingItems, payVendor, formatDisplayDate, formatTaka } from "../services/accountsService";
+import {
+  loadVendorProfile,
+  loadVendorOutstandingItems,
+  payVendor,
+  formatDisplayDate,
+  formatTaka,
+  SETTLE_ALL_SENTINEL,
+} from "../services/accountsService";
 
 // Single vendor's profile: shared running balance + full transaction
 // history across every employee (the ledger is company-wide, not scoped
@@ -254,12 +261,29 @@ export default function VendorProfilePage() {
                                   </label>
                                   <select
                                     value={settlesItemId}
-                                    onChange={(e) => setSettlesItemId(e.target.value)}
+                                    onChange={(e) => {
+                                      const value = e.target.value;
+                                      setSettlesItemId(value);
+                                      // Fill in the exact amount owed so the employee never has
+                                      // to look it up first.
+                                      if (value === SETTLE_ALL_SENTINEL) {
+                                        const totalOwed = outstandingBills.reduce(
+                                          (sum, bill) => sum + Number(bill.stillOwed || 0),
+                                          0,
+                                        );
+                                        setPayAmount(String(totalOwed));
+                                      }
+                                    }}
                                     className="w-full rounded-xl border border-white/15 bg-white/[0.06] px-3 py-2.5 text-sm font-bold text-white outline-none focus:border-white/40"
                                   >
                                     <option value="" className="text-black">
                                       Not settling anything — this is a new/unrelated payment
                                     </option>
+                                    {outstandingBills.length ? (
+                                      <option value={SETTLE_ALL_SENTINEL} className="text-black">
+                                        Settle ALL owed bills at once
+                                      </option>
+                                    ) : null}
                                     {outstandingBills.map((bill) => (
                                       <option key={bill.id} value={bill.id} className="text-black">
                                         {bill.purpose} — {formatTaka(bill.stillOwed)} still owed
@@ -445,12 +469,20 @@ export default function VendorProfilePage() {
                                     >
                                       {isPending ? "To Pay" : "Paid"}
                                     </span>
-                                    {!isPending && !tx.settlesItemId ? (
+                                    {!isPending && !tx.settlesItemId && !tx.settlesAllOwed ? (
                                       <span
                                         className="rounded-md bg-sky-100 px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wide text-sky-700"
                                         title="Not linked to any bill — a standalone/unrelated payment."
                                       >
                                         Instant Buy
+                                      </span>
+                                    ) : null}
+                                    {!isPending && tx.settlesAllOwed ? (
+                                      <span
+                                        className="rounded-md bg-violet-100 px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wide text-violet-700"
+                                        title="Swept every outstanding bill for this vendor at once."
+                                      >
+                                        Settled All
                                       </span>
                                     ) : null}
                                   </div>

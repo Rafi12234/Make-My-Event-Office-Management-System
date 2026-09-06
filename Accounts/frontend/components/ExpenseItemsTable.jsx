@@ -10,7 +10,12 @@ import {
   Wallet,
   X,
 } from "lucide-react";
-import { formatDisplayDate, formatTaka, loadVendorOutstandingItems } from "../services/accountsService";
+import {
+  formatDisplayDate,
+  formatTaka,
+  loadVendorOutstandingItems,
+  SETTLE_ALL_SENTINEL,
+} from "../services/accountsService";
 
 function emptyItem() {
   return {
@@ -447,11 +452,28 @@ export default function ExpenseItemsTable({
                         {item.vendorId && item.paymentStatus === "paid" ? (
                           <select
                             value={item.settlesItemId}
-                            onChange={(e) => updateItem(index, { settlesItemId: e.target.value })}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              const patch = { settlesItemId: value };
+                              // Fill in the exact amount owed so the employee never has to
+                              // look it up on the vendor's profile first.
+                              if (value === SETTLE_ALL_SENTINEL) {
+                                const totalOwed = (outstandingByVendor[item.vendorId] || []).reduce(
+                                  (sum, bill) => sum + Number(bill.stillOwed || 0),
+                                  0,
+                                );
+                                patch.quantity = "1";
+                                patch.perQtyAmount = String(totalOwed);
+                              }
+                              updateItem(index, patch);
+                            }}
                             className="mt-1.5 w-full rounded-lg border border-black/12 bg-white px-1.5 py-1 text-[9px] font-bold text-black/75 outline-none focus:border-black"
                             title="Which bill is this settling? Leave blank for an instant/unrelated buy."
                           >
                             <option value="">Not settling anything (instant buy)</option>
+                            {(outstandingByVendor[item.vendorId] || []).length ? (
+                              <option value={SETTLE_ALL_SENTINEL}>Settle ALL owed bills at once</option>
+                            ) : null}
                             {(outstandingByVendor[item.vendorId] || []).map((bill) => (
                               <option key={bill.id} value={bill.id}>
                                 Settle: {bill.purpose} ({formatTaka(bill.stillOwed)} owed)

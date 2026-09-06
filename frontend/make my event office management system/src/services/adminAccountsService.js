@@ -58,13 +58,6 @@ export function formatDisplayDateTime(value) {
   return `${formatDisplayDate(datePart)}${timePart ? ` ${timePart.slice(0, 5)}` : ""}`;
 }
 
-// ─── Overview / dashboards ─────────────────────────────────────
-
-export const loadOverview = (params) => apiRequest(`/overview${toQuery(params)}`);
-export const loadActivityFeed = () => apiRequest("/activity");
-export const loadReconciliation = () => apiRequest("/reconciliation");
-export const loadRangeSummary = (params) => apiRequest(`/summary${toQuery(params)}`);
-export const loadEventCostOverview = (params) => apiRequest(`/events${toQuery(params)}`);
 
 // ─── Employees ─────────────────────────────────────────────────
 
@@ -81,13 +74,22 @@ export const addMoneyToEmployee = (payload) =>
 export const updateMoneyIn = (id, payload) =>
   apiRequest(`/money-in/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
 
-export const voidMoneyIn = (id, reason) =>
-  apiRequest(`/money-in/${id}/void`, { method: "POST", body: JSON.stringify({ reason }) });
-
 // ─── Expenses ──────────────────────────────────────────────────
 
 export const loadExpenses = (params) => apiRequest(`/expenses${toQuery(params)}`);
 export const loadExpense = (id) => apiRequest(`/expenses/${id}`);
+
+// Pending-approval counts for the Bills nav badge and its Event/Regular
+// sub-tabs — always the whole queue, ignoring whatever filters are set on
+// the Bills page itself, so the number matches what the sidebar shows.
+export async function loadPendingBillsCounts() {
+  const baseParams = { pendingApproval: true, approved: "false", status: "active", page: 1, pageSize: 1 };
+  const [event, regular] = await Promise.all([
+    loadExpenses({ ...baseParams, costType: "event" }),
+    loadExpenses({ ...baseParams, costType: "regular" }),
+  ]);
+  return { event: event.total, regular: regular.total, total: event.total + regular.total };
+}
 
 // Dry run — returns the wallet/vendor impact so it can be confirmed before saving.
 export const previewExpenseUpdate = (id, items) =>
@@ -99,6 +101,9 @@ export const updateExpense = (id, payload) =>
 export const voidExpense = (id, reason) =>
   apiRequest(`/expenses/${id}/void`, { method: "POST", body: JSON.stringify({ reason }) });
 
+export const approveExpense = (id) =>
+  apiRequest(`/expenses/${id}/approve`, { method: "POST" });
+
 // ─── Vendors ───────────────────────────────────────────────────
 
 export const loadVendors = (params) => apiRequest(`/vendors${toQuery(params)}`);
@@ -108,6 +113,10 @@ export const loadVendorProfile = (id) => apiRequest(`/vendors/${id}`);
 // settling?" picker so a payment never silently nets against an
 // unrelated purchase that just happens to share the same vendor/event.
 export const loadVendorOutstandingItems = (id) => apiRequest(`/vendors/${id}/outstanding`);
+
+// Sent in place of a specific bill id to sweep every outstanding bill for
+// the vendor at once (see resolveSettlementTarget on the server).
+export const SETTLE_ALL_SENTINEL = "ALL";
 
 export const createVendor = (payload) =>
   apiRequest("/vendors", { method: "POST", body: JSON.stringify(payload) });
@@ -126,10 +135,6 @@ export const addDirectVendorCost = (id, payload) =>
 
 export const addDirectVendorPayment = (id, payload) =>
   apiRequest(`/vendors/${id}/pay`, { method: "POST", body: JSON.stringify(payload) });
-
-// ─── Audit ─────────────────────────────────────────────────────
-
-export const loadAuditLogs = (params) => apiRequest(`/audit${toQuery(params)}`);
 
 // ─── CSV export ────────────────────────────────────────────────
 

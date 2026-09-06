@@ -12,7 +12,7 @@ import { prisma } from "../src/config/prisma.js";
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const answer = await rl.question(
-  "This will permanently delete ALL Accounts module transactions (money received, expenses, expense items, audit logs) and reset all wallet/vendor balances to 0 in the LOCAL database. Type YES to continue: ",
+  "This will permanently delete ALL Accounts module transactions (money received, expenses, expense items) and reset all wallet/vendor balances to 0 in the LOCAL database. Type YES to continue: ",
 );
 rl.close();
 
@@ -22,18 +22,16 @@ if (answer.trim() !== "YES") {
 }
 
 const counts = await prisma.$transaction(async (tx) => {
-  const auditLogs = await tx.accountAuditLog.deleteMany({});
   const expenseItems = await tx.accountExpenseItem.deleteMany({});
   const expenses = await tx.accountExpense.deleteMany({});
   const moneyReceived = await tx.accountMoneyReceived.deleteMany({});
   const wallets = await tx.accountWallet.updateMany({ data: { currentBalance: 0 } });
   const vendorBalances = await tx.vendorBalance.updateMany({ data: { currentBalance: 0 } });
 
-  return { auditLogs, expenseItems, expenses, moneyReceived, wallets, vendorBalances };
+  return { expenseItems, expenses, moneyReceived, wallets, vendorBalances };
 });
 
 console.log("Deleted:", {
-  auditLogs: counts.auditLogs.count,
   expenseItems: counts.expenseItems.count,
   expenses: counts.expenses.count,
   moneyReceived: counts.moneyReceived.count,

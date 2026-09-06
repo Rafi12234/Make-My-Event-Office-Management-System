@@ -11,15 +11,15 @@ import {
   EmptyBlock,
   Notice,
   Modal,
-  StatCard,
 } from "../../../components/AdminAccountsWidgets";
 import {
   loadEmployeeWallets,
   addMoneyToEmployee,
   exportRowsToCsv,
   formatTaka,
+  formatDisplayDateTime,
 } from "../../../services/adminAccountsService";
-import { Download, Loader2, Plus, Search, Wallet } from "lucide-react";
+import { Download, Loader2, Plus, Search } from "lucide-react";
 
 export default function AdminAccountsEmployeesPage() {
   const [rows, setRows] = useState([]);
@@ -47,18 +47,6 @@ export default function AdminAccountsEmployeesPage() {
         (row.email || "").toLowerCase().includes(term),
     );
   }, [rows, search]);
-
-  const totals = useMemo(
-    () => ({
-      wallet: rows.reduce((sum, row) => sum + row.currentBalance, 0),
-      moneyIn: rows.reduce((sum, row) => sum + row.totalMoneyIn, 0),
-      stillPayable: rows.reduce((sum, row) => sum + row.totalStillPayable, 0),
-      paidToVendors: rows.reduce((sum, row) => sum + row.totalPaidToVendors, 0),
-      expenses: rows.reduce((sum, row) => sum + row.totalExpenses, 0),
-      negative: rows.filter((row) => row.currentBalance < 0).length,
-    }),
-    [rows],
-  );
 
   function handleExport() {
     exportRowsToCsv(
@@ -103,19 +91,6 @@ export default function AdminAccountsEmployeesPage() {
     >
       <Notice notice={notice} onDismiss={() => setNotice(null)} />
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <StatCard index={0} label="Total wallet balance" value={formatTaka(totals.wallet)} tone="violet" icon={Wallet} />
-        <StatCard index={1} label="Total money in" value={formatTaka(totals.moneyIn)} tone="emerald" />
-        <StatCard index={2} label="Still payable to vendors" value={formatTaka(totals.stillPayable)} tone="amber" />
-        <StatCard index={3} label="Paid to vendors" value={formatTaka(totals.paidToVendors)} tone="slate" />
-        <StatCard index={4} label="Total expenses" value={formatTaka(totals.expenses)} tone="slate" />
-        <StatCard
-          index={5} label="Negative wallets"
-          value={totals.negative}
-          tone={totals.negative > 0 ? "rose" : "slate"}
-        />
-      </div>
-
       <SectionCard
         title="All employees"
         actions={
@@ -136,10 +111,11 @@ export default function AdminAccountsEmployeesPage() {
           <EmptyBlock label="No employees found." />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[880px] text-sm">
+            <table className="w-full min-w-[1020px] text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-left text-[11px] font-black uppercase tracking-wider text-slate-500">
                   <th className="pb-2 pr-3">Employee</th>
+                  <th className="pb-2 px-3">Last Activity</th>
                   <th className="pb-2 px-3 text-right">Current Wallet</th>
                   <th className="pb-2 px-3 text-right">Total Money In</th>
                   <th className="pb-2 px-3 text-right">Still Payable</th>
@@ -161,6 +137,9 @@ export default function AdminAccountsEmployeesPage() {
                         {row.currentBalance < 0 ? <Badge tone="rose">Negative</Badge> : null}
                       </div>
                       <p className="text-[11px] font-bold text-slate-400">{row.email}</p>
+                    </td>
+                    <td className="px-3 py-3 text-xs font-bold text-slate-500">
+                      {row.lastActivityAt ? formatDisplayDateTime(row.lastActivityAt) : "No activity yet"}
                     </td>
                     <td className="px-3 py-3 text-right">
                       <Money value={row.currentBalance} />

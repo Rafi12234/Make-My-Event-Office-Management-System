@@ -92,6 +92,10 @@ export async function loadVendorOutstandingItems(vendorId) {
   return apiRequest(`/accounts/vendors/${vendorId}/outstanding`);
 }
 
+// Sent in place of a specific bill id to sweep every outstanding bill for
+// the vendor at once (see resolveSettlementTarget on the server).
+export const SETTLE_ALL_SENTINEL = "ALL";
+
 export async function payVendor(vendorId, { amount, paidOn, note, settlesItemId }) {
   return apiRequest(`/accounts/vendors/${vendorId}/pay`, {
     method: "POST",

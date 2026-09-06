@@ -1,22 +1,16 @@
 import { Router } from "express";
 import {
-  getOverview,
   listEmployeeWallets,
   getEmployeeAccountProfile,
   listMoneyIn,
   createMoneyInForEmployee,
   updateMoneyIn,
-  voidMoneyIn,
   listExpenses,
   getExpense,
   updateExpense,
   previewExpenseUpdate,
   voidExpense,
-  listEventCostOverview,
-  getReconciliation,
-  listAuditLogs,
-  getActivityFeed,
-  getRangeSummary,
+  approveExpense,
 } from "../controllers/adminAccountsController.js";
 import {
   listVendors,
@@ -34,26 +28,19 @@ import {
 // employee session can never reach any of these endpoints.
 const router = Router();
 
-router.get("/overview", getOverview);
-router.get("/activity", getActivityFeed);
-router.get("/reconciliation", getReconciliation);
-router.get("/summary", getRangeSummary);
-router.get("/audit", listAuditLogs);
-router.get("/events", listEventCostOverview);
-
 router.get("/employees", listEmployeeWallets);
 router.get("/employees/:id", getEmployeeAccountProfile);
 
 router.get("/money-in", listMoneyIn);
 router.post("/money-in", createMoneyInForEmployee);
 router.patch("/money-in/:id", updateMoneyIn);
-router.post("/money-in/:id/void", voidMoneyIn);
 
 router.get("/expenses", listExpenses);
 router.get("/expenses/:id", getExpense);
 router.patch("/expenses/:id", updateExpense);
 router.post("/expenses/:id/preview", previewExpenseUpdate);
 router.post("/expenses/:id/void", voidExpense);
+router.post("/expenses/:id/approve", approveExpense);
 
 router.get("/vendors", listVendors);
 router.post("/vendors", createVendor);

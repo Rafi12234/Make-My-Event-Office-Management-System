@@ -69,25 +69,49 @@ export function negateDeltas(deltas) {
 // (even the same event) is NOT enough to net two items against each
 // other. An unlinked "paid" item (e.g. an instant, unrelated buy from the
 // same vendor under the same event) never reduces any bill's balance.
+// A "paid" item can instead be flagged settlesAllOwed, which sweeps the
+// vendor's still-open bills oldest-first until the payment is exhausted,
+// rather than naming one bill.
 // Takes any flat list of items shaped { id, vendorId, paymentStatus,
-// totalAmount, settlesItemId } and returns a Map(bill itemId string ->
-// amount still owed on that specific bill, only entries with amount > 0).
+// totalAmount, settlesItemId, settlesAllOwed } and returns a Map(bill
+// itemId string -> amount still owed on that specific bill, only entries
+// with amount > 0).
 export function computeVendorOutstandingBills(items) {
   const bills = new Map();
   for (const item of items) {
     if (item.vendorId && item.paymentStatus === "to_pay") {
-      bills.set(String(item.id), Number(item.totalAmount));
+      bills.set(String(item.id), { vendorId: String(item.vendorId), remaining: Number(item.totalAmount) });
     }
   }
   for (const item of items) {
     if (!item.vendorId || item.paymentStatus !== "paid" || !item.settlesItemId) continue;
-    const key = String(item.settlesItemId);
-    if (!bills.has(key)) continue;
-    bills.set(key, roundMoney(bills.get(key) - Number(item.totalAmount)));
+    const bill = bills.get(String(item.settlesItemId));
+    if (!bill) continue;
+    bill.remaining = roundMoney(bill.remaining - Number(item.totalAmount));
+  }
+  // Sweep payments settle whatever is left for their vendor, oldest bill
+  // first, applied in the order the sweep payments themselves were made.
+  const sweepPayments = items
+    .filter((item) => item.vendorId && item.paymentStatus === "paid" && item.settlesAllOwed)
+    .sort((a, b) => Number(a.id) - Number(b.id));
+  for (const payment of sweepPayments) {
+    let remainingPayment = Number(payment.totalAmount);
+    const vendorKey = String(payment.vendorId);
+    const vendorBillIds = [...bills.keys()]
+      .filter((key) => bills.get(key).vendorId === vendorKey)
+      .sort((a, b) => Number(a) - Number(b));
+    for (const key of vendorBillIds) {
+      if (remainingPayment <= 0) break;
+      const bill = bills.get(key);
+      if (bill.remaining <= 0) continue;
+      const applied = Math.min(bill.remaining, remainingPayment);
+      bill.remaining = roundMoney(bill.remaining - applied);
+      remainingPayment = roundMoney(remainingPayment - applied);
+    }
   }
   const remainingById = new Map();
-  for (const [itemId, remaining] of bills) {
-    const clamped = Math.max(0, roundMoney(remaining));
+  for (const [itemId, bill] of bills) {
+    const clamped = Math.max(0, roundMoney(bill.remaining));
     if (clamped > 0) remainingById.set(itemId, clamped);
   }
   return remainingById;
@@ -137,43 +161,6 @@ export async function applyVendorDeltas(tx, deltas) {
   }
 }
 
-/*
-|--------------------------------------------------------------------------
-| Audit trail
-|--------------------------------------------------------------------------
-*/
-
-// Prisma Decimal/BigInt/Date are not JSON-serializable — snapshots stored
-// in account_audit_logs.before_data/after_data must survive a round trip.
-export function toJsonSafe(value) {
-  if (value === null || value === undefined) return null;
-  if (typeof value === "bigint") return String(value);
-  if (value instanceof Date) return value.toISOString();
-  if (Array.isArray(value)) return value.map(toJsonSafe);
-  if (typeof value === "object") {
-    if (typeof value.toNumber === "function") return Number(value);
-    const out = {};
-    for (const [key, nested] of Object.entries(value)) out[key] = toJsonSafe(nested);
-    return out;
-  }
-  return value;
-}
-
-export async function writeAuditLog(tx, entry) {
-  await tx.accountAuditLog.create({
-    data: {
-      entityType: entry.entityType,
-      entityId: BigInt(entry.entityId),
-      action: entry.action,
-      adminId: entry.adminId ? BigInt(entry.adminId) : null,
-      employeeId: entry.employeeId ? BigInt(entry.employeeId) : null,
-      vendorId: entry.vendorId ? BigInt(entry.vendorId) : null,
-      reason: entry.reason,
-      beforeData: entry.beforeData ? toJsonSafe(entry.beforeData) : undefined,
-      afterData: entry.afterData ? toJsonSafe(entry.afterData) : undefined,
-    },
-  });
-}
 
 /*
 |--------------------------------------------------------------------------
@@ -242,6 +229,7 @@ export function serializeAdminExpenseItem(item) {
     vendorName: item.vendor?.name || null,
     paymentStatus: item.paymentStatus || null,
     settlesItemId: item.settlesItemId ? String(item.settlesItemId) : null,
+    settlesAllOwed: Boolean(item.settlesAllOwed),
     createdAt: formatDateTime(item.createdAt),
     updatedAt: formatDateTime(item.updatedAt),
   };
@@ -266,6 +254,9 @@ export function serializeAdminExpense(expense) {
     voidReason: expense.voidReason || null,
     voidedByName: expense.voidedByAdmin?.fullName || null,
     voidedAt: expense.voidedAt ? formatDateTime(expense.voidedAt) : null,
+    approved: Boolean(expense.approved),
+    approvedByName: expense.approvedByAdmin?.fullName || null,
+    approvedAt: expense.approvedAt ? formatDateTime(expense.approvedAt) : null,
     createdByAdminName: expense.createdByAdmin?.fullName || null,
     createdAt: formatDateTime(expense.createdAt),
     updatedAt: formatDateTime(expense.updatedAt),
@@ -286,10 +277,6 @@ export function serializeAdminMoneyIn(entry) {
     note: entry.note || "",
     source: entry.source,
     createdByAdminName: entry.createdByAdmin?.fullName || null,
-    status: entry.status,
-    voidReason: entry.voidReason || null,
-    voidedByName: entry.voidedByAdmin?.fullName || null,
-    voidedAt: entry.voidedAt ? formatDateTime(entry.voidedAt) : null,
     createdAt: formatDateTime(entry.createdAt),
     updatedAt: formatDateTime(entry.updatedAt),
     wasEdited: entry.updatedAt && entry.createdAt
@@ -314,22 +301,6 @@ export function serializeAdminVendor(vendor) {
   };
 }
 
-export function serializeAuditLog(entry) {
-  return {
-    id: String(entry.id),
-    entityType: entry.entityType,
-    entityId: String(entry.entityId),
-    action: entry.action,
-    adminName: entry.admin?.fullName || null,
-    employeeId: entry.employeeId ? String(entry.employeeId) : null,
-    vendorId: entry.vendorId ? String(entry.vendorId) : null,
-    reason: entry.reason,
-    beforeData: entry.beforeData ?? null,
-    afterData: entry.afterData ?? null,
-    createdAt: formatDateTime(entry.createdAt),
-  };
-}
-
 // Only active rows ever count toward balances or totals; voided rows stay
 // readable but are financially neutral.
 export const ACTIVE_ONLY = { status: "active" };
@@ -340,12 +311,25 @@ export const ACTIVE_ONLY = { status: "active" };
 |--------------------------------------------------------------------------
 */
 
+// Sentinel value the "which bill is this settling?" picker sends to mean
+// "sweep every outstanding bill for this vendor" instead of naming one.
+export const SETTLE_ALL_SENTINEL = "ALL";
+
 // Validates a "which bill does this payment settle?" reference before it's
 // stored — must be a real, active, still-outstanding "to_pay" item for the
-// SAME vendor. Returns { settlesItemId: BigInt|null } or { error }.
+// SAME vendor, OR the SETTLE_ALL_SENTINEL (requires at least one
+// outstanding bill to exist). Returns { settlesItemId, settlesAllOwed } or
+// { error }.
 export async function resolveSettlementTarget(vendorId, rawSettlesItemId) {
   if (rawSettlesItemId === undefined || rawSettlesItemId === null || rawSettlesItemId === "") {
-    return { settlesItemId: null };
+    return { settlesItemId: null, settlesAllOwed: false };
+  }
+  if (rawSettlesItemId === SETTLE_ALL_SENTINEL) {
+    const outstanding = await listVendorOutstandingBills(vendorId);
+    if (!outstanding.length) {
+      return { error: "This vendor has no outstanding bills to settle." };
+    }
+    return { settlesItemId: null, settlesAllOwed: true };
   }
   let candidateId;
   try {
@@ -366,7 +350,7 @@ export async function resolveSettlementTarget(vendorId, rawSettlesItemId) {
   ) {
     return { error: "That bill is no longer available to settle." };
   }
-  return { settlesItemId: target.id };
+  return { settlesItemId: target.id, settlesAllOwed: false };
 }
 
 // Every still-outstanding "to_pay" bill for one vendor — powers the
@@ -381,6 +365,7 @@ export async function listVendorOutstandingBills(vendorId) {
       totalAmount: true,
       paymentStatus: true,
       settlesItemId: true,
+      settlesAllOwed: true,
       expense: { select: { costType: true, eventClientNameSnapshot: true } },
     },
   });
@@ -392,6 +377,7 @@ export async function listVendorOutstandingBills(vendorId) {
       paymentStatus: item.paymentStatus,
       totalAmount: item.totalAmount,
       settlesItemId: item.settlesItemId,
+      settlesAllOwed: item.settlesAllOwed,
     })),
   );
 

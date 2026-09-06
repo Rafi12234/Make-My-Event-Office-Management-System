@@ -190,6 +190,7 @@ app.get("/api/health", async (req, res, next) => {
       status: "ok",
       database: "connected",
     });
+    
   } catch (error) {
     return next(error);
   }

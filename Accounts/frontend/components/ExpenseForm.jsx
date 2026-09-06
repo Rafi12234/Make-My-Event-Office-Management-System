@@ -164,47 +164,47 @@ export default function ExpenseForm({ onSubmitted, onCancel }) {
         </div>
 
         {isEventBill ? (
-          <div className="mm-rise">
-            <p className="mb-2.5 flex flex-wrap items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-black/55">
-              <CalendarClock size={12} /> Which confirmed event is this bill for?
-              {selectedEvent ? (
-                <span className="rounded-md bg-emerald-100 px-1.5 py-0.5 text-[10px] font-black text-emerald-700">
-                  {selectedEvent.clientName || "Selected"}
-                </span>
-              ) : null}
-            </p>
-            <BookedEventPicker
-              events={events}
-              selectedRowKey={selectedRowKey}
-              onSelect={(rowKey) => {
-                setSelectedRowKey(rowKey);
-                setError("");
-              }}
-            />
+          <div className="mm-rise grid gap-4 sm:grid-cols-2">
+            <div>
+              <p className="mb-2.5 flex flex-wrap items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-black/55">
+                <CalendarClock size={12} /> Which confirmed event is this bill for?
+                {selectedEvent ? (
+                  <span className="rounded-md bg-emerald-100 px-1.5 py-0.5 text-[10px] font-black text-emerald-700">
+                    {selectedEvent.clientName || "Selected"}
+                  </span>
+                ) : null}
+              </p>
+              <BookedEventPicker
+                events={events}
+                selectedRowKey={selectedRowKey}
+                onSelect={(rowKey) => {
+                  setSelectedRowKey(rowKey);
+                  setError("");
+                }}
+              />
+            </div>
 
-            {selectedRowKey ? (
-              <div className="mt-5">
-                <p className="mb-2.5 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-black/55">
-                  <Store size={12} /> Which vendor is this bill for?
-                </p>
-                <select
-                  value={eventVendorId}
-                  onChange={(e) => {
-                    setEventVendorId(e.target.value);
-                    setError("");
-                  }}
-                  className="w-full rounded-xl border border-black/12 bg-white px-3.5 py-3 text-sm font-bold text-black outline-none transition-all duration-300 focus:border-black focus:ring-4 focus:ring-black/8"
-                >
-                  <option value="">Select a vendor…</option>
-                  {vendors.map((vendor) => (
-                    <option key={vendor.id} value={vendor.id}>
-                      {vendor.name}
-                      {vendor.category ? ` — ${vendor.category}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ) : null}
+            <div>
+              <p className="mb-2.5 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-black/55">
+                <Store size={12} /> Which vendor is this bill for?
+              </p>
+              <select
+                value={eventVendorId}
+                onChange={(e) => {
+                  setEventVendorId(e.target.value);
+                  setError("");
+                }}
+                className="w-full rounded-xl border border-black/12 bg-white px-3.5 py-3 text-sm font-bold text-black outline-none transition-all duration-300 focus:border-black focus:ring-4 focus:ring-black/8"
+              >
+                <option value="">Select a vendor…</option>
+                {vendors.map((vendor) => (
+                  <option key={vendor.id} value={vendor.id}>
+                    {vendor.name}
+                    {vendor.category ? ` — ${vendor.category}` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         ) : null}
 
