@@ -22,6 +22,7 @@ import {
   formatTaka,
   formatDisplayDate,
   formatDisplayDateTime,
+  SETTLE_ALL_SENTINEL,
 } from "../../../services/adminAccountsService";
 import { ArrowLeft, Banknote, Download, Loader2, Plus, Store } from "lucide-react";
 
@@ -300,8 +301,11 @@ export default function AdminAccountsVendorProfilePage() {
                             <Badge tone={entry.entryKind === "payment" ? "emerald" : "amber"}>
                               {entry.entryKind === "payment" ? "Payment" : "Cost"}
                             </Badge>
-                            {entry.entryKind === "payment" && !entry.settlesItemId ? (
+                            {entry.entryKind === "payment" && !entry.settlesItemId && !entry.settlesAllOwed ? (
                               <Badge tone="sky">Instant Buy</Badge>
+                            ) : null}
+                            {entry.entryKind === "payment" && entry.settlesAllOwed ? (
+                              <Badge tone="violet">Settled All</Badge>
                             ) : null}
                           </div>
                         </td>
@@ -334,28 +338,6 @@ export default function AdminAccountsVendorProfilePage() {
             )}
           </SectionCard>
 
-          <SectionCard title="Admin changes" subtitle="Corrections made to this vendor">
-            {data.auditLogs.length === 0 ? (
-              <EmptyBlock label="No admin changes recorded." />
-            ) : (
-              <ul className="divide-y divide-slate-100">
-                {data.auditLogs.map((log) => (
-                  <li key={log.id} className="py-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge tone={log.action === "void" ? "rose" : "violet"}>{log.action}</Badge>
-                      <span className="text-sm font-black text-slate-700">
-                        {log.adminName || "Admin"}
-                      </span>
-                      <span className="text-[11px] font-bold text-slate-400">
-                        {formatDisplayDateTime(log.createdAt)}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-sm font-bold text-slate-600">{log.reason}</p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </SectionCard>
         </div>
       )}
 
@@ -493,11 +475,25 @@ function DirectEntryModal({ mode, vendorId, vendorName, onClose, onSaved, onErro
             <select
               className={inputClass}
               value={form.settlesItemId}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, settlesItemId: event.target.value }))
-              }
+              onChange={(event) => {
+                const value = event.target.value;
+                // Fill in the exact amount owed so the admin never has to
+                // look it up first.
+                if (value === SETTLE_ALL_SENTINEL) {
+                  const totalOwed = outstandingBills.reduce(
+                    (sum, bill) => sum + Number(bill.stillOwed || 0),
+                    0,
+                  );
+                  setForm((prev) => ({ ...prev, settlesItemId: value, amount: String(totalOwed) }));
+                } else {
+                  setForm((prev) => ({ ...prev, settlesItemId: value }));
+                }
+              }}
             >
               <option value="">Not settling anything (instant/unrelated payment)</option>
+              {outstandingBills.length ? (
+                <option value={SETTLE_ALL_SENTINEL}>Settle ALL owed bills at once</option>
+              ) : null}
               {outstandingBills.map((bill) => (
                 <option key={bill.id} value={bill.id}>
                   {bill.purpose} — {formatTaka(bill.stillOwed)} still owed

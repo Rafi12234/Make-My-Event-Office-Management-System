@@ -4,14 +4,11 @@ import {
   formatDateTime,
   roundMoney,
   applyVendorDeltas,
-  writeAuditLog,
   parseOptionalDate,
   parseOptionalBigInt,
-  requireReason,
   resolveSettlementTarget,
   listVendorOutstandingBills,
   serializeAdminVendor,
-  serializeAuditLog,
   computeVendorStillOwed,
   ACTIVE_ONLY,
 } from "../utils/accountsShared.js";
@@ -55,6 +52,7 @@ export async function listVendors(req, res, next) {
           paymentStatus: true,
           totalAmount: true,
           settlesItemId: true,
+          settlesAllOwed: true,
         },
       }),
     ]);
@@ -68,6 +66,7 @@ export async function listVendors(req, res, next) {
         paymentStatus: item.paymentStatus,
         totalAmount: item.totalAmount,
         settlesItemId: item.settlesItemId,
+        settlesAllOwed: item.settlesAllOwed,
       })),
     );
 
@@ -94,7 +93,6 @@ export async function createVendor(req, res, next) {
     const name = String(req.body.name || "").trim();
     if (!name) return res.status(422).json({ message: "Vendor name is required." });
 
-    const adminId = BigInt(req.adminId);
     const duplicate = await prisma.vendor.findFirst({ where: { name } });
     if (duplicate) return res.status(409).json({ message: "A vendor with this name already exists." });
 
@@ -110,16 +108,6 @@ export async function createVendor(req, res, next) {
           balance: { create: { currentBalance: 0 } },
         },
         include: { balance: true },
-      });
-
-      await writeAuditLog(tx, {
-        entityType: "vendor",
-        entityId: created.id,
-        action: "create",
-        adminId,
-        vendorId: created.id,
-        reason: `Vendor "${created.name}" created.`,
-        afterData: created,
       });
 
       return created;
@@ -162,20 +150,8 @@ export async function updateVendor(req, res, next) {
       return res.status(422).json({ message: "Nothing to update." });
     }
 
-    const adminId = BigInt(req.adminId);
     const vendor = await prisma.$transaction(async (tx) => {
       const updated = await tx.vendor.update({ where: { id }, data, include: { balance: true } });
-
-      await writeAuditLog(tx, {
-        entityType: "vendor",
-        entityId: id,
-        action: "update",
-        adminId,
-        vendorId: id,
-        reason: requireReason(req.body) || `Vendor "${updated.name}" details updated.`,
-        beforeData: existing,
-        afterData: updated,
-      });
 
       return updated;
     });
@@ -197,25 +173,11 @@ export async function setVendorStatus(req, res, next) {
     const existing = await prisma.vendor.findUnique({ where: { id }, include: { balance: true } });
     if (!existing) return res.status(404).json({ message: "Vendor not found." });
 
-    const adminId = BigInt(req.adminId);
     const vendor = await prisma.$transaction(async (tx) => {
       const updated = await tx.vendor.update({
         where: { id },
         data: { isActive },
         include: { balance: true },
-      });
-
-      await writeAuditLog(tx, {
-        entityType: "vendor",
-        entityId: id,
-        action: "update",
-        adminId,
-        vendorId: id,
-        reason:
-          requireReason(req.body) ||
-          `Vendor "${updated.name}" ${isActive ? "reactivated" : "deactivated"}.`,
-        beforeData: existing,
-        afterData: updated,
       });
 
       return updated;
@@ -257,12 +219,6 @@ export async function getVendorProfile(req, res, next) {
         },
         orderBy: { id: "desc" },
       }),
-      prisma.accountAuditLog.findMany({
-        where: { vendorId: id },
-        include: { admin: { select: { fullName: true } } },
-        orderBy: { id: "desc" },
-        take: 50,
-      }),
     ]);
 
     const activeItems = items.filter((item) => item.expense?.status === "active");
@@ -284,6 +240,7 @@ export async function getVendorProfile(req, res, next) {
           paymentStatus: item.paymentStatus,
           totalAmount: item.totalAmount,
           settlesItemId: item.settlesItemId,
+          settlesAllOwed: item.settlesAllOwed,
         })),
       ).get(String(id)) || 0,
     );
@@ -309,6 +266,7 @@ export async function getVendorProfile(req, res, next) {
           entryKind: item.paymentStatus === "paid" ? "payment" : "cost",
           paymentStatus: item.paymentStatus,
           settlesItemId: item.settlesItemId ? String(item.settlesItemId) : null,
+          settlesAllOwed: Boolean(item.settlesAllOwed),
           paymentSource: item.expense?.paymentSource || "employee_wallet",
           costType: item.expense?.costType || null,
           eventClientName: item.expense?.eventClientNameSnapshot || null,
@@ -320,7 +278,6 @@ export async function getVendorProfile(req, res, next) {
           createdAt: formatDateTime(item.createdAt),
           updatedAt: formatDateTime(item.updatedAt),
         })),
-        auditLogs: auditLogs.map(serializeAuditLog),
       },
     });
   } catch (error) {
@@ -353,10 +310,12 @@ async function createCompanyVendorEntry({ req, res, paymentStatus, defaultPurpos
   if (!vendor) return res.status(404).json({ message: "Vendor not found." });
 
   let settlesItemId = null;
+  let settlesAllOwed = false;
   if (paymentStatus === "paid" && req.body.settlesItemId) {
     const settlement = await resolveSettlementTarget(vendorId, req.body.settlesItemId);
     if (settlement.error) return res.status(422).json({ message: settlement.error });
     settlesItemId = settlement.settlesItemId;
+    settlesAllOwed = settlement.settlesAllOwed;
   }
 
   // "paid" settles the ledger upward, "to_pay" records a new liability —
@@ -383,6 +342,7 @@ async function createCompanyVendorEntry({ req, res, paymentStatus, defaultPurpos
               vendorId,
               paymentStatus,
               settlesItemId,
+              settlesAllOwed,
             },
           ],
         },
@@ -391,16 +351,6 @@ async function createCompanyVendorEntry({ req, res, paymentStatus, defaultPurpos
     });
 
     await applyVendorDeltas(tx, new Map([[String(vendorId), vendorDelta]]));
-
-    await writeAuditLog(tx, {
-      entityType: "expense",
-      entityId: expense.id,
-      action: "create",
-      adminId,
-      vendorId,
-      reason: String(req.body.reason || "").trim().slice(0, 500) || purpose,
-      afterData: expense,
-    });
 
     return expense;
   });

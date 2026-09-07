@@ -4,7 +4,6 @@ import {
   SectionCard,
   Money,
   Badge,
-  StatusBadge,
   Field,
   inputClass,
   LoadingBlock,
@@ -12,26 +11,22 @@ import {
   Notice,
   Pagination,
   Modal,
-  ReasonModal,
   ReasonPicker,
-  StatCard,
 } from "../../../components/AdminAccountsWidgets";
 import {
   loadMoneyIn,
   loadEmployeeWallets,
   updateMoneyIn,
-  voidMoneyIn,
   exportRowsToCsv,
   formatTaka,
   formatDisplayDate,
   formatDisplayDateTime,
 } from "../../../services/adminAccountsService";
-import { Ban, Download, Loader2, Pencil } from "lucide-react";
+import { Download, Loader2, Pencil } from "lucide-react";
 
 const EMPTY_FILTERS = {
   employeeId: "",
   source: "",
-  status: "",
   dateFrom: "",
   dateTo: "",
   search: "",
@@ -46,8 +41,6 @@ export default function AdminAccountsMoneyInPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [notice, setNotice] = useState(null);
   const [editing, setEditing] = useState(null);
-  const [voiding, setVoiding] = useState(null);
-  const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(() => {
     setIsLoading(true);
@@ -70,23 +63,6 @@ export default function AdminAccountsMoneyInPage() {
     setFilters((prev) => ({ ...prev, [key]: value }));
   }
 
-  async function handleVoid(reason) {
-    setBusy(true);
-    try {
-      const response = await voidMoneyIn(voiding.id, reason);
-      setNotice({
-        type: "success",
-        message: `Entry voided. Wallet adjusted by ${formatTaka(response.walletChange ?? 0)}.`,
-      });
-      setVoiding(null);
-      refresh();
-    } catch (error) {
-      setNotice({ type: "error", message: error.message });
-    } finally {
-      setBusy(false);
-    }
-  }
-
   function handleExport() {
     exportRowsToCsv(
       "money-in.csv",
@@ -97,7 +73,6 @@ export default function AdminAccountsMoneyInPage() {
         { label: "Note", value: (row) => row.note },
         { label: "Source", value: (row) => row.source },
         { label: "Added By Admin", value: (row) => row.createdByAdminName || "" },
-        { label: "Status", value: (row) => row.status },
         { label: "Submitted", value: (row) => row.createdAt },
       ],
       result?.rows || [],
@@ -121,20 +96,23 @@ export default function AdminAccountsMoneyInPage() {
     >
       <Notice notice={notice} onDismiss={() => setNotice(null)} />
 
-      {result ? (
-        <div className="mb-6 grid gap-4 sm:grid-cols-2">
-          <StatCard
-            index={0} label="Filtered active total"
-            value={formatTaka(result.filteredActiveTotal)}
-            hint="Voided entries excluded"
-            tone="violet"
-          />
-          <StatCard index={1} label="Records matched" value={result.total} tone="slate" />
-        </div>
-      ) : null}
-
-      <SectionCard title="Filters" className="mb-6">
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <SectionCard
+        title="Filters"
+        className="mb-6"
+        actions={
+          <button
+            type="button"
+            onClick={() => {
+              setFilters(EMPTY_FILTERS);
+              setPage(1);
+            }}
+            className="acc-press rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-black text-slate-500 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
+          >
+            Reset filters
+          </button>
+        }
+      >
+        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-7">
           <Field label="Employee">
             <select
               className={inputClass}
@@ -158,17 +136,6 @@ export default function AdminAccountsMoneyInPage() {
               <option value="">Employee & Admin</option>
               <option value="employee">Employee entered</option>
               <option value="admin">Admin entered</option>
-            </select>
-          </Field>
-          <Field label="Status">
-            <select
-              className={inputClass}
-              value={filters.status}
-              onChange={(event) => updateFilter("status", event.target.value)}
-            >
-              <option value="">Active & Void</option>
-              <option value="active">Active only</option>
-              <option value="void">Void only</option>
             </select>
           </Field>
           <Field label="Sort">
@@ -199,7 +166,7 @@ export default function AdminAccountsMoneyInPage() {
               onChange={(event) => updateFilter("dateTo", event.target.value)}
             />
           </Field>
-          <Field label="Search note" className="sm:col-span-2">
+          <Field label="Search note">
             <input
               className={inputClass}
               placeholder="Search inside notes"
@@ -208,16 +175,6 @@ export default function AdminAccountsMoneyInPage() {
             />
           </Field>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setFilters(EMPTY_FILTERS);
-            setPage(1);
-          }}
-          className="mt-3 acc-press rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-black text-slate-500 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
-        >
-          Reset filters
-        </button>
       </SectionCard>
 
       <SectionCard title="Money In records">
@@ -235,14 +192,13 @@ export default function AdminAccountsMoneyInPage() {
                     <th className="pb-2 px-3">Received</th>
                     <th className="pb-2 px-3">Note</th>
                     <th className="pb-2 px-3">Source</th>
-                    <th className="pb-2 px-3">Status</th>
                     <th className="pb-2 px-3 text-right">Amount</th>
                     <th className="pb-2 pl-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {result.rows.map((row) => (
-                    <tr key={row.id} className={row.status === "void" ? "opacity-60" : undefined}>
+                    <tr key={row.id}>
                       <td className="py-3 pr-3 font-black text-slate-800">
                         {row.employeeName || "Unknown"}
                       </td>
@@ -261,10 +217,7 @@ export default function AdminAccountsMoneyInPage() {
                             {row.createdByAdminName}
                           </p>
                         ) : null}
-                      </td>
-                      <td className="px-3 py-3">
-                        <StatusBadge status={row.status} />
-                        {row.wasEdited && row.status === "active" ? (
+                        {row.wasEdited ? (
                           <p className="mt-0.5 text-[10px] font-bold text-violet-500">Corrected</p>
                         ) : null}
                       </td>
@@ -272,30 +225,16 @@ export default function AdminAccountsMoneyInPage() {
                         <Money value={row.amount} />
                       </td>
                       <td className="py-3 pl-3 text-right">
-                        {row.status === "active" ? (
-                          <div className="flex justify-end gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => setEditing(row)}
-                              className="acc-press rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
-                              title="Edit record"
-                            >
-                              <Pencil size={14} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setVoiding(row)}
-                              className="acc-press rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
-                              title="Void record"
-                            >
-                              <Ban size={14} />
-                            </button>
-                          </div>
-                        ) : (
-                          <span className="text-[10px] font-bold text-slate-400">
-                            {row.voidedByName ? `by ${row.voidedByName}` : "voided"}
-                          </span>
-                        )}
+                        <div className="flex justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setEditing(row)}
+                            className="acc-press rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
+                            title="Edit record"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -321,20 +260,6 @@ export default function AdminAccountsMoneyInPage() {
           refresh();
         }}
         onError={(message) => setNotice({ type: "error", message })}
-      />
-
-      <ReasonModal
-        open={Boolean(voiding)}
-        title="Void this Money In entry?"
-        description={
-          voiding
-            ? `${formatTaka(voiding.amount)} will be reversed from ${voiding.employeeName}'s wallet. The record stays visible as voided.`
-            : ""
-        }
-        confirmLabel="Void entry"
-        busy={busy}
-        onCancel={() => setVoiding(null)}
-        onConfirm={handleVoid}
       />
     </AdminAccountsShell>
   );

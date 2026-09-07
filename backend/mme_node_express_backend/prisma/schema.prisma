@@ -59,10 +59,9 @@ model Employee {
   accountExpenses          AccountExpense[]
   accountWallet            AccountWallet?
   createdAccountMoneyReceived AccountMoneyReceived[] @relation("AccountMoneyReceivedCreatedByAdmin")
-  voidedAccountMoneyReceived  AccountMoneyReceived[] @relation("AccountMoneyReceivedVoidedByAdmin")
   createdAccountExpenses      AccountExpense[]       @relation("AccountExpenseCreatedByAdmin")
   voidedAccountExpenses       AccountExpense[]       @relation("AccountExpenseVoidedByAdmin")
-  accountAuditLogs            AccountAuditLog[]      @relation("AccountAuditLogAdmin")
+  approvedAccountExpenses     AccountExpense[]       @relation("AccountExpenseApprovedByAdmin")
   attendances              Attendance[]
 
   @@index([createdById], map: "fk_emp_created_by")
@@ -590,7 +589,7 @@ model ExcelImportError {
 
 // Repeatable log of money the boss gave an employee, adds to the
 // employee's wallet. Employees can only append; Admins can additionally
-// correct or void an entry (both are recorded in AccountAuditLog).
+// correct an entry (voiding is not supported for this record type).
 model AccountMoneyReceived {
   id               BigInt              @id @default(autoincrement()) @db.UnsignedBigInt
   employeeId       BigInt?             @map("employee_id") @db.UnsignedBigInt
@@ -599,20 +598,14 @@ model AccountMoneyReceived {
   note             String?             @db.VarChar(255)
   source           AccountEntrySource  @default(employee)
   createdByAdminId BigInt?             @map("created_by_admin_id") @db.UnsignedBigInt
-  status           AccountRecordStatus @default(active)
-  voidReason       String?             @map("void_reason") @db.VarChar(255)
-  voidedByAdminId  BigInt?             @map("voided_by_admin_id") @db.UnsignedBigInt
-  voidedAt         DateTime?           @map("voided_at") @db.DateTime(0)
   createdAt        DateTime            @default(now()) @map("created_at") @db.DateTime(0)
   updatedAt        DateTime            @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
 
   employee       Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_money_received_employee")
   createdByAdmin Employee? @relation("AccountMoneyReceivedCreatedByAdmin", fields: [createdByAdminId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_money_received_created_admin")
-  voidedByAdmin  Employee? @relation("AccountMoneyReceivedVoidedByAdmin", fields: [voidedByAdminId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_money_received_voided_admin")
 
   @@index([employeeId], map: "fk_account_money_received_employee")
   @@index([createdByAdminId], map: "fk_account_money_received_created_admin")
-  @@index([voidedByAdminId], map: "fk_account_money_received_voided_admin")
   @@index([receivedDate], map: "idx_account_money_received_date")
   @@map("account_money_received")
 }
@@ -720,17 +713,24 @@ model AccountExpense {
   voidReason              String?             @map("void_reason") @db.VarChar(255)
   voidedByAdminId         BigInt?             @map("voided_by_admin_id") @db.UnsignedBigInt
   voidedAt                DateTime?           @map("voided_at") @db.DateTime(0)
+  // Admin sign-off — separate from void/status. A bill only counts as a
+  // finalized company expense once an admin has reviewed and approved it.
+  approved                Boolean             @default(false)
+  approvedByAdminId       BigInt?             @map("approved_by_admin_id") @db.UnsignedBigInt
+  approvedAt              DateTime?           @map("approved_at") @db.DateTime(0)
   createdAt               DateTime        @default(now()) @map("created_at") @db.DateTime(0)
   updatedAt               DateTime        @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
 
   employee       Employee?            @relation(fields: [employeeId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_expenses_employee")
   createdByAdmin Employee?            @relation("AccountExpenseCreatedByAdmin", fields: [createdByAdminId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_expenses_created_admin")
   voidedByAdmin  Employee?            @relation("AccountExpenseVoidedByAdmin", fields: [voidedByAdminId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_expenses_voided_admin")
+  approvedByAdmin Employee?           @relation("AccountExpenseApprovedByAdmin", fields: [approvedByAdminId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_expenses_approved_admin")
   items          AccountExpenseItem[]
 
   @@index([employeeId], map: "fk_account_expenses_employee")
   @@index([createdByAdminId], map: "fk_account_expenses_created_admin")
   @@index([voidedByAdminId], map: "fk_account_expenses_voided_admin")
+  @@index([approvedByAdminId], map: "fk_account_expenses_approved_admin")
   @@index([linkedRowKey], map: "idx_account_expenses_row")
   @@index([createdAt], map: "idx_account_expenses_created")
   @@map("account_expenses")
@@ -764,6 +764,10 @@ model AccountExpenseItem {
   // other bill's balance, even one to the same vendor on the same event —
   // "same vendor + same event" alone is not enough to net two items.
   settlesItemId           BigInt?              @map("settles_item_id") @db.UnsignedBigInt
+  // Alternative to settlesItemId: sweeps this payment across EVERY
+  // still-outstanding bill for the vendor (oldest first) instead of one
+  // named bill. Mutually exclusive with settlesItemId in practice.
+  settlesAllOwed          Boolean              @default(false) @map("settles_all_owed")
   createdAt               DateTime             @default(now()) @map("created_at") @db.DateTime(0)
   updatedAt               DateTime             @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
 
@@ -791,48 +795,7 @@ model AccountWallet {
   @@map("account_wallets")
 }
 
-// What kind of record an audit entry describes.
-enum AccountAuditEntity {
-  money_received
-  expense
-  expense_item
-  vendor
 
-  @@map("account_audit_entity")
-}
-
-enum AccountAuditAction {
-  create
-  update
-  void
-
-  @@map("account_audit_action")
-}
-
-// Append-only trail of every Admin financial correction. beforeData /
-// afterData hold the full serialized record so the original values are
-// never lost, even after several corrections.
-model AccountAuditLog {
-  id         BigInt             @id @default(autoincrement()) @db.UnsignedBigInt
-  entityType AccountAuditEntity @map("entity_type")
-  entityId   BigInt             @map("entity_id") @db.UnsignedBigInt
-  action     AccountAuditAction
-  adminId    BigInt?            @map("admin_id") @db.UnsignedBigInt
-  employeeId BigInt?            @map("employee_id") @db.UnsignedBigInt
-  vendorId   BigInt?            @map("vendor_id") @db.UnsignedBigInt
-  reason     String             @db.VarChar(500)
-  beforeData Json?              @map("before_data")
-  afterData  Json?              @map("after_data")
-  createdAt  DateTime           @default(now()) @map("created_at") @db.DateTime(0)
-
-  admin Employee? @relation("AccountAuditLogAdmin", fields: [adminId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_audit_logs_admin")
-
-  @@index([entityType, entityId], map: "idx_account_audit_logs_entity")
-  @@index([adminId], map: "fk_account_audit_logs_admin")
-  @@index([employeeId], map: "idx_account_audit_logs_employee")
-  @@index([vendorId], map: "idx_account_audit_logs_vendor")
-  @@index([createdAt], map: "idx_account_audit_logs_created")
-  @@map("account_audit_logs")
 // Employee GPS-based Sign In / Sign Out attendance (mobile app, V1 —
 // see mobile/Attendance/BUILD_GUIDE.md). One row per employee per business
 // date; attendanceDate/signInAt/signOutAt are always backend-generated using

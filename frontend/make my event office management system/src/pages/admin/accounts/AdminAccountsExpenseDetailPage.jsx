@@ -8,7 +8,6 @@ import {
   Field,
   inputClass,
   LoadingBlock,
-  EmptyBlock,
   Notice,
   Modal,
   ReasonModal,
@@ -26,13 +25,13 @@ import {
   formatTaka,
   formatDisplayDate,
   formatDisplayDateTime,
+  SETTLE_ALL_SENTINEL,
 } from "../../../services/adminAccountsService";
 import { ArrowLeft, Ban, Loader2, Paperclip, Save } from "lucide-react";
 
 export default function AdminAccountsExpenseDetailPage() {
   const { expenseId } = useParams();
   const [expense, setExpense] = useState(null);
-  const [auditLogs, setAuditLogs] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [draft, setDraft] = useState([]);
   const [outstandingByVendor, setOutstandingByVendor] = useState({});
@@ -58,7 +57,6 @@ export default function AdminAccountsExpenseDetailPage() {
     loadExpense(expenseId)
       .then((data) => {
         setExpense(data.expense);
-        setAuditLogs(data.auditLogs);
         setDraft(
           data.expense.items.map((item) => ({
             id: item.id,
@@ -110,6 +108,15 @@ export default function AdminAccountsExpenseDetailPage() {
         if (key === "paymentStatus") {
           next.settlesItemId = "";
           if (value === "paid" && next.vendorId) ensureOutstandingLoaded(next.vendorId);
+        }
+        // Fill in the exact amount owed so the admin never has to look it
+        // up first.
+        if (key === "settlesItemId" && value === SETTLE_ALL_SENTINEL) {
+          const totalOwed = (outstandingByVendor[next.vendorId] || [])
+            .filter((bill) => bill.id !== next.id)
+            .reduce((sum, bill) => sum + Number(bill.stillOwed || 0), 0);
+          next.quantity = "1";
+          next.perQtyAmount = String(totalOwed);
         }
         return next;
       }),
@@ -344,6 +351,10 @@ export default function AdminAccountsExpenseDetailPage() {
                             onChange={(event) => updateItem(index, "settlesItemId", event.target.value)}
                           >
                             <option value="">Not settling anything (instant/unrelated buy)</option>
+                            {(outstandingByVendor[item.vendorId] || []).filter((bill) => bill.id !== item.id)
+                              .length ? (
+                              <option value={SETTLE_ALL_SENTINEL}>Settle ALL owed bills at once</option>
+                            ) : null}
                             {(outstandingByVendor[item.vendorId] || [])
                               .filter((bill) => bill.id !== item.id)
                               .map((bill) => (
@@ -399,36 +410,6 @@ export default function AdminAccountsExpenseDetailPage() {
                 </button>
               </div>
             ) : null}
-          </SectionCard>
-
-          <SectionCard title="Correction history" subtitle="Every admin change to this expense">
-            {auditLogs.length === 0 ? (
-              <EmptyBlock label="This expense has never been corrected." />
-            ) : (
-              <ul className="divide-y divide-slate-100">
-                {auditLogs.map((log) => (
-                  <li key={log.id} className="py-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge tone={log.action === "void" ? "rose" : "violet"}>{log.action}</Badge>
-                      <span className="text-sm font-black text-slate-700">
-                        {log.adminName || "Admin"}
-                      </span>
-                      <span className="text-[11px] font-bold text-slate-400">
-                        {formatDisplayDateTime(log.createdAt)}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-sm font-bold text-slate-600">{log.reason}</p>
-                    {log.beforeData?.totalAmount !== undefined &&
-                    log.afterData?.totalAmount !== undefined ? (
-                      <p className="mt-1 text-xs font-bold text-slate-500">
-                        {formatTaka(log.beforeData.totalAmount)} →{" "}
-                        {formatTaka(log.afterData.totalAmount)}
-                      </p>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            )}
           </SectionCard>
         </div>
       )}

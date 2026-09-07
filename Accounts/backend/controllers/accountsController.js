@@ -159,13 +159,16 @@ async function getConfirmedEventSnapshot(rowKey) {
 }
 
 // An employee can see that a record was corrected or voided by an Admin,
-// but still has no way to edit it.
+// but still has no way to edit it. Money-received rows have no status/void
+// columns anymore, so record.status is undefined for them — only expenses
+// can actually be "void".
 function adminTouchFields(record) {
   const created = new Date(record.createdAt).getTime();
   const updated = record.updatedAt ? new Date(record.updatedAt).getTime() : created;
+  const isVoided = record.status === "void";
   return {
     status: record.status || "active",
-    correctedByAdmin: record.status === "active" && updated - created > 1000,
+    correctedByAdmin: !isVoided && updated - created > 1000,
     correctedAt: updated - created > 1000 ? formatDateTime(record.updatedAt) : null,
     voidReason: record.voidReason || null,
     voidedAt: record.voidedAt ? formatDateTime(record.voidedAt) : null,
@@ -223,7 +226,12 @@ function serializeVendor(vendor, stillOwedBy) {
 // This filters those out and recomputes the total from what's left, so a
 // submission that's entirely "to pay" has nothing to show here at all
 // (returns null — see the vendor-payments list below for where it does show).
+// An expense also doesn't count as a finalized company expense until an
+// admin has reviewed and approved it (see AccountExpense.approved) — until
+// then it's still sitting in the admin Bills queue.
 function serializeExpenseForHistory(expense) {
+  if (!expense.approved) return null;
+
   const paidItems = (expense.items || []).filter(
     (item) => !(item.vendorId && item.paymentStatus === "to_pay"),
   );
@@ -267,6 +275,7 @@ function serializeVendorPaymentEntry(item, expense) {
     vendorId: item.vendorId ? String(item.vendorId) : null,
     vendorName: item.vendor?.name || null,
     settlesItemId: item.settlesItemId ? String(item.settlesItemId) : null,
+    settlesAllOwed: Boolean(item.settlesAllOwed),
     createdAt: formatDateTime(item.createdAt),
   };
 }
@@ -295,9 +304,18 @@ export async function getSummary(req, res, next) {
       }),
     ]);
 
+    // Money that WILL leave the wallet once an admin approves it — the
+    // actual wallet balance above stays untouched until that happens.
+    const pendingDeduction = roundMoney(
+      expenses
+        .filter((expense) => expense.status !== "void" && !expense.approved)
+        .reduce((sum, expense) => sum + Number(expense.walletDeductionAmount), 0),
+    );
+
     res.json({
       data: {
         currentBalance: wallet ? Number(wallet.currentBalance) : 0,
+        pendingDeduction,
         moneyReceived: moneyReceived.map(serializeMoneyReceived),
         expenses: expenses.map(serializeExpenseForHistory).filter(Boolean),
         vendorPayments: expenses
@@ -353,7 +371,6 @@ export async function listBookedEvents(req, res, next) {
     });
 
     const rowByKey = new Map(rows.map((row) => [row.rowKey, row]));
-    const todayStr = formatDateOnly(new Date());
 
     const events = rowKeys
       .map((rowKey) => {
@@ -376,9 +393,10 @@ export async function listBookedEvents(req, res, next) {
       // & finalized with us" (which is what flips bookedFromMme), so rows
       // flagged as booked with another company are excluded.
       .filter((event) => event.bookedFromMme && !event.alreadyBooked)
-      // Costs are logged against events that have not happened yet.
-      .filter((event) => event.eventDate && event.eventDate >= todayStr)
-      .sort((a, b) => a.eventDate.localeCompare(b.eventDate))
+      // Every confirmed event, not just upcoming ones — vendor bills for an
+      // event are typically created AFTER it has already happened. Newest
+      // event date first, since that's the one most likely being billed.
+      .sort((a, b) => (b.eventDate || "").localeCompare(a.eventDate || ""))
       .map(({ rowKey, clientName, eventDate }) => ({ rowKey, clientName, eventDate }));
 
     res.json({ data: events });
@@ -408,6 +426,7 @@ export async function listVendors(req, res, next) {
           paymentStatus: true,
           totalAmount: true,
           settlesItemId: true,
+          settlesAllOwed: true,
         },
       }),
     ]);
@@ -419,6 +438,7 @@ export async function listVendors(req, res, next) {
         paymentStatus: item.paymentStatus,
         totalAmount: item.totalAmount,
         settlesItemId: item.settlesItemId,
+        settlesAllOwed: item.settlesAllOwed,
       })),
     );
 
@@ -471,6 +491,7 @@ export async function getVendorProfile(req, res, next) {
           paymentStatus: item.paymentStatus,
           totalAmount: item.totalAmount,
           settlesItemId: item.settlesItemId,
+          settlesAllOwed: item.settlesAllOwed,
         })),
     );
 
@@ -482,6 +503,7 @@ export async function getVendorProfile(req, res, next) {
       paymentStatus: item.paymentStatus,
       costType: item.expense.costType,
       settlesItemId: item.settlesItemId ? String(item.settlesItemId) : null,
+      settlesAllOwed: Boolean(item.settlesAllOwed),
       eventClientName: item.expense.eventClientNameSnapshot || null,
       employeeName: item.expense.employee?.fullName || "—",
       createdAt: formatDateTime(item.createdAt),
@@ -565,18 +587,15 @@ export async function payVendor(req, res, next) {
                 vendorId,
                 paymentStatus: "paid",
                 settlesItemId: settlement.settlesItemId,
+                settlesAllOwed: settlement.settlesAllOwed,
               },
             ],
           },
         },
       });
 
-      await tx.accountWallet.upsert({
-        where: { employeeId },
-        create: { employeeId, currentBalance: -amount },
-        update: { currentBalance: { decrement: amount } },
-      });
-
+      // The wallet isn't touched yet — this is only actually deducted once
+      // an admin approves it (see approveExpense).
       await tx.vendorBalance.upsert({
         where: { vendorId },
         create: { vendorId, currentBalance: amount },
@@ -669,6 +688,9 @@ export async function createExpense(req, res, next) {
 
     let eventSnapshot = null;
     const linkedRowKey = costType === "event" ? String(req.body.linkedRowKey || "") : null;
+    // Event Based Cost is a due-bill for ONE vendor per submission (see
+    // createExpense's item loop below) — chosen once here, not per item.
+    let eventVendor = null;
 
     if (costType === "event") {
       if (!isValidRowKey(linkedRowKey)) {
@@ -681,6 +703,19 @@ export async function createExpense(req, res, next) {
         removeUploadedFiles(req.files);
         return res.status(404).json({ message: "That event is not a confirmed booked event." });
       }
+
+      const rawEventVendorId = String(req.body.vendorId || "").trim();
+      if (!rawEventVendorId) {
+        removeUploadedFiles(req.files);
+        return res.status(422).json({ message: "Select which vendor this bill is for." });
+      }
+      eventVendor = await prisma.vendor.findUnique({
+        where: { id: BigInt(rawEventVendorId) },
+      });
+      if (!eventVendor || !eventVendor.isActive) {
+        removeUploadedFiles(req.files);
+        return res.status(422).json({ message: "Select a valid, active vendor." });
+      }
     }
 
     const filesByIndex = new Map();
@@ -691,14 +726,18 @@ export async function createExpense(req, res, next) {
 
     // Collect every vendorId referenced by an item up front so each one can
     // be validated (exists + still active) in a single query below, instead
-    // of one query per item.
-    const referencedVendorIds = [
-      ...new Set(
-        items
-          .map((rawItem) => String(rawItem.vendorId || "").trim())
-          .filter((id) => /^\d+$/.test(id)),
-      ),
-    ];
+    // of one query per item. Not needed for "event" — the single vendor
+    // above already covers every item.
+    const referencedVendorIds =
+      costType === "event"
+        ? []
+        : [
+            ...new Set(
+              items
+                .map((rawItem) => String(rawItem.vendorId || "").trim())
+                .filter((id) => /^\d+$/.test(id)),
+            ),
+          ];
 
     let activeVendorsById = new Map();
     if (referencedVendorIds.length) {
@@ -727,31 +766,41 @@ export async function createExpense(req, res, next) {
         return res.status(422).json({ message: `Item ${index + 1} is missing required fields.` });
       }
 
-      const rawVendorId = String(rawItem.vendorId || "").trim();
       let vendorId = null;
       let paymentStatus = null;
       let settlesItemId = null;
+      let settlesAllOwed = false;
 
-      if (rawVendorId) {
-        const vendor = activeVendorsById.get(rawVendorId);
-        if (!vendor) {
-          removeUploadedFiles(req.files);
-          return res.status(422).json({ message: `Item ${index + 1} has an invalid or inactive vendor.` });
-        }
-        if (!["to_pay", "paid"].includes(rawItem.paymentStatus)) {
-          removeUploadedFiles(req.files);
-          return res.status(422).json({ message: `Item ${index + 1} needs a payment status (To Pay or Paid).` });
-        }
-        vendorId = vendor.id;
-        paymentStatus = rawItem.paymentStatus;
-
-        if (paymentStatus === "paid" && rawItem.settlesItemId) {
-          const settlement = await resolveSettlementTarget(vendorId, rawItem.settlesItemId);
-          if (settlement.error) {
+      if (costType === "event") {
+        // Every line on an event bill is owed to the ONE vendor chosen
+        // above, and is always an outstanding due — nothing here was ever
+        // "paid" by the employee, so there is nothing to settle either.
+        vendorId = eventVendor.id;
+        paymentStatus = "to_pay";
+      } else {
+        const rawVendorId = String(rawItem.vendorId || "").trim();
+        if (rawVendorId) {
+          const vendor = activeVendorsById.get(rawVendorId);
+          if (!vendor) {
             removeUploadedFiles(req.files);
-            return res.status(422).json({ message: `Item ${index + 1}: ${settlement.error}` });
+            return res.status(422).json({ message: `Item ${index + 1} has an invalid or inactive vendor.` });
           }
-          settlesItemId = settlement.settlesItemId;
+          if (!["to_pay", "paid"].includes(rawItem.paymentStatus)) {
+            removeUploadedFiles(req.files);
+            return res.status(422).json({ message: `Item ${index + 1} needs a payment status (To Pay or Paid).` });
+          }
+          vendorId = vendor.id;
+          paymentStatus = rawItem.paymentStatus;
+
+          if (paymentStatus === "paid" && rawItem.settlesItemId) {
+            const settlement = await resolveSettlementTarget(vendorId, rawItem.settlesItemId);
+            if (settlement.error) {
+              removeUploadedFiles(req.files);
+              return res.status(422).json({ message: `Item ${index + 1}: ${settlement.error}` });
+            }
+            settlesItemId = settlement.settlesItemId;
+            settlesAllOwed = settlement.settlesAllOwed;
+          }
         }
       }
 
@@ -770,6 +819,7 @@ export async function createExpense(req, res, next) {
         vendorId,
         paymentStatus,
         settlesItemId,
+        settlesAllOwed,
       });
     }
 
@@ -814,12 +864,9 @@ export async function createExpense(req, res, next) {
         include: { items: { include: { vendor: true }, orderBy: { id: "asc" } } },
       });
 
-      await tx.accountWallet.upsert({
-        where: { employeeId },
-        create: { employeeId, currentBalance: -walletDeduction },
-        update: { currentBalance: { decrement: walletDeduction } },
-      });
-
+      // The wallet isn't touched yet — this is only actually deducted once
+      // an admin approves it (see approveExpense). walletDeductionAmount is
+      // still stored on the expense now so approval knows how much to take.
       for (const [vendorIdKey, delta] of vendorBalanceDeltas) {
         await tx.vendorBalance.upsert({
           where: { vendorId: BigInt(vendorIdKey) },

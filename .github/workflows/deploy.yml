@@ -104,6 +104,12 @@ jobs:
           test -f "Accounts/backend/controllers/accountsController.js"
           test -f "Accounts/backend/utils/accountsShared.js"
 
+          # Attendance module lives under mobile/Attendance/backend, same
+          # deploy pattern as the Accounts module above.
+          test -f "mobile/Attendance/backend/routes/attendance.js"
+          test -f "mobile/Attendance/backend/controllers/attendanceController.js"
+          test -f "mobile/Attendance/backend/utils/officeLocation.js"
+
           # cPanel's manual "Run NPM Install" does not run the
           # postinstall "prisma generate" hook, so the generated
           # Prisma Client (node_modules/.prisma/client) never gets
@@ -302,6 +308,25 @@ jobs:
             echo "put * accounts-module/routes/"
             echo "lcd \"$GITHUB_WORKSPACE/Accounts/backend/utils\""
             echo "put * accounts-module/utils/"
+
+            # Attendance module (mobile/Attendance/backend/*) - same deploy
+            # pattern as the Accounts module above, uploaded into
+            # APP_DIR/attendance-module so its bare imports (express) resolve
+            # via this app's already-deployed node_modules. server.js finds it
+            # via the ATTENDANCE_BACKEND_DIR env var (set once in cPanel's
+            # Setup Node.js App -> Environment variables), same as
+            # ACCOUNTS_BACKEND_DIR.
+            echo "cd ${APP_DIR}"
+            echo "-mkdir attendance-module"
+            echo "-mkdir attendance-module/controllers"
+            echo "-mkdir attendance-module/routes"
+            echo "-mkdir attendance-module/utils"
+            echo "lcd \"$GITHUB_WORKSPACE/mobile/Attendance/backend/controllers\""
+            echo "put * attendance-module/controllers/"
+            echo "lcd \"$GITHUB_WORKSPACE/mobile/Attendance/backend/routes\""
+            echo "put * attendance-module/routes/"
+            echo "lcd \"$GITHUB_WORKSPACE/mobile/Attendance/backend/utils\""
+            echo "put * attendance-module/utils/"
 
             echo "-mkdir tmp"
             echo "lcd \"$GITHUB_WORKSPACE\""

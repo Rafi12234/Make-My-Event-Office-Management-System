@@ -246,12 +246,20 @@ function VendorPaymentRow({ payment, index }) {
           {formatTaka(payment.totalAmount)}
         </span>
         <StatusPill status={payment.paymentStatus} />
-        {!isPending && !payment.settlesItemId ? (
+        {!isPending && !payment.settlesItemId && !payment.settlesAllOwed ? (
           <span
             className="rounded-md bg-sky-100 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide text-sky-700"
             title="Not linked to any bill — a standalone/unrelated payment."
           >
             Instant Buy
+          </span>
+        ) : null}
+        {!isPending && payment.settlesAllOwed ? (
+          <span
+            className="rounded-md bg-violet-100 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide text-violet-700"
+            title="Swept every outstanding bill for this vendor at once."
+          >
+            Settled All
           </span>
         ) : null}
       </div>

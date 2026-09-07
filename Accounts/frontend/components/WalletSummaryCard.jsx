@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowDownLeft, ArrowUpRight, Clock3, Sparkles, Wallet } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, Clock3, Hourglass, Sparkles, Wallet } from "lucide-react";
 import { formatTaka } from "../services/accountsService";
 
 // Eases 0 -> target on mount, and between values on later updates.
@@ -92,11 +92,15 @@ function Metric({ icon: Icon, label, value, tint, glow, delay }) {
 
 // Wallet command panel. "Pending to vendors" is money ordered but not yet
 // handed over, so it sits outside both the balance and the spent figure.
+// "Pending approval" is a different kind of not-yet: costs already
+// submitted but not yet signed off by an admin, so they haven't actually
+// left the wallet — currentBalance only reflects approved deductions.
 export default function WalletSummaryCard({
   currentBalance,
   totalReceived,
   totalSpent,
   totalPending = 0,
+  pendingDeduction = 0,
 }) {
   const animated = useCountUp(currentBalance);
   const isNegative = currentBalance < 0;
@@ -150,6 +154,18 @@ export default function WalletSummaryCard({
                 {isNegative ? "Overspent — settle up with your boss" : "Cash you are still holding"}
               </p>
             </div>
+
+            {pendingDeduction > 0 ? (
+              <div
+                className="mm-rise mt-2.5 inline-flex items-center gap-2 rounded-full bg-amber-500/15 px-3 py-1.5 ring-1 ring-amber-400/25"
+                style={{ animationDelay: "0.16s" }}
+              >
+                <Hourglass size={12} className="text-amber-300" />
+                <p className="text-[11px] font-bold text-amber-200">
+                  {formatTaka(pendingDeduction)} awaiting admin approval — not deducted yet
+                </p>
+              </div>
+            ) : null}
           </div>
 
           {totalReceived > 0 ? (
@@ -161,7 +177,7 @@ export default function WalletSummaryCard({
           )}
         </div>
 
-        <div className="flex flex-col gap-3 sm:flex-row">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Metric
             icon={ArrowDownLeft}
             label="Received"
@@ -185,6 +201,14 @@ export default function WalletSummaryCard({
             tint="bg-amber-500/20 text-amber-300"
             glow="bg-amber-500"
             delay="0.34s"
+          />
+          <Metric
+            icon={Hourglass}
+            label="Pending Approval"
+            value={pendingDeduction}
+            tint="bg-orange-500/20 text-orange-300"
+            glow="bg-orange-500"
+            delay="0.41s"
           />
         </div>
       </div>

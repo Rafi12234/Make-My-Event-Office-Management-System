@@ -1,10 +1,10 @@
 import { CalendarClock, CheckCircle2, PartyPopper } from "lucide-react";
 import { formatDisplayDate } from "../services/accountsService";
 
-// Lets the employee pick which event an Event Based Cost belongs to.
-// Sourced from GET /api/accounts/booked-events, which returns only
-// upcoming events booked through us (client_finalizations, excluding rows
-// flagged as booked with another company).
+// Lets the employee pick which event a due-bill belongs to. Sourced from
+// GET /api/accounts/booked-events, which returns every confirmed event
+// booked through us (client_finalizations, excluding rows flagged as
+// booked with another company) — past and upcoming, newest event first.
 export default function BookedEventPicker({ events, selectedRowKey, onSelect }) {
   const selected = events.find((event) => event.rowKey === selectedRowKey);
 
@@ -14,9 +14,9 @@ export default function BookedEventPicker({ events, selectedRowKey, onSelect }) 
         <span className="mm-bob flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-black/40 shadow-sm">
           <PartyPopper size={20} />
         </span>
-        <p className="mt-3 text-sm font-black text-black/55">No upcoming booked events.</p>
+        <p className="mt-3 text-sm font-black text-black/55">No confirmed booked events yet.</p>
         <p className="mt-1 max-w-xs text-xs text-black/55">
-          An event must be confirmed and finalized with us, and still upcoming, to log a cost against it.
+          An event must be confirmed and finalized with us to bill a vendor against it.
         </p>
       </div>
     );

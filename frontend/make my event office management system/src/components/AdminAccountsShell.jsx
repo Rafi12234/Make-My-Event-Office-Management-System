@@ -2,24 +2,21 @@ import { useEffect, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 import AdminLayout from "./AdminLayout";
 import { adminLogout, fetchAdminMe } from "../services/adminService";
+import { loadPendingBillsCounts } from "../services/adminAccountsService";
 import {
   Banknote,
   ClipboardList,
-  CalendarRange,
-  Gauge,
-  History,
+  FileText,
   Store,
   UsersRound,
 } from "lucide-react";
 
 const SECTION_TABS = [
-  { to: "/admin/accounts", label: "Overview", icon: Gauge, end: true },
-  { to: "/admin/accounts/employees", label: "Employees", icon: UsersRound },
   { to: "/admin/accounts/money-in", label: "Money In", icon: Banknote },
+  { to: "/admin/accounts/employees", label: "Employees", icon: UsersRound },
+  { to: "/admin/accounts/bills", label: "Bills", icon: FileText },
   { to: "/admin/accounts/expenses", label: "Expenses", icon: ClipboardList },
-  { to: "/admin/accounts/events", label: "Events", icon: CalendarRange },
   { to: "/admin/accounts/vendors", label: "Vendors", icon: Store },
-  { to: "/admin/accounts/audit", label: "Audit", icon: History },
 ];
 
 // Wraps every Admin Accounts page: verifies the admin session once,
@@ -30,6 +27,7 @@ export default function AdminAccountsShell({ title, subtitle, actions, children 
   const location = useLocation();
   const [admin, setAdmin] = useState(null);
   const [checkingSession, setCheckingSession] = useState(true);
+  const [pendingBillsTotal, setPendingBillsTotal] = useState(0);
 
   useEffect(() => {
     fetchAdminMe()
@@ -39,6 +37,14 @@ export default function AdminAccountsShell({ title, subtitle, actions, children 
       })
       .finally(() => setCheckingSession(false));
   }, [navigate]);
+
+  // Re-checked on every navigation so approving/voiding a bill on the Bills
+  // page is reflected in this badge as soon as the admin moves elsewhere.
+  useEffect(() => {
+    loadPendingBillsCounts()
+      .then((counts) => setPendingBillsTotal(counts.total))
+      .catch(() => {});
+  }, [location.pathname]);
 
   async function handleLogout() {
     await adminLogout();
@@ -83,6 +89,15 @@ export default function AdminAccountsShell({ title, subtitle, actions, children 
                   }`}
                 />
                 {label}
+                {to === "/admin/accounts/bills" && pendingBillsTotal > 0 ? (
+                  <span
+                    className={`inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-black ${
+                      isActive ? "bg-white/25 text-white" : "bg-rose-500 text-white"
+                    }`}
+                  >
+                    {pendingBillsTotal}
+                  </span>
+                ) : null}
                 {/* Grows out from the centre on hover for inactive tabs. */}
                 <span
                   className={`absolute bottom-1 left-1/2 h-0.5 w-0 -translate-x-1/2 rounded-full bg-rose-400 transition-all duration-300 ${

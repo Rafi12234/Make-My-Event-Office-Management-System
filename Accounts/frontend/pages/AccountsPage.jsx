@@ -63,13 +63,16 @@ export default function AccountsPage() {
   // reduces the specific bill it explicitly settles (settlesItemId),
   // mirroring the backend's computeVendorOutstandingBills exactly. An
   // unlinked "paid" entry (an instant/unrelated buy) never nets against
-  // any bill, even one to the same vendor under the same event.
+  // any bill, even one to the same vendor under the same event. A
+  // settlesAllOwed "paid" entry instead sweeps every open bill for that
+  // vendor, oldest first, until its amount is used up.
   const vendorNetBalances = useMemo(() => {
     const payments = summary?.vendorPayments || [];
     const bills = new Map();
     for (const payment of payments) {
       if (payment.paymentStatus === "to_pay") {
         bills.set(String(payment.id), {
+          vendorId: String(payment.vendorId),
           name: payment.vendorName || "Vendor",
           remaining: payment.totalAmount,
         });
@@ -80,6 +83,24 @@ export default function AccountsPage() {
       const bill = bills.get(String(payment.settlesItemId));
       if (!bill) continue;
       bill.remaining = Math.max(0, bill.remaining - payment.totalAmount);
+    }
+    const sweepPayments = payments
+      .filter((payment) => payment.paymentStatus === "paid" && payment.settlesAllOwed)
+      .sort((a, b) => Number(a.id) - Number(b.id));
+    for (const sweep of sweepPayments) {
+      let remainingPayment = sweep.totalAmount;
+      const vendorKey = String(sweep.vendorId);
+      const vendorBillIds = [...bills.keys()]
+        .filter((key) => bills.get(key).vendorId === vendorKey)
+        .sort((a, b) => Number(a) - Number(b));
+      for (const key of vendorBillIds) {
+        if (remainingPayment <= 0) break;
+        const bill = bills.get(key);
+        if (bill.remaining <= 0) continue;
+        const applied = Math.min(bill.remaining, remainingPayment);
+        bill.remaining = Math.max(0, bill.remaining - applied);
+        remainingPayment -= applied;
+      }
     }
     const byVendor = new Map();
     for (const { name, remaining } of bills.values()) {
@@ -192,6 +213,7 @@ export default function AccountsPage() {
                       totalReceived={totalReceived}
                       totalSpent={totalSpent}
                       totalPending={totalPending}
+                      pendingDeduction={summary.pendingDeduction || 0}
                     />
                   </div>
                   <div className="xl:col-span-4">
