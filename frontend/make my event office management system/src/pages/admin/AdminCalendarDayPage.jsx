@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Pencil,
   Phone,
+  Users,
   X,
 } from "lucide-react";
 import BackButton from "../../components/BackButton";
@@ -196,6 +197,109 @@ function EditScheduleModal({ label, initialDatetime, initialAssignedEmployeeId, 
   );
 }
 
+// One card per activity — shared by the "Due Today" and "Completed Today"
+// sections so both read identically, just with different badges (Missed /
+// Done Xm early-late) driven entirely by the event's own fields.
+function EventCard({ ev, rowData, worksheetColumns, onEdit }) {
+  const clientRowData = rowData?.[ev.rowKey] || {};
+  const isCallEvent = ev.source === "call" || ev.source === "next_call";
+  // "Last/Next Meeting Time" columns actually track whichever of a
+  // meeting or a call happened/comes next — show the label and value
+  // that match this specific event instead of the ambiguous merged one.
+  const detailFields = (worksheetColumns || [])
+    .filter((col) => col.name !== "Client Name" && col.type !== "meeting_manager")
+    .map((col) => {
+      if (col.type === "last_meeting_time" || col.type === "next_meeting_time") {
+        const suffix = isCallEvent ? "__call" : "__meeting";
+        const value = clientRowData[`${col.key}${suffix}`];
+        const name = isCallEvent ? col.name.replace("Meeting", "Call") : col.name;
+        return { ...col, name, value };
+      }
+      return { ...col, value: clientRowData[col.key] };
+    })
+    .filter((col) => col.value != null && String(col.value).trim() !== "");
+
+  const tagStyles = {
+    early: "bg-emerald-100 text-emerald-700",
+    on_time: "bg-blue-100 text-blue-700",
+    late: "bg-amber-100 text-amber-700",
+  };
+
+  return (
+    <div className={`flex flex-wrap items-start gap-3 rounded-2xl border px-4 py-3 ${ev.missed ? "border-red-200 bg-red-50" : "border-mme-pink/40 bg-[#fff9fc]"}`}>
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white text-mme-purple">
+        {isCallEvent ? <Phone size={14} /> : <CalendarDays size={14} />}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <p className="truncate font-black text-mme-purple">{ev.clientName || "Unnamed client"}</p>
+          {ev.employeeName && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[10px] font-black text-mme-purple/70 ring-1 ring-mme-pink/30">
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: ev.employeeColor || "#9ca3af" }} />
+              {ev.employeeName}
+            </span>
+          )}
+          {ev.completionTag && (
+            <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${tagStyles[ev.completionTag.status] || tagStyles.on_time}`}>
+              {ev.completionTag.label}
+            </span>
+          )}
+          {ev.missed && (
+            <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-black text-red-600">Missed</span>
+          )}
+        </div>
+        <p className="text-xs font-bold text-mme-purple/55">
+          {EVENT_LABELS[ev.source] || ev.source}{ev.time ? ` \u00b7 ${to12h(ev.time)}` : ""}
+        </p>
+
+        {detailFields.length > 0 && (
+          <div className="mt-2 space-y-1 border-t border-mme-pink/20 pt-2">
+            {detailFields.map((col) => (
+              <div key={col.key} className="flex items-baseline gap-2">
+                <span className="w-24 shrink-0 text-[10px] font-black uppercase tracking-wide text-mme-purple/45">{col.name}</span>
+                <span className="text-xs font-semibold text-mme-purple/80">{formatColValue(col.type, col.value)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {ev.source === "meeting" && ev.requirements?.length > 0 && (
+          <ul className="mt-2 space-y-1">
+            {ev.requirements.map((req, i) => (
+              <li key={req.key || i} className="text-xs leading-5 text-mme-purple/65">
+                <span className="font-bold text-mme-purple/80">{req.label}: </span>{req.details}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {ev.notes && <p className="mt-2 text-xs text-mme-purple/60">{ev.notes}</p>}
+
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          {ev.source === "meeting" && (
+            <p className="text-xs font-bold text-mme-purple/70">
+              Next meeting: {formatDisplay(ev.nextMeetingDatetime) || "Not scheduled yet"}
+              {ev.nextMeetingAssignedEmployeeName ? ` \u00b7 Assigned to ${ev.nextMeetingAssignedEmployeeName}` : ""}
+            </p>
+          )}
+          {ev.source === "call" && (
+            <p className="text-xs font-bold text-mme-purple/70">
+              Next call: {formatDisplay(ev.nextCallDatetime) || "Not scheduled yet"}
+              {ev.nextCallAssignedEmployeeName ? ` \u00b7 Assigned to ${ev.nextCallAssignedEmployeeName}` : ""}
+            </p>
+          )}
+          <button
+            onClick={onEdit}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-mme-pink/70 bg-white px-2.5 py-1 text-[11px] font-black text-mme-purple transition hover:bg-mme-blush/40"
+          >
+            <Pencil size={11} /> Edit Next {isCallEvent ? "Call" : "Meeting"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminCalendarDayPage() {
   const navigate = useNavigate();
   const { date } = useParams();
@@ -242,28 +346,49 @@ export default function AdminCalendarDayPage() {
 
   const dayEvents = useMemo(() => events.filter((ev) => ev.date === date), [events, date]);
 
-  // Group by employee so each section reads as "this person's day", matching
-  // the calendar's person-wise color coding.
-  const byEmployee = useMemo(() => {
+  // Every employee who has at least one activity today, for the filter
+  // dropdown — built from the day's own events (not the full active-staff
+  // list) so the dropdown never offers someone with nothing to show.
+  const employeesToday = useMemo(() => {
     const map = new Map();
     for (const ev of dayEvents) {
-      const key = ev.employeeId ?? "unassigned";
-      if (!map.has(key)) {
-        map.set(key, { employeeName: ev.employeeName || "Unassigned", employeeColor: ev.employeeColor || "#9ca3af", events: [] });
-      }
-      map.get(key).events.push(ev);
+      if (ev.employeeId == null) continue;
+      if (!map.has(ev.employeeId)) map.set(ev.employeeId, { id: ev.employeeId, name: ev.employeeName, color: ev.employeeColor });
     }
-    // Latest first within each person's section, not the raw (oldest-first) query order.
-    for (const group of map.values()) {
-      group.events.sort((a, b) => {
-        if (!a.time && !b.time) return 0;
-        if (!a.time) return 1;
-        if (!b.time) return -1;
-        return b.time.localeCompare(a.time);
-      });
-    }
-    return [...map.values()];
+    return [...map.values()].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   }, [dayEvents]);
+
+  const [employeeFilter, setEmployeeFilter] = useState("");
+
+  // Reset the filter if the selected employee has nothing on a newly
+  // navigated-to day, instead of silently showing an empty page.
+  useEffect(() => {
+    if (employeeFilter && !employeesToday.some((e) => String(e.id) === employeeFilter)) {
+      setEmployeeFilter("");
+    }
+  }, [employeeFilter, employeesToday]);
+
+  const filteredEvents = useMemo(
+    () => (employeeFilter ? dayEvents.filter((ev) => String(ev.employeeId) === employeeFilter) : dayEvents),
+    [dayEvents, employeeFilter],
+  );
+
+  // "Done" = a meeting/call that actually happened; "Due" = a scheduled
+  // next-meeting/next-call still pending. A fulfilled follow-up is deleted
+  // server-side the moment the real meeting/call is logged (see
+  // callsController/meetingsController), so a Done item never lingers here
+  // as a second, separate Due item too — completionTag (see backend) shows
+  // how it compares to the original due time instead.
+  const doneEvents = useMemo(
+    () => [...filteredEvents.filter((ev) => ev.done)].sort((a, b) => (b.time || "").localeCompare(a.time || "")),
+    [filteredEvents],
+  );
+  const dueEvents = useMemo(
+    () => [...filteredEvents.filter((ev) => !ev.done)].sort((a, b) => (a.time || "").localeCompare(b.time || "")),
+    [filteredEvents],
+  );
+  const missedEvents = useMemo(() => dueEvents.filter((ev) => ev.missed), [dueEvents]);
+  const upcomingEvents = useMemo(() => dueEvents.filter((ev) => !ev.missed), [dueEvents]);
 
   async function handleLogout() {
     await adminLogout();
@@ -327,107 +452,96 @@ export default function AdminCalendarDayPage() {
           <div className="flex justify-center py-16">
             <span className="h-8 w-8 animate-spin rounded-full border-3 border-mme-pink border-t-mme-purple" />
           </div>
-        ) : byEmployee.length === 0 ? (
+        ) : dayEvents.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-3xl border border-mme-pink/60 bg-white py-16 text-center shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
             <CalendarDays size={38} className="text-mme-mauve" />
             <p className="mt-4 font-black text-mme-purple">Nothing scheduled for this day</p>
           </div>
         ) : (
-          <div className="space-y-5">
-            {byEmployee.map((group) => (
-              <div key={group.employeeName} className="overflow-hidden rounded-3xl border border-mme-pink/60 bg-white shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
-                <div className="flex items-center gap-2.5 border-b border-mme-pink/40 px-6 py-4" style={{ backgroundColor: `${group.employeeColor}15` }}>
-                  <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: group.employeeColor }} />
-                  <span className="font-black text-mme-purple">{group.employeeName}</span>
-                  <span className="ml-auto rounded-full bg-white px-2.5 py-1 text-xs font-black text-mme-purple/70">
-                    {group.events.length} item{group.events.length !== 1 ? "s" : ""}
-                  </span>
-                </div>
-                <div className="space-y-2.5 p-5">
-                  {group.events.map((ev) => {
-                    const clientRowData = rowData?.[ev.rowKey] || {};
-                    const isCallEvent = ev.source === "call" || ev.source === "next_call";
-                    // "Last/Next Meeting Time" columns actually track whichever of a
-                    // meeting or a call happened/comes next — show the label and value
-                    // that match this specific event instead of the ambiguous merged one.
-                    const detailFields = (worksheetColumns || [])
-                      .filter((col) => col.name !== "Client Name" && col.type !== "meeting_manager")
-                      .map((col) => {
-                        if (col.type === "last_meeting_time" || col.type === "next_meeting_time") {
-                          const suffix = isCallEvent ? "__call" : "__meeting";
-                          const value = clientRowData[`${col.key}${suffix}`];
-                          const name = isCallEvent
-                            ? col.name.replace("Meeting", "Call")
-                            : col.name;
-                          return { ...col, name, value };
-                        }
-                        return { ...col, value: clientRowData[col.key] };
-                      })
-                      .filter((col) => col.value != null && String(col.value).trim() !== "");
-
-                    return (
-                      <div key={ev.id} className={`flex flex-wrap items-start gap-3 rounded-2xl border px-4 py-3 ${ev.missed ? "border-red-200 bg-red-50" : "border-mme-pink/40 bg-[#fff9fc]"}`}>
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white text-mme-purple">
-                          {ev.source === "call" || ev.source === "next_call" ? <Phone size={14} /> : <CalendarDays size={14} />}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate font-black text-mme-purple">{ev.clientName || "Unnamed client"}</p>
-                          <p className="text-xs font-bold text-mme-purple/55">
-                            {EVENT_LABELS[ev.source] || ev.source}{ev.time ? ` ┬╖ ${to12h(ev.time)}` : ""}
-                            {ev.missed ? " ┬╖ Missed" : ""}
-                          </p>
-
-                          {detailFields.length > 0 && (
-                            <div className="mt-2 space-y-1 border-t border-mme-pink/20 pt-2">
-                              {detailFields.map((col) => (
-                                <div key={col.key} className="flex items-baseline gap-2">
-                                  <span className="w-24 shrink-0 text-[10px] font-black uppercase tracking-wide text-mme-purple/45">{col.name}</span>
-                                  <span className="text-xs font-semibold text-mme-purple/80">{formatColValue(col.type, col.value)}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-
-                          {ev.source === "meeting" && ev.requirements?.length > 0 && (
-                            <ul className="mt-2 space-y-1">
-                              {ev.requirements.map((req, i) => (
-                                <li key={req.key || i} className="text-xs leading-5 text-mme-purple/65">
-                                  <span className="font-bold text-mme-purple/80">{req.label}: </span>{req.details}
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-
-                          {ev.notes && <p className="mt-2 text-xs text-mme-purple/60">{ev.notes}</p>}
-
-                          <div className="mt-2 flex flex-wrap items-center gap-3">
-                            {ev.source === "meeting" && (
-                              <p className="text-xs font-bold text-mme-purple/70">
-                                Next meeting: {formatDisplay(ev.nextMeetingDatetime) || "Not scheduled yet"}
-                                {ev.nextMeetingAssignedEmployeeName ? ` \u00b7 Assigned to ${ev.nextMeetingAssignedEmployeeName}` : ""}
-                              </p>
-                            )}
-                            {ev.source === "call" && (
-                              <p className="text-xs font-bold text-mme-purple/70">
-                                Next call: {formatDisplay(ev.nextCallDatetime) || "Not scheduled yet"}
-                                {ev.nextCallAssignedEmployeeName ? ` \u00b7 Assigned to ${ev.nextCallAssignedEmployeeName}` : ""}
-                              </p>
-                            )}
-                            <button
-                              onClick={() => setEditing(getEditContext(ev))}
-                              className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-mme-pink/70 bg-white px-2.5 py-1 text-[11px] font-black text-mme-purple transition hover:bg-mme-blush/40"
-                            >
-                              <Pencil size={11} /> Edit Next {ev.source === "call" || ev.source === "next_call" ? "Call" : "Meeting"}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+          <>
+            <div className="mb-5 flex flex-wrap items-center gap-3 rounded-2xl border border-mme-pink/60 bg-white px-5 py-3.5 shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
+              <Users size={15} className="shrink-0 text-mme-purple/50" />
+              <span className="text-xs font-black uppercase tracking-wide text-mme-purple/50">Employee</span>
+              <div className="relative">
+                <select
+                  value={employeeFilter}
+                  onChange={(e) => setEmployeeFilter(e.target.value)}
+                  className="appearance-none rounded-xl border border-mme-pink/70 bg-[#fff9fc] py-1.5 pl-3 pr-8 text-xs font-black text-mme-purple outline-none focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/20"
+                >
+                  <option value="">All employees ({dayEvents.length})</option>
+                  {employeesToday.map((emp) => (
+                    <option key={emp.id} value={emp.id}>{emp.name}</option>
+                  ))}
+                </select>
+                <ChevronDown size={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-mme-purple/40" />
               </div>
-            ))}
-          </div>
+              {employeeFilter && (
+                <span className="ml-auto text-xs font-bold text-mme-purple/50">
+                  {filteredEvents.length} activit{filteredEvents.length !== 1 ? "ies" : "y"} today
+                </span>
+              )}
+            </div>
+
+            {filteredEvents.length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-3xl border border-mme-pink/60 bg-white py-16 text-center shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
+                <CalendarDays size={38} className="text-mme-mauve" />
+                <p className="mt-4 font-black text-mme-purple">No activities for this employee today</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <section>
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
+                    <h2 className="text-sm font-black uppercase tracking-wide text-mme-purple/70">Due Today</h2>
+                    <span className="rounded-full bg-mme-blush px-2.5 py-0.5 text-xs font-black text-mme-purple">{dueEvents.length}</span>
+                    {missedEvents.length > 0 && (
+                      <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-black text-red-600">{missedEvents.length} missed</span>
+                    )}
+                  </div>
+                  {dueEvents.length === 0 ? (
+                    <p className="rounded-2xl border border-dashed border-mme-pink/40 bg-white px-5 py-6 text-center text-sm font-bold text-mme-purple/50">
+                      Nothing due today.
+                    </p>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {dueEvents.map((ev) => (
+                        <EventCard
+                          key={ev.id}
+                          ev={ev}
+                          rowData={rowData}
+                          worksheetColumns={worksheetColumns}
+                          onEdit={() => setEditing(getEditContext(ev))}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                <section>
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
+                    <h2 className="text-sm font-black uppercase tracking-wide text-mme-purple/70">Completed Today</h2>
+                    <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-black text-emerald-700">{doneEvents.length}</span>
+                  </div>
+                  {doneEvents.length === 0 ? (
+                    <p className="rounded-2xl border border-dashed border-mme-pink/40 bg-white px-5 py-6 text-center text-sm font-bold text-mme-purple/50">
+                      Nothing completed yet today.
+                    </p>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {doneEvents.map((ev) => (
+                        <EventCard
+                          key={ev.id}
+                          ev={ev}
+                          rowData={rowData}
+                          worksheetColumns={worksheetColumns}
+                          onEdit={() => setEditing(getEditContext(ev))}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </section>
+              </div>
+            )}
+          </>
         )}
 
       {editing && (

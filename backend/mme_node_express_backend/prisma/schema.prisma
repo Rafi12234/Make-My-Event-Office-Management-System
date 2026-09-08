@@ -263,6 +263,11 @@ model ClientMeeting {
   id              BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
   linkedRowKey    String    @map("linked_row_key") @db.Char(36)
   meetingDatetime DateTime? @map("meeting_datetime") @db.DateTime(0)
+  // Snapshot of the next-meeting time this meeting fulfills (copied over right
+  // before that ClientNextMeeting row is deleted) — null if this meeting wasn't
+  // scheduled by an earlier meeting's follow-up. Lets the calendar show "done
+  // Xm early/late" instead of losing the original due time once fulfilled.
+  expectedMeetingDatetime DateTime? @map("expected_meeting_datetime") @db.DateTime(0)
   discussionNotes String?   @map("discussion_notes") @db.Text
   requirements    Json?
   createdById     BigInt?   @map("created_by") @db.UnsignedBigInt
@@ -364,6 +369,11 @@ model ClientCall {
   id                 BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
   linkedRowKey       String    @map("linked_row_key") @db.Char(36)
   callDatetime       DateTime? @map("call_datetime") @db.DateTime(0)
+  // Snapshot of the next-call time this call fulfills (copied over right
+  // before that ClientNextCall row is deleted) — null if this call wasn't
+  // scheduled by an earlier call's follow-up. Lets the calendar show "done
+  // Xm early/late" instead of losing the original due time once fulfilled.
+  expectedCallDatetime DateTime? @map("expected_call_datetime") @db.DateTime(0)
   callDiscussion      String?   @map("call_discussion") @db.Text
   createdById        BigInt?   @map("created_by") @db.UnsignedBigInt
   updatedById        BigInt?   @map("updated_by") @db.UnsignedBigInt

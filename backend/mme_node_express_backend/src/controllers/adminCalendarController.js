@@ -1,5 +1,5 @@
 import { prisma } from "../config/prisma.js";
-import { formatDateOnly, formatTimeOnly, formatDateTime } from "../utils/dbDates.js";
+import { formatDateOnly, formatTimeOnly, formatDateTime, nowInBusinessTimezone } from "../utils/dbDates.js";
 import { computeMeetingCallTimes } from "../utils/meetingCallTimes.js";
 
 // ─── Helpers ───────────────────────────────────────────────────
@@ -33,6 +33,28 @@ function colorForEmployee(employee, index) {
 }
 
 function pad(n) { return String(n).padStart(2, "0"); }
+
+// "2h 15m" / "45m" style, used by the completion tag below.
+function formatDuration(totalMinutes) {
+  const minutes = Math.round(totalMinutes);
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (hours <= 0) return `${mins}m`;
+  if (mins === 0) return `${hours}h`;
+  return `${hours}h ${mins}m`;
+}
+
+// A meeting/call that fulfills an earlier follow-up schedule (see
+// expectedMeetingDatetime/expectedCallDatetime) gets tagged with how it
+// compares to that due time instead of ALSO showing the now-stale
+// schedule as its own separate/"missed" item — one activity, one tag.
+function buildCompletionTag(actualDatetime, expectedDatetime) {
+  if (!expectedDatetime) return null;
+  const diffMinutes = (actualDatetime.getTime() - expectedDatetime.getTime()) / 60000;
+  if (Math.abs(diffMinutes) < 1) return { status: "on_time", label: "Done on time" };
+  if (diffMinutes < 0) return { status: "early", label: `Done ${formatDuration(-diffMinutes)} early` };
+  return { status: "late", label: `Done ${formatDuration(diffMinutes)} late` };
+}
 
 function extractDate(val) {
   if (!val) return null;
@@ -174,7 +196,7 @@ export async function getAdminCalendarMonth(req, res, next) {
       prisma.clientMeeting.findMany({
         where: { meetingDatetime: { gte: rangeStart, lte: rangeEnd } },
         select: {
-          id: true, linkedRowKey: true, meetingDatetime: true,
+          id: true, linkedRowKey: true, meetingDatetime: true, expectedMeetingDatetime: true,
           discussionNotes: true, requirements: true, createdById: true,
           nextMeeting: {
             select: {
@@ -187,7 +209,7 @@ export async function getAdminCalendarMonth(req, res, next) {
       prisma.clientCall.findMany({
         where: { callDatetime: { gte: rangeStart, lte: rangeEnd } },
         select: {
-          id: true, linkedRowKey: true, callDatetime: true, callDiscussion: true, createdById: true,
+          id: true, linkedRowKey: true, callDatetime: true, expectedCallDatetime: true, callDiscussion: true, createdById: true,
           nextCall: {
             select: {
               nextCallDatetime: true, assignedEmployeeId: true,
@@ -213,7 +235,10 @@ export async function getAdminCalendarMonth(req, res, next) {
       ...nextCalls.map((n) => n.linkedRowKey),
     ];
     const { namesByRowKey, rowDataByRowKey, worksheetColumns } = await resolveRowDetails(sheetId, rowKeys);
-    const now = new Date();
+    // Stored datetimes are naive business-wall-clock digits (see dbDates.js) —
+    // comparing against a real-instant `new Date()` silently shifts every
+    // missed/upcoming check by the server's UTC offset from Dhaka time.
+    const now = nowInBusinessTimezone();
 
     const events = [];
 
@@ -228,6 +253,8 @@ export async function getAdminCalendarMonth(req, res, next) {
         notes: m.discussionNotes,
         requirements: m.requirements || null,
         meetingId: m.id,
+        done: true,
+        completionTag: buildCompletionTag(m.meetingDatetime, m.expectedMeetingDatetime),
         nextMeetingDatetime: formatDateTime(m.nextMeeting?.nextMeetingDatetime),
         nextMeetingAssignedEmployeeId: m.nextMeeting?.assignedEmployeeId ?? null,
         nextMeetingAssignedEmployeeName: m.nextMeeting?.assignedEmployee?.fullName || null,
@@ -245,6 +272,8 @@ export async function getAdminCalendarMonth(req, res, next) {
         rowKey: c.linkedRowKey,
         notes: c.callDiscussion,
         callId: c.id,
+        done: true,
+        completionTag: buildCompletionTag(c.callDatetime, c.expectedCallDatetime),
         nextCallDatetime: formatDateTime(c.nextCall?.nextCallDatetime),
         nextCallAssignedEmployeeId: c.nextCall?.assignedEmployeeId ?? null,
         nextCallAssignedEmployeeName: c.nextCall?.assignedEmployee?.fullName || null,
@@ -260,6 +289,7 @@ export async function getAdminCalendarMonth(req, res, next) {
         time: extractTime(n.nextMeetingDatetime),
         clientName: namesByRowKey.get(n.linkedRowKey) || "",
         rowKey: n.linkedRowKey,
+        done: false,
         missed: n.nextMeetingDatetime < now,
         meetingId: n.meetingId,
         assignedEmployeeIdRaw: n.assignedEmployeeId,
@@ -275,6 +305,7 @@ export async function getAdminCalendarMonth(req, res, next) {
         time: extractTime(n.nextCallDatetime),
         clientName: namesByRowKey.get(n.linkedRowKey) || "",
         rowKey: n.linkedRowKey,
+        done: false,
         missed: n.nextCallDatetime < now,
         callId: n.callId,
         assignedEmployeeIdRaw: n.assignedEmployeeId,
