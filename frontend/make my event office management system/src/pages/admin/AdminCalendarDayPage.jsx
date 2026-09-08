@@ -280,12 +280,16 @@ function EventCard({ ev, rowData, worksheetColumns, onEdit }) {
             <p className="text-xs font-bold text-mme-purple/70">
               Next meeting: {formatDisplay(ev.nextMeetingDatetime) || "Not scheduled yet"}
               {ev.nextMeetingAssignedEmployeeName ? ` \u00b7 Assigned to ${ev.nextMeetingAssignedEmployeeName}` : ""}
+              {ev.nextMeetingMissed ? " \u00b7 " : ""}
+              {ev.nextMeetingMissed && <span className="font-black text-red-600">Missed</span>}
             </p>
           )}
           {ev.source === "call" && (
             <p className="text-xs font-bold text-mme-purple/70">
               Next call: {formatDisplay(ev.nextCallDatetime) || "Not scheduled yet"}
               {ev.nextCallAssignedEmployeeName ? ` \u00b7 Assigned to ${ev.nextCallAssignedEmployeeName}` : ""}
+              {ev.nextCallMissed ? " \u00b7 " : ""}
+              {ev.nextCallMissed && <span className="font-black text-red-600">Missed</span>}
             </p>
           )}
           <button

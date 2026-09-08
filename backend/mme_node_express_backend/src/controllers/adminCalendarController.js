@@ -241,9 +241,15 @@ export async function getAdminCalendarMonth(req, res, next) {
     const now = nowInBusinessTimezone();
 
     const events = [];
+    // Lets a next-meeting/next-call fold into its own parent meeting/call
+    // card (below) instead of also rendering as a second, separate card —
+    // the parent already shows "Next meeting/call: ..." inline, so showing
+    // both is the same schedule twice, not two different activities.
+    const meetingEventById = new Map();
+    const callEventById = new Map();
 
     for (const m of meetings) {
-      events.push({
+      const event = {
         id: `meeting_${m.id}`,
         source: "meeting",
         date: extractDate(m.meetingDatetime),
@@ -258,12 +264,15 @@ export async function getAdminCalendarMonth(req, res, next) {
         nextMeetingDatetime: formatDateTime(m.nextMeeting?.nextMeetingDatetime),
         nextMeetingAssignedEmployeeId: m.nextMeeting?.assignedEmployeeId ?? null,
         nextMeetingAssignedEmployeeName: m.nextMeeting?.assignedEmployee?.fullName || null,
+        nextMeetingMissed: false,
         ...employeeTag(m.createdById),
-      });
+      };
+      events.push(event);
+      meetingEventById.set(m.id, event);
     }
 
     for (const c of calls) {
-      events.push({
+      const event = {
         id: `call_${c.id}`,
         source: "call",
         date: extractDate(c.callDatetime),
@@ -277,11 +286,20 @@ export async function getAdminCalendarMonth(req, res, next) {
         nextCallDatetime: formatDateTime(c.nextCall?.nextCallDatetime),
         nextCallAssignedEmployeeId: c.nextCall?.assignedEmployeeId ?? null,
         nextCallAssignedEmployeeName: c.nextCall?.assignedEmployee?.fullName || null,
+        nextCallMissed: false,
         ...employeeTag(c.createdById),
-      });
+      };
+      events.push(event);
+      callEventById.set(c.id, event);
     }
 
     for (const n of nextMeetings) {
+      const missed = n.nextMeetingDatetime < now;
+      const parent = meetingEventById.get(n.meetingId);
+      if (parent) {
+        parent.nextMeetingMissed = missed;
+        continue;
+      }
       events.push({
         id: `next_meeting_${n.id}`,
         source: "next_meeting",
@@ -290,7 +308,7 @@ export async function getAdminCalendarMonth(req, res, next) {
         clientName: namesByRowKey.get(n.linkedRowKey) || "",
         rowKey: n.linkedRowKey,
         done: false,
-        missed: n.nextMeetingDatetime < now,
+        missed,
         meetingId: n.meetingId,
         assignedEmployeeIdRaw: n.assignedEmployeeId,
         ...employeeTag(n.assignedEmployeeId || n.createdById),
@@ -298,6 +316,12 @@ export async function getAdminCalendarMonth(req, res, next) {
     }
 
     for (const n of nextCalls) {
+      const missed = n.nextCallDatetime < now;
+      const parent = callEventById.get(n.callId);
+      if (parent) {
+        parent.nextCallMissed = missed;
+        continue;
+      }
       events.push({
         id: `next_call_${n.id}`,
         source: "next_call",
@@ -306,7 +330,7 @@ export async function getAdminCalendarMonth(req, res, next) {
         clientName: namesByRowKey.get(n.linkedRowKey) || "",
         rowKey: n.linkedRowKey,
         done: false,
-        missed: n.nextCallDatetime < now,
+        missed,
         callId: n.callId,
         assignedEmployeeIdRaw: n.assignedEmployeeId,
         ...employeeTag(n.assignedEmployeeId || n.createdById),

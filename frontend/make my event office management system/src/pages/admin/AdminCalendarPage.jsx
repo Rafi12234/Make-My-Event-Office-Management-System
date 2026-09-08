@@ -249,10 +249,16 @@ function EmployeeDayHoverCard({ employeeName, employeeColor, dayEvents, rowData,
                     {ev.notes && <p className="mt-1.5 text-[11px] leading-5 text-mme-purple/70">{ev.notes}</p>}
 
                     {ev.source === "meeting" && ev.nextMeetingDatetime && (
-                      <p className="mt-1.5 text-[11px] font-bold text-mme-purple/70">Next meeting: {formatDisplay(ev.nextMeetingDatetime)}</p>
+                      <p className="mt-1.5 text-[11px] font-bold text-mme-purple/70">
+                        Next meeting: {formatDisplay(ev.nextMeetingDatetime)}
+                        {ev.nextMeetingMissed && <span className="ml-1 font-black text-red-600">Missed</span>}
+                      </p>
                     )}
                     {ev.source === "call" && ev.nextCallDatetime && (
-                      <p className="mt-1.5 text-[11px] font-bold text-mme-purple/70">Next call: {formatDisplay(ev.nextCallDatetime)}</p>
+                      <p className="mt-1.5 text-[11px] font-bold text-mme-purple/70">
+                        Next call: {formatDisplay(ev.nextCallDatetime)}
+                        {ev.nextCallMissed && <span className="ml-1 font-black text-red-600">Missed</span>}
+                      </p>
                     )}
                   </div>
                 ))}
