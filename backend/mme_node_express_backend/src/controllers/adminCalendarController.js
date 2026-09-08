@@ -296,7 +296,11 @@ export async function getAdminCalendarMonth(req, res, next) {
     for (const n of nextMeetings) {
       const missed = n.nextMeetingDatetime < now;
       const parent = meetingEventById.get(n.meetingId);
-      if (parent) {
+      // Only fold into the parent card when the follow-up is due the SAME
+      // day the parent meeting happened — otherwise it must still surface
+      // as its own event on its actual due date, or it becomes invisible
+      // there (a next-meeting due days later is a real, separate to-do).
+      if (parent && parent.date === extractDate(n.nextMeetingDatetime)) {
         parent.nextMeetingMissed = missed;
         continue;
       }
@@ -318,7 +322,11 @@ export async function getAdminCalendarMonth(req, res, next) {
     for (const n of nextCalls) {
       const missed = n.nextCallDatetime < now;
       const parent = callEventById.get(n.callId);
-      if (parent) {
+      // Only fold into the parent card when the follow-up is due the SAME
+      // day the parent call happened — otherwise it must still surface as
+      // its own event on its actual due date, or it becomes invisible there
+      // (a next-call due days later is a real, separate to-do).
+      if (parent && parent.date === extractDate(n.nextCallDatetime)) {
         parent.nextCallMissed = missed;
         continue;
       }
