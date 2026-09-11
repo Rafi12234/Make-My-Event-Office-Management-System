@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 import {
   CalendarCheck2,
   CheckCircle2,
@@ -11,6 +11,10 @@ import BackButton from "../../components/BackButton";
 import AdminLayout from "../../components/AdminLayout";
 import { adminLogout, fetchAdminMe } from "../../services/adminService";
 import { fetchAdminClientDetail } from "../../services/adminDashboardService";
+
+// Only these worksheet columns matter for a quick client identity glance —
+// everything else stays out of this summary card on purpose.
+const CLIENT_SUMMARY_COLUMNS = ["Client Name", "Client Phone Number", "Event Date"];
 
 // "YYYY-MM-DD HH:MM:SS" (backend shape) → readable local string.
 function formatDisplay(dbDatetime) {
@@ -74,7 +78,10 @@ function CallItem({ call, index }) {
 // ─── Page ─────────────────────────────────────────────────────────────────
 export default function AdminClientDetailPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { rowKey } = useParams();
+  const backTo = location.state?.from || "/admin-dashboard";
+  const backLabel = location.state?.fromLabel || "Back to Admin Dashboard";
   const [admin, setAdmin] = useState(null);
   const [checkingSession, setCheckingSession] = useState(true);
   const [client, setClient] = useState(null);
@@ -117,7 +124,7 @@ export default function AdminClientDetailPage() {
   return (
     <AdminLayout admin={admin} onLogout={handleLogout}>
         <div className="mb-5">
-          <BackButton to="/admin-dashboard" title="Back to Admin Dashboard" />
+          <BackButton to={backTo} title={backLabel} />
         </div>
 
         {isLoading && !client ? (
@@ -146,18 +153,21 @@ export default function AdminClientDetailPage() {
               </div>
             </div>
 
-            {/* Client Information */}
+            {/* Client Information — only the essentials, not every worksheet column */}
             <section className="mb-8 rounded-3xl border border-mme-pink/60 bg-white p-6 shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
               <h2 className="mb-4 font-black text-mme-purple">Client Information</h2>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {client.columns.map((col) => (
-                  <div key={col.name} className="rounded-xl bg-[#fff9fc] px-4 py-3">
-                    <p className="text-[10px] font-black uppercase tracking-[0.1em] text-mme-purple/45">{col.name}</p>
-                    <p className="mt-1 truncate text-sm font-bold text-mme-purple" title={String(col.value ?? "")}>
-                      {col.value === "" || col.value == null ? "—" : String(col.value)}
-                    </p>
-                  </div>
-                ))}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                {CLIENT_SUMMARY_COLUMNS.map((name) => {
+                  const col = client.columns.find((c) => c.name === name);
+                  return (
+                    <div key={name} className="rounded-xl bg-[#fff9fc] px-4 py-3">
+                      <p className="text-[10px] font-black uppercase tracking-[0.1em] text-mme-purple/45">{name}</p>
+                      <p className="mt-1 truncate text-sm font-bold text-mme-purple" title={String(col?.value ?? "")}>
+                        {col?.value === "" || col?.value == null ? "—" : String(col.value)}
+                      </p>
+                    </div>
+                  );
+                })}
               </div>
             </section>
 

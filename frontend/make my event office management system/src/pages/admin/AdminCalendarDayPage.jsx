@@ -1,10 +1,11 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 import {
   CalendarDays,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  History,
   Pencil,
   Phone,
   Users,
@@ -200,7 +201,7 @@ function EditScheduleModal({ label, initialDatetime, initialAssignedEmployeeId, 
 // One card per activity — shared by the "Due Today" and "Completed Today"
 // sections so both read identically, just with different badges (Missed /
 // Done Xm early-late) driven entirely by the event's own fields.
-function EventCard({ ev, rowData, worksheetColumns, onEdit }) {
+function EventCard({ ev, rowData, worksheetColumns, onEdit, onViewHistory }) {
   const clientRowData = rowData?.[ev.rowKey] || {};
   const isCallEvent = ev.source === "call" || ev.source === "next_call";
   // "Last/Next Meeting Time" worksheet columns are excluded here entirely —
@@ -293,8 +294,14 @@ function EventCard({ ev, rowData, worksheetColumns, onEdit }) {
             </p>
           )}
           <button
-            onClick={onEdit}
+            onClick={onViewHistory}
             className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-mme-pink/70 bg-white px-2.5 py-1 text-[11px] font-black text-mme-purple transition hover:bg-mme-blush/40"
+          >
+            <History size={11} /> Client History
+          </button>
+          <button
+            onClick={onEdit}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-mme-pink/70 bg-white px-2.5 py-1 text-[11px] font-black text-mme-purple transition hover:bg-mme-blush/40"
           >
             <Pencil size={11} /> Edit Next {isCallEvent ? "Call" : "Meeting"}
           </button>
@@ -306,6 +313,7 @@ function EventCard({ ev, rowData, worksheetColumns, onEdit }) {
 
 export default function AdminCalendarDayPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { date } = useParams();
   const [admin, setAdmin] = useState(null);
   const [checkingSession, setCheckingSession] = useState(true);
@@ -397,6 +405,12 @@ export default function AdminCalendarDayPage() {
   async function handleLogout() {
     await adminLogout();
     navigate("/admin/login", { replace: true });
+  }
+
+  function viewClientHistory(ev) {
+    navigate(`/admin-dashboard/clients/${ev.rowKey}`, {
+      state: { from: location.pathname, fromLabel: "Back to Calendar Day" },
+    });
   }
 
   async function handleSave({ datetime, assignedEmployeeId }) {
@@ -514,6 +528,7 @@ export default function AdminCalendarDayPage() {
                           rowData={rowData}
                           worksheetColumns={worksheetColumns}
                           onEdit={() => setEditing(getEditContext(ev))}
+                          onViewHistory={() => viewClientHistory(ev)}
                         />
                       ))}
                     </div>
@@ -538,6 +553,7 @@ export default function AdminCalendarDayPage() {
                           rowData={rowData}
                           worksheetColumns={worksheetColumns}
                           onEdit={() => setEditing(getEditContext(ev))}
+                          onViewHistory={() => viewClientHistory(ev)}
                         />
                       ))}
                     </div>
