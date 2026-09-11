@@ -63,6 +63,7 @@ model Employee {
   voidedAccountExpenses       AccountExpense[]       @relation("AccountExpenseVoidedByAdmin")
   approvedAccountExpenses     AccountExpense[]       @relation("AccountExpenseApprovedByAdmin")
   attendances              Attendance[]
+  pdfDocuments             PdfDocument[]
 
   @@index([createdById], map: "fk_emp_created_by")
   @@index([roleId], map: "fk_emp_role")
@@ -824,4 +825,96 @@ model Attendance {
   @@unique([employeeId, attendanceDate], map: "uq_attendance_employee_date")
   @@index([employeeId], map: "fk_attendance_employee")
   @@map("attendances")
+}
+
+
+// PDF Generator module — event proposal / decoration-specification documents
+// (Make My Event letter-pad summary table + reference-photo pages). See
+// PDF_GENERATOR_MODULE_IMPLEMENTATION_GUIDE_UPDATED.md for the full spec.
+model PdfDocument {
+  id                BigInt            @id @default(autoincrement()) @db.UnsignedBigInt
+  documentNo        String?           @unique @map("document_no") @db.VarChar(100)
+
+  eventDate         DateTime          @map("event_date") @db.Date
+  eventTitle        String            @map("event_title") @db.VarChar(255)
+
+  createdById       BigInt            @map("created_by") @db.UnsignedBigInt
+
+  status            PdfDocumentStatus @default(generated)
+
+  generatedFileName String?           @map("generated_file_name") @db.VarChar(255)
+  generatedFilePath String?           @map("generated_file_path") @db.VarChar(600)
+
+  pageCount         Int?              @map("page_count")
+
+  templateVersion   String            @default("palm-view-style-v1") @map("template_version") @db.VarChar(50)
+
+  generatedAt       DateTime?         @map("generated_at") @db.DateTime(0)
+
+  createdAt         DateTime          @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt         DateTime          @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+
+  createdBy Employee          @relation(fields: [createdById], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_pdf_documents_created_by")
+  items     PdfDocumentItem[]
+
+  @@index([createdById], map: "fk_pdf_documents_created_by")
+  @@index([eventDate], map: "idx_pdf_documents_event_date")
+  @@index([createdAt], map: "idx_pdf_documents_created_at")
+
+  @@map("pdf_documents")
+}
+
+model PdfDocumentItem {
+  id                         BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+
+  documentId                 BigInt   @map("document_id") @db.UnsignedBigInt
+  sortOrder                  Int      @map("sort_order")
+
+  itemName                   String   @map("item_name") @db.VarChar(255)
+  description                String   @db.Text
+  quantity                   String   @db.VarChar(100)
+
+  customCaption              String?  @map("custom_caption") @db.VarChar(1000)
+
+  createdAt                  DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt                  DateTime @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+
+  document PdfDocument           @relation(fields: [documentId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_pdf_document_items_document")
+  images   PdfDocumentItemImage[]
+
+  @@unique([documentId, sortOrder], map: "uq_pdf_document_item_order")
+  @@index([documentId], map: "idx_pdf_document_items_document")
+
+  @@map("pdf_document_items")
+}
+
+// An item may now carry multiple reference photos (was a single nullable
+// column on PdfDocumentItem — superseded by this child table so an item can
+// have zero, one, or many photos, each rendered as its own block/page).
+model PdfDocumentItemImage {
+  id               BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+
+  documentItemId   BigInt   @map("document_item_id") @db.UnsignedBigInt
+  sortOrder        Int      @map("sort_order")
+
+  imagePath        String   @map("image_path") @db.VarChar(600)
+  originalName     String?  @map("original_name") @db.VarChar(255)
+  mimeType         String?  @map("mime_type") @db.VarChar(100)
+
+  createdAt        DateTime @default(now()) @map("created_at") @db.DateTime(0)
+
+  documentItem PdfDocumentItem @relation(fields: [documentItemId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_pdf_document_item_images_item")
+
+  @@unique([documentItemId, sortOrder], map: "uq_pdf_document_item_image_order")
+  @@index([documentItemId], map: "idx_pdf_document_item_images_item")
+
+  @@map("pdf_document_item_images")
+}
+
+enum PdfDocumentStatus {
+  draft
+  generated
+  archived
+
+  @@map("pdf_document_status")
 }

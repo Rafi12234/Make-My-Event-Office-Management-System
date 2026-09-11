@@ -13,6 +13,10 @@ node_modules/
 
 # ── Environment secrets ──
 .env
+
+# ── Expo local dev-server cache ──
+.expo/
+mobile/.expo/
 .env.local
 .env.*.local
 **/.env
