@@ -245,6 +245,9 @@ export async function getAdminCalendarMonth(req, res, next) {
     // card (below) instead of also rendering as a second, separate card —
     // the parent already shows "Next meeting/call: ..." inline, so showing
     // both is the same schedule twice, not two different activities.
+    // Raw Date kept alongside each event (not sent to the client) so the
+    // same-day merge below can compare the parent's own actual time
+    // against the assigned deadline.
     const meetingEventById = new Map();
     const callEventById = new Map();
 
@@ -264,11 +267,11 @@ export async function getAdminCalendarMonth(req, res, next) {
         nextMeetingDatetime: formatDateTime(m.nextMeeting?.nextMeetingDatetime),
         nextMeetingAssignedEmployeeId: m.nextMeeting?.assignedEmployeeId ?? null,
         nextMeetingAssignedEmployeeName: m.nextMeeting?.assignedEmployee?.fullName || null,
-        nextMeetingMissed: false,
+        nextMeetingTag: null,
         ...employeeTag(m.createdById),
       };
       events.push(event);
-      meetingEventById.set(m.id, event);
+      meetingEventById.set(m.id, { event, rawDatetime: m.meetingDatetime });
     }
 
     for (const c of calls) {
@@ -286,22 +289,25 @@ export async function getAdminCalendarMonth(req, res, next) {
         nextCallDatetime: formatDateTime(c.nextCall?.nextCallDatetime),
         nextCallAssignedEmployeeId: c.nextCall?.assignedEmployeeId ?? null,
         nextCallAssignedEmployeeName: c.nextCall?.assignedEmployee?.fullName || null,
-        nextCallMissed: false,
+        nextCallTag: null,
         ...employeeTag(c.createdById),
       };
       events.push(event);
-      callEventById.set(c.id, event);
+      callEventById.set(c.id, { event, rawDatetime: c.callDatetime });
     }
 
     for (const n of nextMeetings) {
       const missed = n.nextMeetingDatetime < now;
-      const parent = meetingEventById.get(n.meetingId);
+      const parentEntry = meetingEventById.get(n.meetingId);
       // Only fold into the parent card when the follow-up is due the SAME
       // day the parent meeting happened — otherwise it must still surface
       // as its own event on its actual due date, or it becomes invisible
       // there (a next-meeting due days later is a real, separate to-do).
-      if (parent && parent.date === extractDate(n.nextMeetingDatetime)) {
-        parent.nextMeetingMissed = missed;
+      if (parentEntry && parentEntry.event.date === extractDate(n.nextMeetingDatetime)) {
+        // The parent meeting already happened before this same-day deadline
+        // (that's the only way it could set it) — so it's never genuinely
+        // "missed", only early/on-time/late relative to that deadline.
+        parentEntry.event.nextMeetingTag = buildCompletionTag(parentEntry.rawDatetime, n.nextMeetingDatetime);
         continue;
       }
       events.push({
@@ -321,13 +327,16 @@ export async function getAdminCalendarMonth(req, res, next) {
 
     for (const n of nextCalls) {
       const missed = n.nextCallDatetime < now;
-      const parent = callEventById.get(n.callId);
+      const parentEntry = callEventById.get(n.callId);
       // Only fold into the parent card when the follow-up is due the SAME
       // day the parent call happened — otherwise it must still surface as
       // its own event on its actual due date, or it becomes invisible there
       // (a next-call due days later is a real, separate to-do).
-      if (parent && parent.date === extractDate(n.nextCallDatetime)) {
-        parent.nextCallMissed = missed;
+      if (parentEntry && parentEntry.event.date === extractDate(n.nextCallDatetime)) {
+        // The parent call already happened before this same-day deadline
+        // (that's the only way it could set it) — so it's never genuinely
+        // "missed", only early/on-time/late relative to that deadline.
+        parentEntry.event.nextCallTag = buildCompletionTag(parentEntry.rawDatetime, n.nextCallDatetime);
         continue;
       }
       events.push({

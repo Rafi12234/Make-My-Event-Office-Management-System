@@ -203,20 +203,14 @@ function EditScheduleModal({ label, initialDatetime, initialAssignedEmployeeId, 
 function EventCard({ ev, rowData, worksheetColumns, onEdit }) {
   const clientRowData = rowData?.[ev.rowKey] || {};
   const isCallEvent = ev.source === "call" || ev.source === "next_call";
-  // "Last/Next Meeting Time" columns actually track whichever of a
-  // meeting or a call happened/comes next — show the label and value
-  // that match this specific event instead of the ambiguous merged one.
+  // "Last/Next Meeting Time" worksheet columns are excluded here entirely —
+  // this card already shows a purpose-built "Next meeting/call: ..." line
+  // (with assignee + early/late tag), so repeating the same schedule as a
+  // generic detail field is redundant clutter, not useful information.
   const detailFields = (worksheetColumns || [])
     .filter((col) => col.name !== "Client Name" && col.type !== "meeting_manager")
-    .map((col) => {
-      if (col.type === "last_meeting_time" || col.type === "next_meeting_time") {
-        const suffix = isCallEvent ? "__call" : "__meeting";
-        const value = clientRowData[`${col.key}${suffix}`];
-        const name = isCallEvent ? col.name.replace("Meeting", "Call") : col.name;
-        return { ...col, name, value };
-      }
-      return { ...col, value: clientRowData[col.key] };
-    })
+    .filter((col) => col.type !== "last_meeting_time" && col.type !== "next_meeting_time")
+    .map((col) => ({ ...col, value: clientRowData[col.key] }))
     .filter((col) => col.value != null && String(col.value).trim() !== "");
 
   const tagStyles = {
@@ -280,16 +274,22 @@ function EventCard({ ev, rowData, worksheetColumns, onEdit }) {
             <p className="text-xs font-bold text-mme-purple/70">
               Next meeting: {formatDisplay(ev.nextMeetingDatetime) || "Not scheduled yet"}
               {ev.nextMeetingAssignedEmployeeName ? ` \u00b7 Assigned to ${ev.nextMeetingAssignedEmployeeName}` : ""}
-              {ev.nextMeetingMissed ? " \u00b7 " : ""}
-              {ev.nextMeetingMissed && <span className="font-black text-red-600">Missed</span>}
+              {ev.nextMeetingTag && (
+                <span className={`ml-1.5 rounded-full px-2 py-0.5 text-[10px] font-black ${tagStyles[ev.nextMeetingTag.status] || tagStyles.on_time}`}>
+                  {ev.nextMeetingTag.label}
+                </span>
+              )}
             </p>
           )}
           {ev.source === "call" && (
             <p className="text-xs font-bold text-mme-purple/70">
               Next call: {formatDisplay(ev.nextCallDatetime) || "Not scheduled yet"}
               {ev.nextCallAssignedEmployeeName ? ` \u00b7 Assigned to ${ev.nextCallAssignedEmployeeName}` : ""}
-              {ev.nextCallMissed ? " \u00b7 " : ""}
-              {ev.nextCallMissed && <span className="font-black text-red-600">Missed</span>}
+              {ev.nextCallTag && (
+                <span className={`ml-1.5 rounded-full px-2 py-0.5 text-[10px] font-black ${tagStyles[ev.nextCallTag.status] || tagStyles.on_time}`}>
+                  {ev.nextCallTag.label}
+                </span>
+              )}
             </p>
           )}
           <button
