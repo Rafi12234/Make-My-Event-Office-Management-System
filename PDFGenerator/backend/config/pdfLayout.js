@@ -9,15 +9,18 @@ import { PDFDocument } from "pdf-lib";
 export const PAGE_WIDTH = 612; // US Letter, pt
 export const PAGE_HEIGHT = 792;
 
-// First (letter-pad) page safe content box. Calibrated from the docx's
-// <w:pgMar> (twips / 20 = pt): top=246.25 right=50.4 bottom=92.15 left=74.15
-export const FIRST_PAGE_CONTENT = {
+// Safe content box for EVERY page — every page (first, table continuation,
+// reference photo) now reuses the same letterhead template background
+// (2026-09-11 change: no more separate blank "plain" page box), so they all
+// share this one box. Calibrated from the docx's <w:pgMar> (twips / 20 = pt):
+// top=246.25 right=50.4 bottom=92.15 left=74.15
+export const PAGE_CONTENT = {
   x: 74,
   right: 562,
   top: 546, // y measured from the page bottom (PDF coordinate space)
   bottom: 92,
 };
-FIRST_PAGE_CONTENT.width = FIRST_PAGE_CONTENT.right - FIRST_PAGE_CONTENT.x;
+PAGE_CONTENT.width = PAGE_CONTENT.right - PAGE_CONTENT.x;
 
 // The template prints a static "Date........................" placeholder
 // on the same line as the first address row. We mask that placeholder with
@@ -33,18 +36,13 @@ export const DATE_FIELD = {
   textOffsetY: 28,
 };
 
-// Plain continuation pages (table overflow rows + reference photo pages),
-// per implementation guide §12 (~1" margins).
-export const PLAIN_PAGE_CONTENT = {
-  x: 72,
-  right: 540,
-  top: 732,
-  bottom: 60,
-};
-PLAIN_PAGE_CONTENT.width = PLAIN_PAGE_CONTENT.right - PLAIN_PAGE_CONTENT.x;
-
-export function createPlainPage(pdfDoc) {
-  return pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+// Copies the template's first (letterhead) page into the output document —
+// used for every page now, not just the first, so the whole document shares
+// one consistent branded background instead of switching to blank pages.
+export async function createTemplatedPage(outputPdf, templatePdf) {
+  const [templatePage] = await outputPdf.copyPages(templatePdf, [0]);
+  outputPdf.addPage(templatePage);
+  return templatePage;
 }
 
 // Summary table (guide §17)
@@ -62,13 +60,12 @@ export const TABLE_CELL_PADDING_Y = 4;
 export const TABLE_LINE_HEIGHT_FACTOR = 1.2;
 export const TABLE_TITLE_ROW_HEIGHT = 20;
 
-// Reference photo pages (guide §12, §26-34)
+// Reference photo pages — one photo + caption per page (2026-09-11 change).
 export const REFERENCE_CAPTION_FONT_SIZE = 10.5;
 export const REFERENCE_CAPTION_LINE_HEIGHT_FACTOR = 1.25;
 export const REFERENCE_CAPTION_GAP = 8;
-export const REFERENCE_BLOCK_GAP = 22;
-export const REFERENCE_IMAGE_MAX_WIDTH = PLAIN_PAGE_CONTENT.width;
-export const MIN_REFERENCE_IMAGE_HEIGHT = 150; // guide §33, exact figure
+export const REFERENCE_IMAGE_MAX_WIDTH = PAGE_CONTENT.width;
+
 
 // guide §15 — sample uses "04/08/24" (DD/MM/YY), not the DB's YYYY-MM-DD.
 export function formatEventDate(date) {

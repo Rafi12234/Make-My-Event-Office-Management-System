@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router";
 import { FileText } from "lucide-react";
 import PDFGeneratorShell, { ShellHeaderLink } from "../components/PDFGeneratorShell";
 import EventItemList from "../components/EventItemList";
+import NbPointsList from "../components/NbPointsList";
 import { createBlankDocumentForm, validateDocumentForm } from "../utils/documentForm";
 import { createPdfDocument, previewPdfDocument } from "../services/pdfGeneratorService";
 
@@ -94,6 +95,16 @@ export default function PDFGeneratorPage() {
         <div>
           <h2 className="mb-3 text-sm font-black uppercase tracking-wide text-black/50">Event Items</h2>
           <EventItemList items={documentForm.items} onChange={(items) => setDocumentForm({ ...documentForm, items })} />
+        </div>
+
+        <div>
+          <h2 className="mb-3 text-sm font-black uppercase tracking-wide text-black/50">
+            NB Points <span className="font-medium normal-case text-black/35">(optional)</span>
+          </h2>
+          <NbPointsList
+            points={documentForm.nbPoints || []}
+            onChange={(nbPoints) => setDocumentForm({ ...documentForm, nbPoints })}
+          />
         </div>
 
         {(previewError || generateError) && (

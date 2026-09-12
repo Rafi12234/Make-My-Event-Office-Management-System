@@ -12,11 +12,18 @@ export function createBlankItem() {
   };
 }
 
+// Optional "NB:" numbered notes shown under the summary table on page 1 —
+// never required, may stay empty.
+export function createBlankNbPoint() {
+  return { clientId: crypto.randomUUID(), text: "" };
+}
+
 export function createBlankDocumentForm() {
   return {
     eventDate: "",
     eventTitle: "",
     items: [createBlankItem()],
+    nbPoints: [],
   };
 }
 

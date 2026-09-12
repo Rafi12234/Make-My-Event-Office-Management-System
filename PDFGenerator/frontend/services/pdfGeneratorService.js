@@ -4,7 +4,7 @@
 // the backend derives it from the session).
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
 
-function buildDocumentFormData({ eventDate, eventTitle, items }) {
+function buildDocumentFormData({ eventDate, eventTitle, items, nbPoints }) {
   const formData = new FormData();
   formData.append(
     "document",
@@ -18,6 +18,8 @@ function buildDocumentFormData({ eventDate, eventTitle, items }) {
         customCaption: item.customCaption?.trim() || null,
         imageKey: item.referenceImages?.length ? `image_${item.clientId}` : null,
       })),
+      // Optional "NB:" notes — plain strings, blanks filtered out server-side too.
+      nbPoints: (nbPoints || []).map((point) => point.text?.trim() || "").filter(Boolean),
     }),
   );
 

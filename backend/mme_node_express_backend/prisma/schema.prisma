@@ -838,6 +838,10 @@ model PdfDocument {
   eventDate         DateTime          @map("event_date") @db.Date
   eventTitle        String            @map("event_title") @db.VarChar(255)
 
+  // Optional user-authored "NB:" numbered notes list shown under the summary
+  // table on page 1 — plain array of strings, never mandatory.
+  nbPoints          Json?             @map("nb_points")
+
   createdById       BigInt            @map("created_by") @db.UnsignedBigInt
 
   status            PdfDocumentStatus @default(generated)

@@ -1,14 +1,10 @@
-// Orchestrates the full PDF Generator rendering pipeline (guide §51):
-// load the immutable letter-pad template -> draw the first-page summary
-// table (spilling onto plain continuation pages if needed) -> draw the
-// flow-based reference-photo section -> return the final PDF bytes.
+// Orchestrates the full PDF Generator rendering pipeline: load the
+// immutable letter-pad template -> draw the first-page summary table
+// (spilling onto more letterhead pages if needed) -> draw one reference
+// photo per page (2026-09-11: every page now shares the same letterhead
+// background, and reference photos are never stacked) -> return the PDF bytes.
 import { PDFDocument, StandardFonts } from "pdf-lib";
-import {
-  FIRST_PAGE_CONTENT,
-  PLAIN_PAGE_CONTENT,
-  createPlainPage,
-  loadTemplatePdf,
-} from "../config/pdfLayout.js";
+import { PAGE_CONTENT, createTemplatedPage, loadTemplatePdf } from "../config/pdfLayout.js";
 import { renderFirstPageBackground } from "./firstPageRenderer.js";
 import {
   computeColumnWidths,
@@ -18,6 +14,7 @@ import {
   drawTableRow,
 } from "./tableRenderer.js";
 import { renderReferenceSection } from "./referencePageRenderer.js";
+import { renderNbSection } from "./nbSectionRenderer.js";
 import { embedImageBytes } from "./imageRenderer.js";
 
 async function embedFonts(pdfDoc) {
@@ -29,47 +26,41 @@ async function embedFonts(pdfDoc) {
   };
 }
 
-function drawTableSection(outputPdf, { firstPage, eventTitle, rows, fonts }) {
-  const firstPageColumnWidths = computeColumnWidths(FIRST_PAGE_CONTENT.width);
-  const continuationColumnWidths = computeColumnWidths(PLAIN_PAGE_CONTENT.width);
-
+async function drawTableSection(outputPdf, { firstPage, templatePdf, eventTitle, rows, fonts, columnWidths }) {
   let page = firstPage;
-  let contentBox = FIRST_PAGE_CONTENT;
-  let columnWidths = firstPageColumnWidths;
 
   let y = drawTableTitle(page, {
-    x: contentBox.x,
-    y: contentBox.top,
-    width: contentBox.width,
+    x: PAGE_CONTENT.x,
+    y: PAGE_CONTENT.top,
+    width: PAGE_CONTENT.width,
     title: eventTitle,
     font: fonts.bold,
   });
-  y = drawTableHeader(page, { x: contentBox.x, y, columnWidths, font: fonts.bold });
+  y = drawTableHeader(page, { x: PAGE_CONTENT.x, y, columnWidths, font: fonts.bold });
 
   for (const row of rows) {
-    if (y - row.height < contentBox.bottom) {
-      // Table continuation pages are plain white, headers repeated (guide §55-56).
-      page = createPlainPage(outputPdf);
-      contentBox = PLAIN_PAGE_CONTENT;
-      columnWidths = continuationColumnWidths;
+    if (y - row.height < PAGE_CONTENT.bottom) {
+      // Continuation pages share the same letterhead background and title
+      // text as page 1 — no "(continued)" suffix.
+      page = await createTemplatedPage(outputPdf, templatePdf);
 
       y = drawTableTitle(page, {
-        x: contentBox.x,
-        y: contentBox.top,
-        width: contentBox.width,
-        title: `${eventTitle} (continued)`,
+        x: PAGE_CONTENT.x,
+        y: PAGE_CONTENT.top,
+        width: PAGE_CONTENT.width,
+        title: eventTitle,
         font: fonts.bold,
       });
-      y = drawTableHeader(page, { x: contentBox.x, y, columnWidths, font: fonts.bold });
+      y = drawTableHeader(page, { x: PAGE_CONTENT.x, y, columnWidths, font: fonts.bold });
     }
 
-    y = drawTableRow(page, { x: contentBox.x, y, columnWidths, row, font: fonts.regular });
+    y = drawTableRow(page, { x: PAGE_CONTENT.x, y, columnWidths, row, font: fonts.regular });
   }
 
   return { page, y };
 }
 
-export async function generatePdfDocument({ templatePath, eventDate, eventTitle, items }) {
+export async function generatePdfDocument({ templatePath, eventDate, eventTitle, items, nbPoints }) {
   if (!items?.length) throw new Error("At least one event item is required.");
 
   const templatePdf = await loadTemplatePdf(templatePath);
@@ -78,34 +69,27 @@ export async function generatePdfDocument({ templatePath, eventDate, eventTitle,
 
   const firstPage = await renderFirstPageBackground(outputPdf, templatePdf, eventDate);
 
-  const firstPageColumnWidths = computeColumnWidths(FIRST_PAGE_CONTENT.width);
-  const rows = measureRows(items, firstPageColumnWidths, fonts);
-  drawTableSection(outputPdf, { firstPage, eventTitle, rows, fonts });
+  const columnWidths = computeColumnWidths(PAGE_CONTENT.width);
+  const rows = measureRows(items, columnWidths, fonts);
+  const afterTable = await drawTableSection(outputPdf, { firstPage, templatePdf, eventTitle, rows, fonts, columnWidths });
+  await renderNbSection(outputPdf, { nbPoints, fonts, templatePdf, page: afterTable.page, y: afterTable.y });
 
   const referenceBlocks = [];
   for (const item of items) {
     const images = item.referenceImages || [];
-    for (const [index, image] of images.entries()) {
+    for (const image of images) {
       const embeddedImage = await embedImageBytes(outputPdf, image.bytes, image.mimeType);
+      // Every photo carries its own caption now — one photo per page (2026-09-11).
       referenceBlocks.push({
-        // Only the first photo of an item carries the caption (guide §25) —
-        // additional photos of the same item stack underneath, uncaptioned.
-        itemName: index === 0 ? item.itemName : null,
-        captionText: index === 0 ? item.customCaption?.trim() || item.description : null,
+        itemName: item.itemName,
+        captionText: item.customCaption?.trim() || item.description,
         embeddedImage,
       });
     }
   }
 
   if (referenceBlocks.length > 0) {
-    // Reference pages always start fresh, after the table finishes (guide §55).
-    const referenceStartPage = createPlainPage(outputPdf);
-    renderReferenceSection(outputPdf, {
-      referenceBlocks,
-      fonts,
-      startPage: referenceStartPage,
-      startY: PLAIN_PAGE_CONTENT.top,
-    });
+    await renderReferenceSection(outputPdf, { referenceBlocks, fonts, templatePdf });
   }
 
   const bytes = await outputPdf.save();

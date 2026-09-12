@@ -62,6 +62,7 @@ const ALLOWED_IMAGE_EXTENSIONS = {
 
 const MAX_ITEMS = 50;
 const MAX_IMAGES_PER_ITEM = 10;
+const MAX_NB_POINTS = 30;
 
 /*
 |--------------------------------------------------------------------------
@@ -82,7 +83,7 @@ function parseDocumentPayload(req) {
     return { error: "Invalid request — could not parse document data." };
   }
 
-  const { eventDate, eventTitle, items } = payload;
+  const { eventDate, eventTitle, items, nbPoints } = payload;
 
   if (!eventDate || Number.isNaN(new Date(eventDate).getTime())) {
     return { error: "A valid event date is required." };
@@ -95,6 +96,14 @@ function parseDocumentPayload(req) {
   }
   if (items.length > MAX_ITEMS) {
     return { error: `A document can have at most ${MAX_ITEMS} items.` };
+  }
+
+  // NB notes are entirely optional — filter out blanks, never required.
+  const parsedNbPoints = Array.isArray(nbPoints)
+    ? nbPoints.map((point) => String(point ?? "").trim()).filter(Boolean)
+    : [];
+  if (parsedNbPoints.length > MAX_NB_POINTS) {
+    return { error: `A document can have at most ${MAX_NB_POINTS} NB points.` };
   }
 
   const filesByFieldName = new Map();
@@ -141,6 +150,7 @@ function parseDocumentPayload(req) {
       eventDate: parseDateOnly(String(eventDate).slice(0, 10)),
       eventTitle: eventTitle.trim(),
       items: parsedItems,
+      nbPoints: parsedNbPoints,
     },
   };
 }
@@ -162,6 +172,7 @@ function serializeDocument(document) {
     documentNo: document.documentNo,
     eventDate: formatDateOnly(document.eventDate),
     eventTitle: document.eventTitle,
+    nbPoints: document.nbPoints ?? [],
     status: document.status,
     pageCount: document.pageCount,
     itemCount: document.items?.length ?? document._count?.items ?? undefined,
@@ -189,6 +200,7 @@ export async function previewDocument(req, res, next) {
       eventDate: parsed.data.eventDate,
       eventTitle: parsed.data.eventTitle,
       items: toRendererItems(parsed.data.items),
+      nbPoints: parsed.data.nbPoints,
     });
 
     res.set({
@@ -214,14 +226,14 @@ export async function createDocument(req, res, next) {
     if (parsed.error) return res.status(422).json({ message: parsed.error });
 
     const employeeId = BigInt(req.employee.id);
-    const { eventDate, eventTitle, items } = parsed.data;
+    const { eventDate, eventTitle, items, nbPoints } = parsed.data;
 
     // 1. Create the DB rows first (guide §85) — MySQL allocates the
     // autoincrement id immediately, even before the transaction commits, so
     // it's safe to use `document.id` for the source-image folder name below.
     const document = await prisma.$transaction(async (tx) => {
       const doc = await tx.pdfDocument.create({
-        data: { eventDate, eventTitle, createdById: employeeId, status: "draft" },
+        data: { eventDate, eventTitle, nbPoints, createdById: employeeId, status: "draft" },
       });
 
       const year = eventDate.getUTCFullYear();
@@ -289,6 +301,7 @@ export async function createDocument(req, res, next) {
       eventDate,
       eventTitle,
       items: toRendererItems(items),
+      nbPoints,
     });
 
     const generatedFileName = `${document.documentNo?.replace(/\//g, "-") || `document-${document.id}`}.pdf`;

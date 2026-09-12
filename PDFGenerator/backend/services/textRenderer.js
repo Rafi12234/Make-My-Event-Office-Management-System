@@ -89,10 +89,6 @@ export function wrapCaption(itemName, descriptionText, fonts, fontSize, maxWidth
   return lines;
 }
 
-export function measureCaptionHeight(lines, fontSize, lineHeightFactor) {
-  return measureLinesHeight(lines.length, fontSize, lineHeightFactor);
-}
-
 // Draws mixed-font caption lines (from wrapCaption) top-down. Returns the y
 // coordinate just below the last line drawn.
 export function drawCaptionLines(page, lines, { x, topY, fontSize, color, lineHeightFactor = 1.25 }) {
