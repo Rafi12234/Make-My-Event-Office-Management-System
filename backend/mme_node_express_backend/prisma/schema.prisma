@@ -64,6 +64,7 @@ model Employee {
   approvedAccountExpenses     AccountExpense[]       @relation("AccountExpenseApprovedByAdmin")
   attendances              Attendance[]
   pdfDocuments             PdfDocument[]
+  moneyReceipts            MoneyReceipt[]
 
   @@index([createdById], map: "fk_emp_created_by")
   @@index([roleId], map: "fk_emp_role")
@@ -921,4 +922,90 @@ enum PdfDocumentStatus {
   archived
 
   @@map("pdf_document_status")
+}
+
+// Money Receipt Generator module — Admin-only official payment receipts for
+// clients (separate from the employee-facing PDF Generator/Accounts wallet
+// tracking). Financial snapshot is frozen at generation time (guide-style
+// audit-integrity requirement) — later client/event edits elsewhere never
+// retroactively change an already-generated receipt.
+model MoneyReceipt {
+  id            BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  receiptNo     String?  @unique @map("receipt_no") @db.VarChar(100)
+
+  receiptDate   DateTime @map("receipt_date") @db.Date
+
+  clientName    String   @map("client_name") @db.VarChar(255)
+  clientPhone   String   @map("client_phone") @db.VarChar(50)
+  clientEmail   String?  @map("client_email") @db.VarChar(255)
+  clientAddress String?  @map("client_address") @db.VarChar(500)
+
+  eventName        String?   @map("event_name") @db.VarChar(255)
+  eventDate        DateTime? @map("event_date") @db.Date
+  eventVenue       String?   @map("event_venue") @db.VarChar(255)
+  bookingReference String?   @map("booking_reference") @db.VarChar(100)
+
+  // DECIMAL (never FLOAT) for financial precision — backend always
+  // recalculates duePayment/paymentStatus itself, never trusts the client.
+  totalPayment   Decimal @map("total_payment") @db.Decimal(14, 2)
+  advancePayment Decimal @map("advance_payment") @db.Decimal(14, 2)
+  duePayment     Decimal @map("due_payment") @db.Decimal(14, 2)
+
+  paymentMethod        MoneyReceiptPaymentMethod @default(cash) @map("payment_method")
+  paymentMethodOther   String?                   @map("payment_method_other") @db.VarChar(100)
+  transactionReference String?                   @map("transaction_reference") @db.VarChar(150)
+
+  paymentStatus MoneyReceiptPaymentStatus @map("payment_status")
+  remarks       String?                   @db.Text
+
+  createdById BigInt @map("created_by") @db.UnsignedBigInt
+
+  status MoneyReceiptStatus @default(generated)
+
+  generatedFileName String? @map("generated_file_name") @db.VarChar(255)
+  generatedFilePath String? @map("generated_file_path") @db.VarChar(600)
+
+  pageCount Int? @map("page_count")
+
+  generatedAt DateTime? @map("generated_at") @db.DateTime(0)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+
+  createdBy Employee @relation(fields: [createdById], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_money_receipts_created_by")
+
+  @@index([createdById], map: "fk_money_receipts_created_by")
+  @@index([receiptDate], map: "idx_money_receipts_receipt_date")
+  @@index([createdAt], map: "idx_money_receipts_created_at")
+  @@index([clientName], map: "idx_money_receipts_client_name")
+  @@index([clientPhone], map: "idx_money_receipts_client_phone")
+
+  @@map("money_receipts")
+}
+
+enum MoneyReceiptPaymentMethod {
+  cash
+  bank_transfer
+  cheque
+  bkash
+  nagad
+  card
+  other
+
+  @@map("money_receipt_payment_method")
+}
+
+enum MoneyReceiptPaymentStatus {
+  unpaid
+  partially_paid
+  paid
+
+  @@map("money_receipt_payment_status")
+}
+
+enum MoneyReceiptStatus {
+  generated
+  archived
+
+  @@map("money_receipt_status")
 }

@@ -8,6 +8,7 @@ import {
   LayoutGrid,
   LogOut,
   Phone,
+  Receipt,
   Shield,
   UsersRound,
   Wallet,
@@ -24,6 +25,7 @@ const NAV_ITEMS = [
   // Financial Accounts — separate from Employee Management, which handles
   // login accounts/passwords rather than money.
   { to: "/admin/accounts", label: "Financial Accounts", icon: Wallet },
+  { to: "/admin/money-receipts", label: "Money Receipt Generator", icon: Receipt },
 ];
 
 function initials(name) {
