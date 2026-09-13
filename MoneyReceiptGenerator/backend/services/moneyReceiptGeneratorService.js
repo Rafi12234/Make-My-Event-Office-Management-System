@@ -4,13 +4,16 @@
 // preview and final generation (guide-style "preview and final use the same
 // renderer" convention from the PDF Generator module).
 //
-// Guarantees exactly ONE page: renders once at full scale, and if the
-// content overflowed the page's bottom margin, discards that page and
-// re-renders at a computed smaller scale (body text/spacing only) that's
-// guaranteed to fit.
+// The receipt info itself is guaranteed to fit on page 1 alone: renders
+// once at full scale, and if it overflowed the page's bottom margin,
+// discards that page and re-renders at a computed smaller scale (body
+// text/spacing only) that's guaranteed to fit. Page 2 is always the fixed
+// NB/terms page (see nbPageRenderer.js) — every generated receipt is
+// exactly 2 pages, never more, never fewer.
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { PAGE_CONTENT, TEMPLATE_PATH, loadTemplatePdf, createTemplatedPage } from "../config/moneyReceiptLayout.js";
 import { renderReceiptContent } from "./receiptRenderer.js";
+import { renderNbPage } from "./nbPageRenderer.js";
 
 const MIN_SCALE = 0.55;
 
@@ -19,6 +22,7 @@ async function embedFonts(pdfDoc) {
     regular: await pdfDoc.embedFont(StandardFonts.Helvetica),
     bold: await pdfDoc.embedFont(StandardFonts.HelveticaBold),
     italic: await pdfDoc.embedFont(StandardFonts.HelveticaOblique),
+    boldItalic: await pdfDoc.embedFont(StandardFonts.HelveticaBoldOblique),
   };
 }
 
@@ -42,6 +46,9 @@ export async function generateMoneyReceiptPdf({ receiptNo, receiptDate, client, 
     page = await createTemplatedPage(pdfDoc, templatePdf);
     renderReceiptContent(page, { fonts, data, scale });
   }
+
+  const nbPage = await createTemplatedPage(pdfDoc, templatePdf);
+  renderNbPage(nbPage, { fonts });
 
   const bytes = await pdfDoc.save();
   return { bytes, pageCount: pdfDoc.getPageCount() };

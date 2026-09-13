@@ -95,6 +95,17 @@ export const PAYMENT_STATUS_LABELS = {
   paid: "PAID",
 };
 
+// Fixed terms & conditions, always rendered as page 2 of every receipt (not
+// user-editable — unlike PDFGenerator's optional per-document nbPoints list).
+export const MONEY_RECEIPT_NB_POINTS = [
+  "80% of the total money should be paid in advance/confirmation. Advance is not refundable. The rest of the amount needs to be paid for the event date by 1 PM.",
+  "Please do not show this proposal to anyone. It's highly confidential. Make My Event has the right to take action on the violation.",
+  "Price may change depending on requirements.",
+  "VAT is not included in this price.",
+  "Items that are being used in the events are rental basis. Make My Event has the full rights to take everything back after the event.",
+  "As most of the materials are reused, these might not be as fresh as the brand-new material.",
+];
+
 // guide-style DD/MM/YY display convention, matches the PDF Generator module.
 export function formatReceiptDate(date) {
   const d = date instanceof Date ? date : new Date(date);

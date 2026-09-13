@@ -193,8 +193,8 @@ export function renderReceiptContent(page, { fonts, data, scale = 1 }) {
     cursorY -= valueFontSize + gap(10);
   }
 
-  drawAmountLine("Total Payment", data.payment.total);
-  drawAmountLine("Advance Payment", data.payment.advance);
+  drawAmountLine("Total Payment", data.payment.total, { bold: true });
+  drawAmountLine("Advance Payment", data.payment.advance, { bold: true });
   drawLine(cursorY + gap(4));
   drawAmountLine("Due Payment", data.payment.due, { bold: true });
   cursorY -= gap(8);
@@ -245,12 +245,12 @@ export function renderReceiptContent(page, { fonts, data, scale = 1 }) {
   drawSectionHeading("AMOUNT RECEIVED IN WORDS");
   const wordsFontSize = fs(FONT_SIZES.value);
   const wordsText = amountToWordsBDT(data.payment.advance);
-  const wordsLines = wrapText(wordsText, fonts.italic, wordsFontSize, PAGE_CONTENT.width);
+  const wordsLines = wrapText(wordsText, fonts.boldItalic, wordsFontSize, PAGE_CONTENT.width);
   const wordsBlockHeight = measureLinesHeight(wordsLines.length, wordsFontSize, 1.3);
   drawLines(page, wordsLines, {
     x: PAGE_CONTENT.x,
     topY: cursorY,
-    font: fonts.italic,
+    font: fonts.boldItalic,
     fontSize: wordsFontSize,
     color: color(COLORS.black),
     lineHeightFactor: 1.3,
