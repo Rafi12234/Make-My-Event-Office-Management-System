@@ -109,7 +109,13 @@ jobs:
           test -f "mobile/Attendance/backend/routes/attendance.js"
           test -f "mobile/Attendance/backend/controllers/attendanceController.js"
           test -f "mobile/Attendance/backend/utils/officeLocation.js"
-
+          # Money Receipt Generator module (Admin-only) - same deploy pattern
+          # as the Accounts/Attendance modules above.
+          test -f "MoneyReceiptGenerator/backend/routes/moneyReceipt.js"
+          test -f "MoneyReceiptGenerator/backend/controllers/moneyReceiptController.js"
+          test -f "MoneyReceiptGenerator/backend/services/moneyReceiptGeneratorService.js"
+          test -f "MoneyReceiptGenerator/backend/config/moneyReceiptLayout.js"
+          test -f "MoneyReceiptGenerator/backend/templates/make-my-event-letter-pad.pdf"
           # cPanel's manual "Run NPM Install" does not run the
           # postinstall "prisma generate" hook, so the generated
           # Prisma Client (node_modules/.prisma/client) never gets
@@ -327,6 +333,31 @@ jobs:
             echo "put * attendance-module/routes/"
             echo "lcd \"$GITHUB_WORKSPACE/mobile/Attendance/backend/utils\""
             echo "put * attendance-module/utils/"
+
+            # Money Receipt Generator module (MoneyReceiptGenerator/backend/*) -
+            # Admin-only, same deploy pattern as Accounts/Attendance above,
+            # uploaded into APP_DIR/money-receipt-module so its bare imports
+            # (express, pdf-lib) resolve via this app's already-deployed
+            # node_modules. server.js finds it via the MONEY_RECEIPT_BACKEND_DIR
+            # env var (set once in cPanel's Setup Node.js App -> Environment
+            # variables), same as ACCOUNTS_BACKEND_DIR/PDF_GENERATOR_BACKEND_DIR.
+            echo "cd ${APP_DIR}"
+            echo "-mkdir money-receipt-module"
+            echo "-mkdir money-receipt-module/templates"
+            echo "-mkdir money-receipt-module/config"
+            echo "-mkdir money-receipt-module/controllers"
+            echo "-mkdir money-receipt-module/routes"
+            echo "-mkdir money-receipt-module/services"
+            echo "lcd \"$GITHUB_WORKSPACE/MoneyReceiptGenerator/backend/templates\""
+            echo "put * money-receipt-module/templates/"
+            echo "lcd \"$GITHUB_WORKSPACE/MoneyReceiptGenerator/backend/config\""
+            echo "put * money-receipt-module/config/"
+            echo "lcd \"$GITHUB_WORKSPACE/MoneyReceiptGenerator/backend/controllers\""
+            echo "put * money-receipt-module/controllers/"
+            echo "lcd \"$GITHUB_WORKSPACE/MoneyReceiptGenerator/backend/routes\""
+            echo "put * money-receipt-module/routes/"
+            echo "lcd \"$GITHUB_WORKSPACE/MoneyReceiptGenerator/backend/services\""
+            echo "put * money-receipt-module/services/"
 
             echo "-mkdir tmp"
             echo "lcd \"$GITHUB_WORKSPACE\""

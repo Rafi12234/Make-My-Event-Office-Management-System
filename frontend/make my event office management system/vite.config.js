@@ -4,7 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
 
 const API_ORIGIN = process.env.VITE_API_ORIGIN || "http://localhost:5000";
-const PROTECTED_PAGE_PREFIXES = ["/management", "/calendar", "/accounts"];
+const PROTECTED_PAGE_PREFIXES = ["/management", "/calendar", "/accounts", "/pdf-generator"];
 
 // Repo root — two levels up from this project (frontend/make my event
 // office management system -> frontend -> repo root). Vite's own

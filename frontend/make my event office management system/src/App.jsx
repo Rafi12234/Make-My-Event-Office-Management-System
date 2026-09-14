@@ -13,6 +13,12 @@ import MoneyInPage from "../../../Accounts/frontend/pages/MoneyInPage";
 import LogCostPage from "../../../Accounts/frontend/pages/LogCostPage";
 import VendorsPage from "../../../Accounts/frontend/pages/VendorsPage";
 import VendorProfilePage from "../../../Accounts/frontend/pages/VendorProfilePage";
+import PDFGeneratorPage from "../../../PDFGenerator/frontend/pages/PDFGeneratorPage";
+import PDFPreviewPage from "../../../PDFGenerator/frontend/pages/PDFPreviewPage";
+import PDFHistoryPage from "../../../PDFGenerator/frontend/pages/PDFHistoryPage";
+import MoneyReceiptGeneratorPage from "../../../MoneyReceiptGenerator/frontend/pages/MoneyReceiptGeneratorPage";
+import MoneyReceiptPreviewPage from "../../../MoneyReceiptGenerator/frontend/pages/MoneyReceiptPreviewPage";
+import MoneyReceiptHistoryPage from "../../../MoneyReceiptGenerator/frontend/pages/MoneyReceiptHistoryPage";
 import AdminPage from "./pages/admin/AdminPage";
 import AdminDashboardPage from "./pages/admin/AdminDashboardPage";
 import AdminClientDetailPage from "./pages/admin/AdminClientDetailPage";
@@ -82,6 +88,9 @@ function App() {
         <Route path="/accounts/log-cost" element={<RequirePasswordChange><LogCostPage /></RequirePasswordChange>} />
         <Route path="/accounts/vendors" element={<RequirePasswordChange><VendorsPage /></RequirePasswordChange>} />
         <Route path="/accounts/vendors/:id" element={<RequirePasswordChange><VendorProfilePage /></RequirePasswordChange>} />
+        <Route path="/pdf-generator" element={<RequirePasswordChange><PDFGeneratorPage /></RequirePasswordChange>} />
+        <Route path="/pdf-generator/preview" element={<RequirePasswordChange><PDFPreviewPage /></RequirePasswordChange>} />
+        <Route path="/pdf-generator/history" element={<RequirePasswordChange><PDFHistoryPage /></RequirePasswordChange>} />
         <Route path="/admin" element={<Navigate to="/admin-dashboard" replace />} />
         <Route path="/admin-dashboard" element={<BlockIfEmployeeSession><AdminDashboardPage /></BlockIfEmployeeSession>} />
         <Route path="/admin-dashboard/clients/:rowKey" element={<BlockIfEmployeeSession><AdminClientDetailPage /></BlockIfEmployeeSession>} />
@@ -110,6 +119,14 @@ function App() {
         <Route path="/admin/accounts/expenses/:expenseId" element={<BlockIfEmployeeSession><AdminAccountsExpenseDetailPage /></BlockIfEmployeeSession>} />
         <Route path="/admin/accounts/vendors" element={<BlockIfEmployeeSession><AdminAccountsVendorsPage /></BlockIfEmployeeSession>} />
         <Route path="/admin/accounts/vendors/:vendorId" element={<BlockIfEmployeeSession><AdminAccountsVendorProfilePage /></BlockIfEmployeeSession>} />
+
+        {/* Money Receipt Generator — Admin-only official payment receipts, fully
+            isolated from the employee-facing PDF Generator module (see
+            MoneyReceiptGenerator/). Backend enforces requireAdmin on every
+            /api/admin/money-receipts endpoint regardless of what happens here. */}
+        <Route path="/admin/money-receipts" element={<BlockIfEmployeeSession><MoneyReceiptGeneratorPage /></BlockIfEmployeeSession>} />
+        <Route path="/admin/money-receipts/preview" element={<BlockIfEmployeeSession><MoneyReceiptPreviewPage /></BlockIfEmployeeSession>} />
+        <Route path="/admin/money-receipts/history" element={<BlockIfEmployeeSession><MoneyReceiptHistoryPage /></BlockIfEmployeeSession>} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

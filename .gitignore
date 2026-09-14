@@ -13,6 +13,10 @@ node_modules/
 
 # ── Environment secrets ──
 .env
+
+# ── Expo local dev-server cache ──
+.expo/
+mobile/.expo/
 .env.local
 .env.*.local
 **/.env
@@ -40,3 +44,8 @@ backend/mme_node_express_backend/uploads/
 
 # ── Uploaded expense receipts (Accounts module, never committed) ──
 Accounts/backend/uploads/
+
+# ── Generated money receipts (Money Receipt Generator module, financial
+#    records — never committed) ──
+MoneyReceiptGenerator/backend/storage/generated/*
+!MoneyReceiptGenerator/backend/storage/generated/.gitkeep

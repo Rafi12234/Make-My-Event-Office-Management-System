@@ -63,6 +63,8 @@ model Employee {
   voidedAccountExpenses       AccountExpense[]       @relation("AccountExpenseVoidedByAdmin")
   approvedAccountExpenses     AccountExpense[]       @relation("AccountExpenseApprovedByAdmin")
   attendances              Attendance[]
+  pdfDocuments             PdfDocument[]
+  moneyReceipts            MoneyReceipt[]
 
   @@index([createdById], map: "fk_emp_created_by")
   @@index([roleId], map: "fk_emp_role")
@@ -834,4 +836,186 @@ model Attendance {
   @@unique([employeeId, attendanceDate], map: "uq_attendance_employee_date")
   @@index([employeeId], map: "fk_attendance_employee")
   @@map("attendances")
+}
+
+
+// PDF Generator module — event proposal / decoration-specification documents
+// (Make My Event letter-pad summary table + reference-photo pages). See
+// PDF_GENERATOR_MODULE_IMPLEMENTATION_GUIDE_UPDATED.md for the full spec.
+model PdfDocument {
+  id                BigInt            @id @default(autoincrement()) @db.UnsignedBigInt
+  documentNo        String?           @unique @map("document_no") @db.VarChar(100)
+
+  eventDate         DateTime          @map("event_date") @db.Date
+  eventTitle        String            @map("event_title") @db.VarChar(255)
+
+  // Optional user-authored "NB:" numbered notes list shown under the summary
+  // table on page 1 — plain array of strings, never mandatory.
+  nbPoints          Json?             @map("nb_points")
+
+  createdById       BigInt            @map("created_by") @db.UnsignedBigInt
+
+  status            PdfDocumentStatus @default(generated)
+
+  generatedFileName String?           @map("generated_file_name") @db.VarChar(255)
+  generatedFilePath String?           @map("generated_file_path") @db.VarChar(600)
+
+  pageCount         Int?              @map("page_count")
+
+  templateVersion   String            @default("palm-view-style-v1") @map("template_version") @db.VarChar(50)
+
+  generatedAt       DateTime?         @map("generated_at") @db.DateTime(0)
+
+  createdAt         DateTime          @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt         DateTime          @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+
+  createdBy Employee          @relation(fields: [createdById], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_pdf_documents_created_by")
+  items     PdfDocumentItem[]
+
+  @@index([createdById], map: "fk_pdf_documents_created_by")
+  @@index([eventDate], map: "idx_pdf_documents_event_date")
+  @@index([createdAt], map: "idx_pdf_documents_created_at")
+
+  @@map("pdf_documents")
+}
+
+model PdfDocumentItem {
+  id                         BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+
+  documentId                 BigInt   @map("document_id") @db.UnsignedBigInt
+  sortOrder                  Int      @map("sort_order")
+
+  itemName                   String   @map("item_name") @db.VarChar(255)
+  description                String   @db.Text
+  quantity                   String   @db.VarChar(100)
+
+  customCaption              String?  @map("custom_caption") @db.VarChar(1000)
+
+  createdAt                  DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt                  DateTime @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+
+  document PdfDocument           @relation(fields: [documentId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_pdf_document_items_document")
+  images   PdfDocumentItemImage[]
+
+  @@unique([documentId, sortOrder], map: "uq_pdf_document_item_order")
+  @@index([documentId], map: "idx_pdf_document_items_document")
+
+  @@map("pdf_document_items")
+}
+
+// An item may now carry multiple reference photos (was a single nullable
+// column on PdfDocumentItem — superseded by this child table so an item can
+// have zero, one, or many photos, each rendered as its own block/page).
+model PdfDocumentItemImage {
+  id               BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+
+  documentItemId   BigInt   @map("document_item_id") @db.UnsignedBigInt
+  sortOrder        Int      @map("sort_order")
+
+  imagePath        String   @map("image_path") @db.VarChar(600)
+  originalName     String?  @map("original_name") @db.VarChar(255)
+  mimeType         String?  @map("mime_type") @db.VarChar(100)
+
+  createdAt        DateTime @default(now()) @map("created_at") @db.DateTime(0)
+
+  documentItem PdfDocumentItem @relation(fields: [documentItemId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_pdf_document_item_images_item")
+
+  @@unique([documentItemId, sortOrder], map: "uq_pdf_document_item_image_order")
+  @@index([documentItemId], map: "idx_pdf_document_item_images_item")
+
+  @@map("pdf_document_item_images")
+}
+
+enum PdfDocumentStatus {
+  draft
+  generated
+  archived
+
+  @@map("pdf_document_status")
+}
+
+// Money Receipt Generator module — Admin-only official payment receipts for
+// clients (separate from the employee-facing PDF Generator/Accounts wallet
+// tracking). Financial snapshot is frozen at generation time (guide-style
+// audit-integrity requirement) — later client/event edits elsewhere never
+// retroactively change an already-generated receipt.
+model MoneyReceipt {
+  id            BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  receiptNo     String?  @unique @map("receipt_no") @db.VarChar(100)
+
+  receiptDate   DateTime @map("receipt_date") @db.Date
+
+  clientName    String   @map("client_name") @db.VarChar(255)
+  clientPhone   String   @map("client_phone") @db.VarChar(50)
+  clientEmail   String?  @map("client_email") @db.VarChar(255)
+  clientAddress String?  @map("client_address") @db.VarChar(500)
+
+  eventName        String?   @map("event_name") @db.VarChar(255)
+  eventDate        DateTime? @map("event_date") @db.Date
+  eventVenue       String?   @map("event_venue") @db.VarChar(255)
+  bookingReference String?   @map("booking_reference") @db.VarChar(100)
+
+  // DECIMAL (never FLOAT) for financial precision — backend always
+  // recalculates duePayment/paymentStatus itself, never trusts the client.
+  totalPayment   Decimal @map("total_payment") @db.Decimal(14, 2)
+  advancePayment Decimal @map("advance_payment") @db.Decimal(14, 2)
+  duePayment     Decimal @map("due_payment") @db.Decimal(14, 2)
+
+  paymentMethod        MoneyReceiptPaymentMethod @default(cash) @map("payment_method")
+  paymentMethodOther   String?                   @map("payment_method_other") @db.VarChar(100)
+  transactionReference String?                   @map("transaction_reference") @db.VarChar(150)
+
+  paymentStatus MoneyReceiptPaymentStatus @map("payment_status")
+  remarks       String?                   @db.Text
+
+  createdById BigInt @map("created_by") @db.UnsignedBigInt
+
+  status MoneyReceiptStatus @default(generated)
+
+  generatedFileName String? @map("generated_file_name") @db.VarChar(255)
+  generatedFilePath String? @map("generated_file_path") @db.VarChar(600)
+
+  pageCount Int? @map("page_count")
+
+  generatedAt DateTime? @map("generated_at") @db.DateTime(0)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+
+  createdBy Employee @relation(fields: [createdById], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_money_receipts_created_by")
+
+  @@index([createdById], map: "fk_money_receipts_created_by")
+  @@index([receiptDate], map: "idx_money_receipts_receipt_date")
+  @@index([createdAt], map: "idx_money_receipts_created_at")
+  @@index([clientName], map: "idx_money_receipts_client_name")
+  @@index([clientPhone], map: "idx_money_receipts_client_phone")
+
+  @@map("money_receipts")
+}
+
+enum MoneyReceiptPaymentMethod {
+  cash
+  bank_transfer
+  cheque
+  bkash
+  nagad
+  card
+  other
+
+  @@map("money_receipt_payment_method")
+}
+
+enum MoneyReceiptPaymentStatus {
+  unpaid
+  partially_paid
+  paid
+
+  @@map("money_receipt_payment_status")
+}
+
+enum MoneyReceiptStatus {
+  generated
+  archived
+
+  @@map("money_receipt_status")
 }
