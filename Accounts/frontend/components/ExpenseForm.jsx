@@ -91,7 +91,7 @@ export default function ExpenseForm({ onSubmitted, onCancel }) {
         !Number.isFinite(quantity) ||
         quantity <= 0 ||
         !Number.isFinite(perQtyAmount) ||
-        perQtyAmount < 0
+        perQtyAmount <= 0
       );
     });
     if (badIndex !== -1) {

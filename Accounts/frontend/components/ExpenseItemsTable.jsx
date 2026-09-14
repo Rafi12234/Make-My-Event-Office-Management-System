@@ -247,21 +247,11 @@ export default function ExpenseItemsTable({
         <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.16em] text-black/55">
           <Layers size={13} /> Cost Items ({items.length})
         </div>
-        <div className="flex items-center gap-2">
-          {eventDate ? (
-            <span className="inline-flex items-center gap-1.5 rounded-lg bg-[#0B0B0F] px-3 py-1.5 text-[11px] font-black text-white">
-              <CalendarClock size={12} /> Event {formatDisplayDate(eventDate)}
-            </span>
-          ) : null}
-          <button
-            type="button"
-            onClick={addItem}
-            className="group flex items-center gap-1.5 rounded-lg border border-dashed border-black/25 bg-white px-3 py-1.5 text-[11px] font-black text-black/55 transition-all duration-300 hover:border-black hover:bg-[#0B0B0F] hover:text-white active:scale-95"
-          >
-            <Plus size={13} className="transition-transform duration-300 group-hover:rotate-90" />
-            Add another item
-          </button>
-        </div>
+        {eventDate ? (
+          <span className="inline-flex items-center gap-1.5 rounded-lg bg-[#0B0B0F] px-3 py-1.5 text-[11px] font-black text-white">
+            <CalendarClock size={12} /> Event {formatDisplayDate(eventDate)}
+          </span>
+        ) : null}
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-black/8 bg-white">
@@ -512,6 +502,17 @@ export default function ExpenseItemsTable({
             })}
           </tbody>
         </table>
+      </div>
+
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={addItem}
+          className="group flex items-center gap-1.5 rounded-lg border border-dashed border-black/25 bg-white px-3 py-1.5 text-[11px] font-black text-black/55 transition-all duration-300 hover:border-black hover:bg-[#0B0B0F] hover:text-white active:scale-95"
+        >
+          <Plus size={13} className="transition-transform duration-300 group-hover:rotate-90" />
+          Add another item
+        </button>
       </div>
 
       <div className={`grid gap-3 ${billMode ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>

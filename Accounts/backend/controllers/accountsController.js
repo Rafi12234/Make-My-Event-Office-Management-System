@@ -760,7 +760,7 @@ export async function createExpense(req, res, next) {
         !Number.isFinite(quantity) ||
         quantity <= 0 ||
         !Number.isFinite(perQtyAmount) ||
-        perQtyAmount < 0
+        perQtyAmount <= 0
       ) {
         removeUploadedFiles(req.files);
         return res.status(422).json({ message: `Item ${index + 1} is missing required fields.` });
