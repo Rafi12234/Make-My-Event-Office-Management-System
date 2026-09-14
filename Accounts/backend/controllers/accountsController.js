@@ -888,7 +888,12 @@ export async function createExpense(req, res, next) {
         vendorPayments: expense.items
           .filter((item) => item.vendorId)
           .map((item) => serializeVendorPaymentEntry(item, expense)),
-        currentBalance: Number(wallet.currentBalance),
+        // Wallet deduction happens only on admin approval (see
+        // approveExpense) — an employee who has never had money received or
+        // an approved expense yet has NO account_wallets row at all, so
+        // `wallet` can genuinely be null here. Defaults to 0, same as every
+        // other wallet read in this file.
+        currentBalance: wallet ? Number(wallet.currentBalance) : 0,
       },
     });
   } catch (error) {
