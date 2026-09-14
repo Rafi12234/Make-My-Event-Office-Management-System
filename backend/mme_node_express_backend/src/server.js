@@ -117,6 +117,40 @@ const { default: attendanceRoutes } = require(
 
 /*
 |--------------------------------------------------------------------------
+| Resolve the PDF Generator module
+|--------------------------------------------------------------------------
+|
+| Same idea as the Accounts module above - PDF_GENERATOR_BACKEND_DIR
+| overrides the resolved path for deployment.
+*/
+
+const pdfGeneratorBackendDirectory = process.env.PDF_GENERATOR_BACKEND_DIR
+  ? path.resolve(process.env.PDF_GENERATOR_BACKEND_DIR)
+  : path.resolve(__dirname, "../../../PDFGenerator/backend");
+
+const { default: pdfGeneratorRoutes } = require(
+  path.join(pdfGeneratorBackendDirectory, "routes/pdfGenerator.js"),
+);
+
+/*
+|--------------------------------------------------------------------------
+| Resolve the Money Receipt Generator module
+|--------------------------------------------------------------------------
+|
+| Admin-only — same resolution pattern as the PDF Generator module above,
+| but mounted behind requireAdmin (see below) instead of requireEmployee.
+*/
+
+const moneyReceiptBackendDirectory = process.env.MONEY_RECEIPT_BACKEND_DIR
+  ? path.resolve(process.env.MONEY_RECEIPT_BACKEND_DIR)
+  : path.resolve(__dirname, "../../../MoneyReceiptGenerator/backend");
+
+const { default: moneyReceiptRoutes } = require(
+  path.join(moneyReceiptBackendDirectory, "routes/moneyReceipt.js"),
+);
+
+/*
+|--------------------------------------------------------------------------
 | Global middleware
 |--------------------------------------------------------------------------
 */
@@ -217,6 +251,8 @@ app.use("/api/meetings", attachBearerToken, requireEmployee, meetingRoutes);
 app.use("/api/calls", attachBearerToken, requireEmployee, callRoutes);
 app.use("/api/accounts", attachBearerToken, requireEmployee, accountsRoutes);
 app.use("/api/attendance", attachBearerToken, requireEmployee, attendanceRoutes);
+app.use("/api/pdf-generator", attachBearerToken, requireEmployee, pdfGeneratorRoutes);
+app.use("/api/admin/money-receipts", requireAdmin, moneyReceiptRoutes);
 
 /*
 |--------------------------------------------------------------------------
@@ -276,7 +312,7 @@ if (existsSync(frontendIndexFile)) {
    * /login BEFORE any HTML/JS is sent — the browser never sees the
    * protected page at all when unauthenticated.
    */
-  const PROTECTED_PAGE_PREFIXES = ["/management", "/calendar"];
+  const PROTECTED_PAGE_PREFIXES = ["/management", "/calendar", "/pdf-generator"];
 
   app.get("/{*splat}", (req, res, next) => {
     const isProtectedPage = PROTECTED_PAGE_PREFIXES.some(
