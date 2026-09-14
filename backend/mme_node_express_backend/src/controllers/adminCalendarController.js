@@ -1,6 +1,7 @@
 import { prisma } from "../config/prisma.js";
 import { formatDateOnly, formatTimeOnly, formatDateTime, nowInBusinessTimezone } from "../utils/dbDates.js";
 import { computeMeetingCallTimes } from "../utils/meetingCallTimes.js";
+import { buildCompletionTag } from "../utils/completionTag.js";
 
 // ─── Helpers ───────────────────────────────────────────────────
 
@@ -33,28 +34,6 @@ function colorForEmployee(employee, index) {
 }
 
 function pad(n) { return String(n).padStart(2, "0"); }
-
-// "2h 15m" / "45m" style, used by the completion tag below.
-function formatDuration(totalMinutes) {
-  const minutes = Math.round(totalMinutes);
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  if (hours <= 0) return `${mins}m`;
-  if (mins === 0) return `${hours}h`;
-  return `${hours}h ${mins}m`;
-}
-
-// A meeting/call that fulfills an earlier follow-up schedule (see
-// expectedMeetingDatetime/expectedCallDatetime) gets tagged with how it
-// compares to that due time instead of ALSO showing the now-stale
-// schedule as its own separate/"missed" item — one activity, one tag.
-function buildCompletionTag(actualDatetime, expectedDatetime) {
-  if (!expectedDatetime) return null;
-  const diffMinutes = (actualDatetime.getTime() - expectedDatetime.getTime()) / 60000;
-  if (Math.abs(diffMinutes) < 1) return { status: "on_time", label: "Done on time" };
-  if (diffMinutes < 0) return { status: "early", label: `Done ${formatDuration(-diffMinutes)} early` };
-  return { status: "late", label: `Done ${formatDuration(diffMinutes)} late` };
-}
 
 function extractDate(val) {
   if (!val) return null;

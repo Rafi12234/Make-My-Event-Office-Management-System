@@ -1,5 +1,6 @@
 import { prisma } from "../config/prisma.js";
 import { formatDateTime, parseDateTimeLocal } from "../utils/dbDates.js";
+import { buildCompletionTag, buildFulfilledFollowUpMap } from "../utils/completionTag.js";
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -300,6 +301,8 @@ export async function getClientMeetingsForAdmin(req, res, next) {
             nextMeetingDatetime: true,
             assignedEmployeeId: true,
             assignedEmployee: { select: { fullName: true } },
+            createdBy: { select: { fullName: true } },
+            updatedBy: { select: { fullName: true } },
           },
         },
         images: { orderBy: { id: "asc" } },
@@ -316,6 +319,8 @@ export async function getClientMeetingsForAdmin(req, res, next) {
       include: { finalizedBy: { select: { fullName: true } } },
     });
 
+    const fulfilledNextMeetingByMeetingId = buildFulfilledFollowUpMap(meetings, "meetingDatetime", "expectedMeetingDatetime");
+
     res.json({
       data: {
         rowKey,
@@ -323,41 +328,50 @@ export async function getClientMeetingsForAdmin(req, res, next) {
         finalization: finalization
           ? { finalizedAt: formatDateTime(finalization.finalizedAt), finalizedByName: finalization.finalizedBy?.fullName || null }
           : null,
-        meetings: meetings.map((meeting) => ({
-          id: meeting.id,
-          meetingDatetime: formatDateTime(meeting.meetingDatetime),
-          nextMeetingDatetime: formatDateTime(meeting.nextMeeting?.nextMeetingDatetime),
-          nextMeetingAssignedEmployeeId: meeting.nextMeeting?.assignedEmployeeId ?? null,
-          nextMeetingAssignedEmployeeName: meeting.nextMeeting?.assignedEmployee?.fullName || null,
-          assignedByEmployeeName: meeting.assignedBy?.fullName || null,
-          requirements: parseRequirements(meeting.requirements),
-          createdByName: meeting.createdBy?.fullName || null,
-          updatedByName: meeting.updatedBy?.fullName || null,
-          createdAt: formatDateTime(meeting.createdAt),
-          updatedAt: formatDateTime(meeting.updatedAt),
-          images: meeting.images.map((image) => ({
-            id: image.id,
-            originalFileName: image.originalFileName,
-            tagName: image.tagName || "",
-            url: image.fileUrl,
-            isFinalSelected: Boolean(image.isFinalSelected),
-            createdAt: formatDateTime(image.createdAt),
-          })),
-          items: meeting.items.map((item) => ({
-            id: item.id,
-            itemKey: item.itemKey,
-            customLabel: item.customLabel || "",
-            description: item.description || "",
-            quantity: item.quantity ?? 1,
-            images: item.images.map((image) => ({
+        meetings: meetings.map((meeting) => {
+          const fulfilled = !meeting.nextMeeting ? fulfilledNextMeetingByMeetingId.get(String(meeting.id)) : null;
+          return {
+            id: meeting.id,
+            meetingDatetime: formatDateTime(meeting.meetingDatetime),
+            completionTag: buildCompletionTag(meeting.meetingDatetime, meeting.expectedMeetingDatetime),
+            nextMeetingDatetime: formatDateTime(meeting.nextMeeting?.nextMeetingDatetime || fulfilled?.expectedMeetingDatetime),
+            nextMeetingAssignedEmployeeId: meeting.nextMeeting?.assignedEmployeeId ?? null,
+            nextMeetingAssignedEmployeeName: meeting.nextMeeting
+              ? meeting.nextMeeting.assignedEmployee?.fullName || null
+              : fulfilled?.createdBy?.fullName || null,
+            nextMeetingAssignedByEmployeeName: meeting.nextMeeting
+              ? meeting.nextMeeting.updatedBy?.fullName || meeting.nextMeeting.createdBy?.fullName || null
+              : fulfilled?.assignedBy?.fullName || null,
+            assignedByEmployeeName: meeting.assignedBy?.fullName || null,
+            requirements: parseRequirements(meeting.requirements),
+            createdByName: meeting.createdBy?.fullName || null,
+            updatedByName: meeting.updatedBy?.fullName || null,
+            createdAt: formatDateTime(meeting.createdAt),
+            updatedAt: formatDateTime(meeting.updatedAt),
+            images: meeting.images.map((image) => ({
               id: image.id,
               originalFileName: image.originalFileName,
+              tagName: image.tagName || "",
               url: image.fileUrl,
               isFinalSelected: Boolean(image.isFinalSelected),
               createdAt: formatDateTime(image.createdAt),
             })),
-          })),
-        })),
+            items: meeting.items.map((item) => ({
+              id: item.id,
+              itemKey: item.itemKey,
+              customLabel: item.customLabel || "",
+              description: item.description || "",
+              quantity: item.quantity ?? 1,
+              images: item.images.map((image) => ({
+                id: image.id,
+                originalFileName: image.originalFileName,
+                url: image.fileUrl,
+                isFinalSelected: Boolean(image.isFinalSelected),
+                createdAt: formatDateTime(image.createdAt),
+              })),
+            })),
+          };
+        }),
       },
     });
   } catch (error) {
@@ -390,29 +404,45 @@ export async function getClientCallsForAdmin(req, res, next) {
             nextCallDatetime: true,
             assignedEmployeeId: true,
             assignedEmployee: { select: { fullName: true } },
+            createdBy: { select: { fullName: true } },
+            updatedBy: { select: { fullName: true } },
           },
         },
       },
       orderBy: [{ callDatetime: { sort: "desc", nulls: "last" } }, { id: "desc" }],
     });
 
+    const fulfilledNextCallByCallId = buildFulfilledFollowUpMap(calls, "callDatetime", "expectedCallDatetime");
+
     res.json({
       data: {
         rowKey,
         clientName: namesByRowKey.get(rowKey) || "",
-        calls: calls.map((call) => ({
-          id: call.id,
-          callDatetime: formatDateTime(call.callDatetime),
-          callDiscussion: call.callDiscussion,
-          nextCallDatetime: formatDateTime(call.nextCall?.nextCallDatetime),
-          nextCallAssignedEmployeeId: call.nextCall?.assignedEmployeeId ?? null,
-          nextCallAssignedEmployeeName: call.nextCall?.assignedEmployee?.fullName || null,
-          assignedByEmployeeName: call.assignedBy?.fullName || null,
-          createdByName: call.createdBy?.fullName || null,
-          updatedByName: call.updatedBy?.fullName || null,
-          createdAt: formatDateTime(call.createdAt),
-          updatedAt: formatDateTime(call.updatedAt),
-        })),
+        calls: calls.map((call) => {
+          const fulfilled = !call.nextCall ? fulfilledNextCallByCallId.get(String(call.id)) : null;
+          return {
+            id: call.id,
+            callDatetime: formatDateTime(call.callDatetime),
+            callDiscussion: call.callDiscussion,
+            completionTag: buildCompletionTag(call.callDatetime, call.expectedCallDatetime),
+            nextCallDatetime: formatDateTime(call.nextCall?.nextCallDatetime || fulfilled?.expectedCallDatetime),
+            // Lets the frontend skip "Missed" styling on an already-fulfilled
+            // historical schedule (it's not still pending, just reconstructed).
+            nextCallFulfilled: Boolean(fulfilled),
+            nextCallAssignedEmployeeId: call.nextCall?.assignedEmployeeId ?? null,
+            nextCallAssignedEmployeeName: call.nextCall
+              ? call.nextCall.assignedEmployee?.fullName || null
+              : fulfilled?.createdBy?.fullName || null,
+            nextCallAssignedByEmployeeName: call.nextCall
+              ? call.nextCall.updatedBy?.fullName || call.nextCall.createdBy?.fullName || null
+              : fulfilled?.assignedBy?.fullName || null,
+            assignedByEmployeeName: call.assignedBy?.fullName || null,
+            createdByName: call.createdBy?.fullName || null,
+            updatedByName: call.updatedBy?.fullName || null,
+            createdAt: formatDateTime(call.createdAt),
+            updatedAt: formatDateTime(call.updatedAt),
+          };
+        }),
       },
     });
   } catch (error) {

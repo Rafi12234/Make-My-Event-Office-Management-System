@@ -27,6 +27,24 @@ function formatDisplay(dbDatetime) {
   });
 }
 
+const TAG_STYLES = {
+  early: "bg-emerald-100 text-emerald-700",
+  on_time: "bg-blue-100 text-blue-700",
+  late: "bg-amber-100 text-amber-700",
+};
+
+function CompletionBadge({ tag }) {
+  if (!tag) return null;
+  return (
+    <span
+      title={tag.expectedLabel ? `Originally due ${formatDisplay(tag.expectedLabel)}` : undefined}
+      className={`rounded-full px-2 py-0.5 text-[10px] font-black ${TAG_STYLES[tag.status] || TAG_STYLES.on_time}`}
+    >
+      {tag.label}
+    </span>
+  );
+}
+
 // ─── Meeting History Item ─────────────────────────────────────────────────
 function MeetingItem({ meeting, index }) {
   return (
@@ -37,15 +55,23 @@ function MeetingItem({ meeting, index }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <p className="font-black text-mme-purple">{formatDisplay(meeting.meetingDatetime) || "Not scheduled yet"}</p>
+          <CompletionBadge tag={meeting.completionTag} />
         </div>
         <span className="text-xs font-bold text-mme-purple/50">Logged by {meeting.createdByName || "—"}</span>
       </div>
+      {meeting.completionTag?.expectedLabel && (
+        <p className="mt-1 text-[11px] font-semibold text-mme-purple/45">
+          Originally due: {formatDisplay(meeting.completionTag.expectedLabel)}
+        </p>
+      )}
       {meeting.discussionNotes && (
         <p className="mt-2 text-sm text-mme-purple/70">{meeting.discussionNotes}</p>
       )}
       {meeting.nextMeeting && (
         <p className="mt-2 text-xs font-bold text-mme-plum">
-          Next meeting: {formatDisplay(meeting.nextMeeting.nextMeetingDatetime)} — {meeting.nextMeeting.assignedEmployeeName || "Unassigned"}
+          Next meeting: {formatDisplay(meeting.nextMeeting.nextMeetingDatetime)}
+          {` — Assigned to ${meeting.nextMeeting.assignedEmployeeName || "Unassigned"}`}
+          {meeting.nextMeeting.assignedByEmployeeName ? ` · Assigned by ${meeting.nextMeeting.assignedByEmployeeName}` : ""}
         </p>
       )}
     </div>
@@ -60,15 +86,25 @@ function CallItem({ call, index }) {
       style={{ animationDelay: `${Math.min(index, 24) * 30}ms` }}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="font-black text-mme-purple">{formatDisplay(call.callDatetime) || "Not scheduled yet"}</p>
+        <div className="flex items-center gap-2">
+          <p className="font-black text-mme-purple">{formatDisplay(call.callDatetime) || "Not scheduled yet"}</p>
+          <CompletionBadge tag={call.completionTag} />
+        </div>
         <span className="text-xs font-bold text-mme-purple/50">Logged by {call.createdByName || "—"}</span>
       </div>
+      {call.completionTag?.expectedLabel && (
+        <p className="mt-1 text-[11px] font-semibold text-mme-purple/45">
+          Originally due: {formatDisplay(call.completionTag.expectedLabel)}
+        </p>
+      )}
       {call.callDiscussion && (
         <p className="mt-2 text-sm text-mme-purple/70">{call.callDiscussion}</p>
       )}
       {call.nextCall && (
         <p className="mt-2 text-xs font-bold text-mme-plum">
-          Next call: {formatDisplay(call.nextCall.nextCallDatetime)} — {call.nextCall.assignedEmployeeName || "Unassigned"}
+          Next call: {formatDisplay(call.nextCall.nextCallDatetime)}
+          {` — Assigned to ${call.nextCall.assignedEmployeeName || "Unassigned"}`}
+          {call.nextCall.assignedByEmployeeName ? ` · Assigned by ${call.nextCall.assignedByEmployeeName}` : ""}
         </p>
       )}
     </div>

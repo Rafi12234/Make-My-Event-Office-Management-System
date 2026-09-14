@@ -235,7 +235,10 @@ function EventCard({ ev, rowData, worksheetColumns, onEdit, onViewHistory }) {
             </span>
           )}
           {ev.completionTag && (
-            <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${tagStyles[ev.completionTag.status] || tagStyles.on_time}`}>
+            <span
+              title={ev.completionTag.expectedLabel ? `Originally due ${formatDisplay(ev.completionTag.expectedLabel)}` : undefined}
+              className={`rounded-full px-2 py-0.5 text-[10px] font-black ${tagStyles[ev.completionTag.status] || tagStyles.on_time}`}
+            >
               {ev.completionTag.label}
             </span>
           )}
@@ -246,6 +249,11 @@ function EventCard({ ev, rowData, worksheetColumns, onEdit, onViewHistory }) {
         <p className="text-xs font-bold text-mme-purple/55">
           {EVENT_LABELS[ev.source] || ev.source}{ev.time ? ` \u00b7 ${to12h(ev.time)}` : ""}
         </p>
+        {ev.completionTag?.expectedLabel && (
+          <p className="text-[11px] font-semibold text-mme-purple/45">
+            Originally due: {formatDisplay(ev.completionTag.expectedLabel)}
+          </p>
+        )}
 
         {detailFields.length > 0 && (
           <div className="mt-2 space-y-1 border-t border-mme-pink/20 pt-2">
@@ -276,7 +284,10 @@ function EventCard({ ev, rowData, worksheetColumns, onEdit, onViewHistory }) {
               Next meeting: {formatDisplay(ev.nextMeetingDatetime) || "Not scheduled yet"}
               {ev.nextMeetingAssignedEmployeeName ? ` \u00b7 Assigned to ${ev.nextMeetingAssignedEmployeeName}` : ""}
               {ev.nextMeetingTag && (
-                <span className={`ml-1.5 rounded-full px-2 py-0.5 text-[10px] font-black ${tagStyles[ev.nextMeetingTag.status] || tagStyles.on_time}`}>
+                <span
+                  title={ev.nextMeetingTag.expectedLabel ? `Originally due ${formatDisplay(ev.nextMeetingTag.expectedLabel)}` : undefined}
+                  className={`ml-1.5 rounded-full px-2 py-0.5 text-[10px] font-black ${tagStyles[ev.nextMeetingTag.status] || tagStyles.on_time}`}
+                >
                   {ev.nextMeetingTag.label}
                 </span>
               )}
@@ -287,7 +298,10 @@ function EventCard({ ev, rowData, worksheetColumns, onEdit, onViewHistory }) {
               Next call: {formatDisplay(ev.nextCallDatetime) || "Not scheduled yet"}
               {ev.nextCallAssignedEmployeeName ? ` \u00b7 Assigned to ${ev.nextCallAssignedEmployeeName}` : ""}
               {ev.nextCallTag && (
-                <span className={`ml-1.5 rounded-full px-2 py-0.5 text-[10px] font-black ${tagStyles[ev.nextCallTag.status] || tagStyles.on_time}`}>
+                <span
+                  title={ev.nextCallTag.expectedLabel ? `Originally due ${formatDisplay(ev.nextCallTag.expectedLabel)}` : undefined}
+                  className={`ml-1.5 rounded-full px-2 py-0.5 text-[10px] font-black ${tagStyles[ev.nextCallTag.status] || tagStyles.on_time}`}
+                >
                   {ev.nextCallTag.label}
                 </span>
               )}
