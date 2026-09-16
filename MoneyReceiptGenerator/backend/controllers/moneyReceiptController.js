@@ -28,6 +28,9 @@ const { prisma } = require(path.join(backendSrcDirectory, "config/prisma.js"));
 const { formatDateOnly, formatDateTime, parseDateOnly } = require(
   path.join(backendSrcDirectory, "utils/dbDates.js"),
 );
+// Reused for the confirmed-clients autocomplete below — same cell-value
+// extraction rules the main workspace/admin tables already use.
+const { cellValue } = require(path.join(backendSrcDirectory, "controllers/workspaceController.js"));
 
 const storageRootDirectory = process.env.MONEY_RECEIPT_STORAGE_DIR
   ? path.resolve(process.env.MONEY_RECEIPT_STORAGE_DIR)
@@ -37,7 +40,20 @@ const generatedDirectory = path.join(storageRootDirectory, "generated");
 mkdirSync(generatedDirectory, { recursive: true });
 
 const VALID_PAYMENT_METHODS = new Set(["cash", "bank_transfer", "cheque", "bkash", "nagad", "card", "other"]);
+const VALID_BOOKING_STATUSES = new Set(["confirmed", "not_confirmed"]);
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// A column's columnKey is NOT a stable slug (e.g. "client_name") — it can be
+// a randomly-generated UUID if the column was ever recreated, same reason
+// meetingsController.js's setBookedFromMme matches by columnName ("Event
+// Date"), never by columnKey. Match these the same way, by exact
+// (case-insensitive) display name, not by columnKey/id.
+const CLIENT_LOOKUP_COLUMN_NAMES = {
+  clientName: "client name",
+  clientPhone: "client phone number",
+  eventDate: "event date",
+  venue: "venue",
+};
 
 /*
 |--------------------------------------------------------------------------
@@ -67,10 +83,12 @@ function parseReceiptPayload(body) {
     clientPhone,
     clientEmail,
     clientAddress,
+    billedTo,
     eventName,
     eventDate,
     eventVenue,
     bookingReference,
+    bookingStatus,
     totalPayment,
     advancePayment,
     paymentMethod,
@@ -126,6 +144,8 @@ function parseReceiptPayload(body) {
 
   const paymentStatus = advancePaisa === 0 ? "unpaid" : duePaisa === 0 ? "paid" : "partially_paid";
 
+  const resolvedBookingStatus = VALID_BOOKING_STATUSES.has(bookingStatus) ? bookingStatus : "not_confirmed";
+
   return {
     data: {
       receiptDate: parseDateOnly(String(receiptDate).slice(0, 10)),
@@ -133,10 +153,12 @@ function parseReceiptPayload(body) {
       clientPhone: trimmedClientPhone,
       clientEmail: trimmedEmail || null,
       clientAddress: clientAddress ? String(clientAddress).trim() || null : null,
+      billedTo: billedTo ? String(billedTo).trim() || null : null,
       eventName: eventName ? String(eventName).trim() || null : null,
       eventDate: parsedEventDate,
       eventVenue: eventVenue ? String(eventVenue).trim() || null : null,
       bookingReference: bookingReference ? String(bookingReference).trim() || null : null,
+      bookingStatus: resolvedBookingStatus,
       totalPayment: paisaToAmountString(totalPaisa),
       advancePayment: paisaToAmountString(advancePaisa),
       duePayment: paisaToAmountString(duePaisa),
@@ -153,12 +175,19 @@ function toRendererPayload(data, receiptNo) {
   return {
     receiptNo,
     receiptDate: data.receiptDate,
-    client: { name: data.clientName, phone: data.clientPhone, email: data.clientEmail, address: data.clientAddress },
+    client: {
+      name: data.clientName,
+      phone: data.clientPhone,
+      email: data.clientEmail,
+      address: data.clientAddress,
+      billedTo: data.billedTo,
+    },
     event: {
       name: data.eventName,
       date: data.eventDate,
       venue: data.eventVenue,
       bookingReference: data.bookingReference,
+      bookingStatus: data.bookingStatus,
     },
     payment: {
       total: data.totalPayment,
@@ -182,10 +211,12 @@ function serializeReceipt(receipt) {
     clientPhone: receipt.clientPhone,
     clientEmail: receipt.clientEmail,
     clientAddress: receipt.clientAddress,
+    billedTo: receipt.billedTo,
     eventName: receipt.eventName,
     eventDate: receipt.eventDate ? formatDateOnly(receipt.eventDate) : null,
     eventVenue: receipt.eventVenue,
     bookingReference: receipt.bookingReference,
+    bookingStatus: receipt.bookingStatus,
     totalPayment: receipt.totalPayment.toString(),
     advancePayment: receipt.advancePayment.toString(),
     duePayment: receipt.duePayment.toString(),
@@ -200,6 +231,86 @@ function serializeReceipt(receipt) {
     createdAt: formatDateTime(receipt.createdAt),
     createdByName: receipt.createdBy?.fullName,
   };
+}
+
+/*
+|--------------------------------------------------------------------------
+| GET /api/admin/money-receipts/confirmed-clients
+|--------------------------------------------------------------------------
+|
+| Powers the Client Name autocomplete: every row on the main workspace
+| sheet that's been marked "booked from MME" (bookedFromMme — the exact
+| same flag ManagementPage.jsx shows as "confirmed & finalized with MME"),
+| with whatever client fields the sheet actually tracks (name/phone/event
+| date/venue — no email/address/booking-reference exist on that sheet).
+| Registered BEFORE the "/:id" route below so it isn't swallowed by it.
+*/
+export async function listConfirmedClients(req, res, next) {
+  try {
+    const sheet = await prisma.managementSheet.findFirst({
+      where: { isDefault: true, isActive: true },
+      orderBy: { id: "asc" },
+      select: { id: true },
+    });
+    if (!sheet) return res.json({ data: [] });
+
+    const allColumns = await prisma.sheetColumn.findMany({
+      where: { sheetId: sheet.id, isActive: true },
+      select: { id: true, columnName: true, dataType: true },
+    });
+
+    // Map each matched column's id -> our semantic key (clientName/clientPhone/etc).
+    const semanticKeyByColumnId = new Map();
+    const columnMetaById = new Map();
+    for (const [semanticKey, targetName] of Object.entries(CLIENT_LOOKUP_COLUMN_NAMES)) {
+      const column = allColumns.find((c) => c.columnName.trim().toLowerCase() === targetName);
+      if (column) {
+        semanticKeyByColumnId.set(column.id, semanticKey);
+        columnMetaById.set(column.id, column);
+      }
+    }
+    if (!semanticKeyByColumnId.size) return res.json({ data: [] });
+
+    const rows = await prisma.sheetRow.findMany({
+      where: { sheetId: sheet.id, isArchived: false },
+      orderBy: [{ rowPosition: "asc" }, { id: "asc" }],
+      select: { id: true, rowKey: true },
+    });
+    if (!rows.length) return res.json({ data: [] });
+
+    const cells = await prisma.sheetCell.findMany({
+      where: { rowId: { in: rows.map((row) => row.id) }, columnId: { in: [...semanticKeyByColumnId.keys()] } },
+    });
+
+    const bookedFromMmeRowIds = new Set();
+    const valuesByRowId = new Map(rows.map((row) => [row.id, {}]));
+
+    for (const cell of cells) {
+      const semanticKey = semanticKeyByColumnId.get(cell.columnId);
+      const columnMeta = columnMetaById.get(cell.columnId);
+      if (!semanticKey || !columnMeta) continue;
+      valuesByRowId.get(cell.rowId)[semanticKey] = cellValue(cell, columnMeta.dataType);
+      if (cell.bookedFromMme) bookedFromMmeRowIds.add(cell.rowId);
+    }
+
+    const clients = rows
+      .filter((row) => bookedFromMmeRowIds.has(row.id))
+      .map((row) => {
+        const values = valuesByRowId.get(row.id) || {};
+        return {
+          rowKey: row.rowKey,
+          clientName: String(values.clientName || "").trim(),
+          clientPhone: String(values.clientPhone || "").trim(),
+          eventDate: values.eventDate || null,
+          eventVenue: String(values.venue || "").trim(),
+        };
+      })
+      .filter((client) => client.clientName);
+
+    return res.json({ data: clients });
+  } catch (error) {
+    return next(error);
+  }
 }
 
 /*
@@ -254,10 +365,12 @@ export async function createMoneyReceipt(req, res, next) {
           clientPhone: data.clientPhone,
           clientEmail: data.clientEmail,
           clientAddress: data.clientAddress,
+          billedTo: data.billedTo,
           eventName: data.eventName,
           eventDate: data.eventDate,
           eventVenue: data.eventVenue,
           bookingReference: data.bookingReference,
+          bookingStatus: data.bookingStatus,
           totalPayment: data.totalPayment,
           advancePayment: data.advancePayment,
           duePayment: data.duePayment,

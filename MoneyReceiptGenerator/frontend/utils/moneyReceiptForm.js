@@ -15,6 +15,11 @@ export const PAYMENT_METHOD_OPTIONS = [
   { value: "other", label: "Other" },
 ];
 
+export const BOOKING_STATUS_OPTIONS = [
+  { value: "confirmed", label: "Confirmed" },
+  { value: "not_confirmed", label: "Not Confirm" },
+];
+
 function todayDateString() {
   const now = new Date();
   const yyyy = now.getFullYear();
@@ -30,10 +35,12 @@ export function createBlankMoneyReceiptForm() {
     clientPhone: "",
     clientEmail: "",
     clientAddress: "",
+    billedTo: "",
     eventName: "",
     eventDate: "",
     eventVenue: "",
     bookingReference: "",
+    bookingStatus: "not_confirmed",
     totalPayment: "",
     advancePayment: "",
     paymentMethod: "cash",
