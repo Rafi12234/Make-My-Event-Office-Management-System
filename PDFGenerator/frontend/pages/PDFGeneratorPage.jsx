@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 import {
+  ChevronDown,
   FileSpreadsheet,
   FileText,
   History,
@@ -50,6 +51,7 @@ function editablePayload(document) {
     eventDate: document.eventDate || "",
     eventTitle: document.eventTitle || "",
     selectedColumns: document.selectedColumns || [],
+    excelColumns: document.excelColumns || [],
     nbPoints: document.nbPoints || [],
 
     items: (document.items || []).map((item) => ({
@@ -62,6 +64,10 @@ function editablePayload(document) {
       tsqft: item.tsqft || "",
       unit: item.unit || "",
       price: item.price || "",
+      excelRowData:
+        item.excelRowData && typeof item.excelRowData === "object"
+          ? item.excelRowData
+          : null,
     })),
   };
 }
@@ -135,6 +141,10 @@ export default function PDFGeneratorPage() {
   const [error, setError] = useState("");
 
   const [notice, setNotice] = useState("");
+
+  // N.B. terms are included in every generated PDF, but stay collapsed in
+  // the builder so they do not consume most of the screen during normal work.
+  const [nbExpanded, setNbExpanded] = useState(false);
 
   /*
   |--------------------------------------------------------------------------
@@ -230,20 +240,39 @@ export default function PDFGeneratorPage() {
     }
 
     if (!document?.items?.length) {
-      return "At least one item is required.";
+      return "At least one table row is required.";
+    }
+
+    if (document.sourceMode === "excel") {
+      const columns = Array.isArray(document.excelColumns)
+        ? document.excelColumns
+        : [];
+
+      const hasItemColumn = columns.some((column) => column?.role === "item");
+      const hasDescriptionColumn = columns.some(
+        (column) => column?.role === "description",
+      );
+
+      if (!hasItemColumn || !hasDescriptionColumn) {
+        return 'Excel mode requires both an "Item/Items" column and a "Description/Details" column.';
+      }
+
+      if (!document.items.some((item) => String(item.itemName || "").trim())) {
+        return "The Excel table must contain at least one Item/Items value.";
+      }
+
+      // Blank Item/Description cells are allowed on subtotal, total and footer
+      // rows. Only the column names themselves are mandatory in Excel mode.
+      return "";
     }
 
     for (const [index, item] of document.items.entries()) {
       if (!item.itemName?.trim()) {
-        return `Item name is required in row ${
-          index + 1
-        }.`;
+        return `Item name is required in row ${index + 1}.`;
       }
 
       if (!String(item.quantity || "").trim()) {
-        return `QTY is required in row ${
-          index + 1
-        }.`;
+        return `QTY is required in row ${index + 1}.`;
       }
     }
 
@@ -575,7 +604,9 @@ export default function PDFGeneratorPage() {
       setEditing(true);
 
       setNotice(
-        "New item row added at the bottom of the PDF table.",
+        saved.sourceMode === "excel"
+          ? "New Excel-style row added at the bottom of the table."
+          : "New item row added at the bottom of the PDF table.",
       );
     } catch (err) {
       setError(
@@ -689,7 +720,7 @@ export default function PDFGeneratorPage() {
       setEditing(true);
 
       setNotice(
-        `${parsed.rows.length} Excel rows imported from ${parsed.sheetName}.`,
+        `${parsed.rows.length} Excel rows imported from ${parsed.sheetName}. Excel mode is now active; Client Meeting rows and images are not used in this PDF draft. Upload reference images separately for each Excel item.`,
       );
     } catch (err) {
       setError(
@@ -1038,35 +1069,25 @@ export default function PDFGeneratorPage() {
               </h2>
 
               <p className="mt-1 max-w-4xl text-xs leading-relaxed text-black/40">
-                Images remain available
-                here for the detailed
-                reference pages, but the
-                generated PDF summary table
-                does not include an Images
-                column. All selected data
-                columns are fitted inside
-                the fixed letterhead width.
+                {document.sourceMode === "excel"
+                  ? "Excel mode preserves the uploaded table's column names, column order, row order and cell values. Images are managed separately and are not added to the summary-table columns in the PDF."
+                  : "Images remain available here for the detailed reference pages, but the generated PDF summary table does not include an Images column. All selected data columns are fitted inside the fixed letterhead width."}
               </p>
             </div>
 
-            {/* ONLY COLUMN SELECTOR HERE.
-                ADD ITEM IS NOW INSIDE THE TABLE. */}
-            <PDFColumnSelector
-              disabled={
-                !editing || busy
-              }
-              selectedColumns={
-                document.selectedColumns ||
-                []
-              }
-              onChange={(
-                selectedColumns,
-              ) =>
-                updateDocument({
-                  selectedColumns,
-                })
-              }
-            />
+            {document.sourceMode === "excel" ? (
+              <span className="rounded-full bg-emerald-50 px-3 py-2 text-[10px] font-black uppercase tracking-wide text-emerald-700">
+                Excel columns preserved
+              </span>
+            ) : (
+              <PDFColumnSelector
+                disabled={!editing || busy}
+                selectedColumns={document.selectedColumns || []}
+                onChange={(selectedColumns) =>
+                  updateDocument({ selectedColumns })
+                }
+              />
+            )}
           </div>
 
           <PDFBuilderTable
@@ -1077,6 +1098,8 @@ export default function PDFGeneratorPage() {
               document.selectedColumns ||
               []
             }
+            excelColumns={document.excelColumns || []}
+            sourceMode={document.sourceMode}
             editing={editing}
             onChange={(items) =>
               updateDocument({
@@ -1120,37 +1143,57 @@ export default function PDFGeneratorPage() {
           />
 
           <p className="mt-2 px-1 text-[11px] leading-relaxed text-black/35">
-            PDF reference rendering
-            supports JPG/PNG. If a meeting
-            contains GIF/WEBP, remove it
-            from this PDF draft and upload
-            a JPG/PNG copy here.
+            {document.sourceMode === "excel"
+              ? "Excel mode uses only the imported rows. Upload one or multiple JPG/PNG reference images in the Images cell for each item; those images will appear in that item's detailed PDF section."
+              : "PDF reference rendering supports JPG/PNG. If a meeting contains GIF/WEBP, remove it from this PDF draft and upload a JPG/PNG copy here."}
           </p>
         </div>
 
         {/* ================================================================
-            N.B.
+            N.B. - collapsed by default
         ================================================================= */}
-        <div className="rounded-2xl border border-black/10 bg-white p-4 shadow-sm sm:p-5">
-          <h2 className="mb-3 text-sm font-black uppercase tracking-wide text-black/50">
-            N.B.{" "}
-            <span className="font-medium normal-case text-black/30">
-              (placed immediately after
-              the table)
-            </span>
-          </h2>
+        <div className="overflow-hidden rounded-2xl border border-black/10 bg-white shadow-sm">
+          <button
+            type="button"
+            onClick={() => setNbExpanded((current) => !current)}
+            className="flex w-full items-center justify-between gap-4 px-4 py-4 text-left transition hover:bg-black/[0.02] sm:px-5"
+            aria-expanded={nbExpanded}
+          >
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-sm font-black uppercase tracking-wide text-black/55">
+                  N.B. Terms
+                </h2>
+                <span className="rounded-full bg-black/5 px-2.5 py-1 text-[10px] font-black text-black/45">
+                  {(document.nbPoints || []).length} points
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-black/35">
+                Included automatically immediately after the PDF summary table. Open only when you need to review or edit the terms.
+              </p>
+            </div>
 
-          <NbPointsList
-            points={
-              document.nbPoints || []
-            }
-            disabled={!editing}
-            onChange={(nbPoints) =>
-              updateDocument({
-                nbPoints,
-              })
-            }
-          />
+            <ChevronDown
+              size={18}
+              className={`shrink-0 text-black/40 transition-transform ${
+                nbExpanded ? "rotate-180" : ""
+              }`}
+            />
+          </button>
+
+          {nbExpanded && (
+            <div className="border-t border-black/10 px-4 pb-5 pt-4 sm:px-5">
+              <NbPointsList
+                points={document.nbPoints || []}
+                disabled={!editing}
+                onChange={(nbPoints) =>
+                  updateDocument({
+                    nbPoints,
+                  })
+                }
+              />
+            </div>
+          )}
         </div>
 
         {/* ================================================================
