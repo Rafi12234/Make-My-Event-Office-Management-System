@@ -49,3 +49,5 @@ Accounts/backend/uploads/
 #    records — never committed) ──
 MoneyReceiptGenerator/backend/storage/generated/*
 !MoneyReceiptGenerator/backend/storage/generated/.gitkeep
+
+PDFGenerator/backend/storage/generated/*
