@@ -1,6 +1,7 @@
 import { prisma } from "../config/prisma.js";
 import { formatDateOnly, formatTimeOnly, formatDateTime, nowInBusinessTimezone } from "../utils/dbDates.js";
 import { computeMeetingCallTimes } from "../utils/meetingCallTimes.js";
+import { buildCompletionTag, buildFulfilledFollowUpMap } from "../utils/completionTag.js";
 
 async function getDefaultSheetId() {
   const sheet = await prisma.managementSheet.findFirst({
@@ -255,7 +256,13 @@ export async function getClientDetail(req, res, next) {
         include: {
           createdBy: { select: { fullName: true } },
           assignedBy: { select: { fullName: true } },
-          nextMeeting: { include: { assignedEmployee: { select: { fullName: true } } } },
+          nextMeeting: {
+            include: {
+              assignedEmployee: { select: { fullName: true } },
+              createdBy: { select: { fullName: true } },
+              updatedBy: { select: { fullName: true } },
+            },
+          },
         },
         orderBy: { id: "desc" },
       }),
@@ -264,7 +271,13 @@ export async function getClientDetail(req, res, next) {
         include: {
           createdBy: { select: { fullName: true } },
           assignedBy: { select: { fullName: true } },
-          nextCall: { include: { assignedEmployee: { select: { fullName: true } } } },
+          nextCall: {
+            include: {
+              assignedEmployee: { select: { fullName: true } },
+              createdBy: { select: { fullName: true } },
+              updatedBy: { select: { fullName: true } },
+            },
+          },
         },
         orderBy: { id: "desc" },
       }),
@@ -276,6 +289,9 @@ export async function getClientDetail(req, res, next) {
     ]);
 
     if (!row) return res.status(404).json({ message: "Client not found." });
+
+    const fulfilledNextMeetingByMeetingId = buildFulfilledFollowUpMap(meetings, "meetingDatetime", "expectedMeetingDatetime");
+    const fulfilledNextCallByCallId = buildFulfilledFollowUpMap(calls, "callDatetime", "expectedCallDatetime");
 
     const cells = await prisma.sheetCell.findMany({
       where: { row: { sheetId, rowKey }, columnId: { in: allColumns.map((c) => c.id) } },
@@ -312,12 +328,27 @@ export async function getClientDetail(req, res, next) {
           discussionNotes: m.discussionNotes,
           createdByName: m.createdBy?.fullName || null,
           assignedByEmployeeName: m.assignedBy?.fullName || null,
+          // Present only when this meeting itself fulfilled an earlier
+          // follow-up — shows how it compares to that due time (the
+          // original schedule is gone from `nextMeeting` once fulfilled,
+          // since that's whatever follow-up THIS meeting scheduled instead).
+          completionTag: buildCompletionTag(m.meetingDatetime, m.expectedMeetingDatetime),
           nextMeeting: m.nextMeeting
             ? {
                 nextMeetingDatetime: formatDateTime(m.nextMeeting.nextMeetingDatetime),
                 assignedEmployeeName: m.nextMeeting.assignedEmployee?.fullName || null,
+                assignedByEmployeeName: m.nextMeeting.updatedBy?.fullName || m.nextMeeting.createdBy?.fullName || null,
               }
-            : null,
+            : (() => {
+                const fulfilled = fulfilledNextMeetingByMeetingId.get(String(m.id));
+                return fulfilled
+                  ? {
+                      nextMeetingDatetime: formatDateTime(fulfilled.expectedMeetingDatetime),
+                      assignedEmployeeName: fulfilled.createdBy?.fullName || null,
+                      assignedByEmployeeName: fulfilled.assignedBy?.fullName || null,
+                    }
+                  : null;
+              })(),
         })),
         calls: calls.map((c) => ({
           id: c.id,
@@ -325,12 +356,23 @@ export async function getClientDetail(req, res, next) {
           callDiscussion: c.callDiscussion,
           createdByName: c.createdBy?.fullName || null,
           assignedByEmployeeName: c.assignedBy?.fullName || null,
+          completionTag: buildCompletionTag(c.callDatetime, c.expectedCallDatetime),
           nextCall: c.nextCall
             ? {
                 nextCallDatetime: formatDateTime(c.nextCall.nextCallDatetime),
                 assignedEmployeeName: c.nextCall.assignedEmployee?.fullName || null,
+                assignedByEmployeeName: c.nextCall.updatedBy?.fullName || c.nextCall.createdBy?.fullName || null,
               }
-            : null,
+            : (() => {
+                const fulfilled = fulfilledNextCallByCallId.get(String(c.id));
+                return fulfilled
+                  ? {
+                      nextCallDatetime: formatDateTime(fulfilled.expectedCallDatetime),
+                      assignedEmployeeName: fulfilled.createdBy?.fullName || null,
+                      assignedByEmployeeName: fulfilled.assignedBy?.fullName || null,
+                    }
+                  : null;
+              })(),
         })),
       },
     });

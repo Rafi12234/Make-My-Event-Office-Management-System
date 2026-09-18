@@ -73,10 +73,11 @@ export default function PDFGeneratorShell({
   );
 }
 
-export function ShellHeaderLink({ to, children }) {
+export function ShellHeaderLink({ to, state, children }) {
   return (
     <Link
       to={to}
+      state={state}
       className="group hidden items-center gap-2 rounded-xl border border-black/10 bg-white px-3.5 py-2.5 text-xs font-black text-black/65 transition-all duration-300 hover:-translate-y-0.5 hover:border-black hover:bg-[#0B0B0F] hover:text-white sm:inline-flex"
     >
       {children}

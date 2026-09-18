@@ -18,6 +18,7 @@ export default function PDFHistoryPage() {
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
   const [busyDocumentId, setBusyDocumentId] = useState(null);
+  const backTo = location.state?.backTo || "/management";
 
   async function refresh() {
     setIsLoading(true);
@@ -39,8 +40,8 @@ export default function PDFHistoryPage() {
   useEffect(() => {
     if (!location.state?.toast) return;
     setToast(location.state.toast);
-    navigate(location.pathname, { replace: true, state: null });
-  }, [location.state, location.pathname, navigate]);
+    navigate(location.pathname, { replace: true, state: { backTo } });
+  }, [location.state, location.pathname, navigate, backTo]);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -97,7 +98,7 @@ export default function PDFHistoryPage() {
       title="Document History"
       description="Every PDF you've generated, newest first."
       icon={History}
-      backTo="/pdf-generator"
+      backTo={backTo}
     >
       {toast && <p className="mm-fade mb-4 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">{toast}</p>}
       {error && <p className="mb-4 rounded-xl bg-red-50 px-4 py-3 text-sm font-bold text-red-600">{error}</p>}

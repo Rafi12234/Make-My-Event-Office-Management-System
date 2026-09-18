@@ -1,104 +1,187 @@
-// Summary-table drawing + pagination for pdf-lib (guide §17-23, §54-56):
-// dynamic row heights, cell text wrapping, centered alignment, and table
-// continuation onto plain pages when rows overflow the first page.
 import { rgb } from "pdf-lib";
 import {
-  TABLE_COLUMN_PERCENTAGES,
-  TABLE_HEADER_FONT_SIZE,
-  TABLE_BODY_FONT_SIZE,
-  TABLE_TITLE_FONT_SIZE,
-  TABLE_TITLE_ROW_HEIGHT,
   TABLE_CELL_PADDING_X,
   TABLE_CELL_PADDING_Y,
   TABLE_LINE_HEIGHT_FACTOR,
+  TABLE_TITLE_FONT_SIZE,
+  TABLE_TITLE_ROW_HEIGHT,
 } from "../config/pdfLayout.js";
-import { wrapText, measureLinesHeight, drawLines } from "./textRenderer.js";
+import { drawLines, measureLinesHeight, wrapText } from "./textRenderer.js";
 
-const COLUMN_ORDER = ["sl", "item", "description", "qty"];
-const COLUMN_LABELS = { sl: "Sl", item: "Item", description: "Description", qty: "Qty" };
 const BLACK = rgb(0, 0, 0);
+const OPTIONAL_ORDER = ["size", "sqft", "tsqft", "unit", "price"];
+const META = {
+  sl: { label: "SL", weight: 4 },
+  item: { label: "Item", weight: 11 },
+  description: { label: "Description", weight: 20 },
+  qty: { label: "QTY", weight: 5 },
+  size: { label: "Size", weight: 8 },
+  sqft: { label: "SQFT", weight: 6 },
+  tsqft: { label: "TSqft", weight: 6 },
+  unit: { label: "Unit", weight: 6 },
+  price: { label: "Price", weight: 8 },
+};
 
-export function computeColumnWidths(tableWidth) {
+// Images are intentionally NOT part of the summary table. They remain attached
+// to each PDF item and are rendered later in the detail/reference section.
+export function getColumnOrder(selectedColumns = []) {
+  const optional = OPTIONAL_ORDER.filter((key) => selectedColumns.includes(key));
+  return ["sl", "item", "description", "qty", ...optional];
+}
+
+export function tableFontSizes(columnCount) {
+  if (columnCount >= 9) return { header: 6.8, body: 6.9 };
+  if (columnCount >= 7) return { header: 7.4, body: 7.6 };
+  if (columnCount >= 6) return { header: 8, body: 8.2 };
+  return { header: 8.8, body: 9 };
+}
+
+export function computeColumnWidths(tableWidth, selectedColumns = []) {
+  const order = getColumnOrder(selectedColumns);
+  const totalWeight = order.reduce((sum, key) => sum + META[key].weight, 0);
   const widths = {};
-  for (const key of COLUMN_ORDER) widths[key] = tableWidth * TABLE_COLUMN_PERCENTAGES[key];
+  for (const key of order) widths[key] = (tableWidth * META[key].weight) / totalWeight;
   return widths;
 }
 
-function totalWidth(columnWidths) {
-  return COLUMN_ORDER.reduce((sum, key) => sum + columnWidths[key], 0);
+function totalWidth(columnWidths, order) {
+  return order.reduce((sum, key) => sum + columnWidths[key], 0);
 }
 
-function cellMaxTextWidth(columnWidth) {
-  return columnWidth - TABLE_CELL_PADDING_X * 2;
+function textValue(item, key, index) {
+  if (key === "sl") return String(index + 1);
+  if (key === "item") return item.itemName || "";
+  if (key === "description") return item.description || "";
+  if (key === "qty") return item.quantity || "";
+  return item[key] == null ? "" : String(item[key]);
 }
 
-// Precomputes wrapped lines + required row height for every item, once, so
-// pagination can walk through rows without re-measuring repeatedly (guide
-// §58 "measure before drawing").
-export function measureRows(items, columnWidths, fonts) {
+export function measureRows(items, columnWidths, fonts, selectedColumns = []) {
+  const order = getColumnOrder(selectedColumns);
+  const { body } = tableFontSizes(order.length);
+
   return items.map((item, index) => {
-    const wrapped = {
-      sl: wrapText(String(index + 1), fonts.regular, TABLE_BODY_FONT_SIZE, cellMaxTextWidth(columnWidths.sl)),
-      item: wrapText(item.itemName, fonts.regular, TABLE_BODY_FONT_SIZE, cellMaxTextWidth(columnWidths.item)),
-      description: wrapText(item.description, fonts.regular, TABLE_BODY_FONT_SIZE, cellMaxTextWidth(columnWidths.description)),
-      qty: wrapText(String(item.quantity), fonts.regular, TABLE_BODY_FONT_SIZE, cellMaxTextWidth(columnWidths.qty)),
+    const wrapped = {};
+    let textHeight = 0;
+
+    for (const key of order) {
+      const maxWidth = Math.max(4, columnWidths[key] - TABLE_CELL_PADDING_X * 2);
+      wrapped[key] = wrapText(textValue(item, key, index), fonts.regular, body, maxWidth);
+      textHeight = Math.max(
+        textHeight,
+        measureLinesHeight(wrapped[key].length, body, TABLE_LINE_HEIGHT_FACTOR) + TABLE_CELL_PADDING_Y * 2,
+      );
+    }
+
+    return {
+      item,
+      wrapped,
+      height: Math.max(textHeight, body + TABLE_CELL_PADDING_Y * 2),
     };
-
-    const maxLines = Math.max(...COLUMN_ORDER.map((key) => wrapped[key].length), 1);
-    const height = measureLinesHeight(maxLines, TABLE_BODY_FONT_SIZE, TABLE_LINE_HEIGHT_FACTOR) + TABLE_CELL_PADDING_Y * 2;
-
-    return { item, wrapped, height };
   });
 }
 
-export function measureHeaderHeight() {
-  return measureLinesHeight(1, TABLE_HEADER_FONT_SIZE, TABLE_LINE_HEIGHT_FACTOR) + TABLE_CELL_PADDING_Y * 2;
+// Extremely tall rows are split across continuation pages. Since images are
+// not part of the table anymore, only wrapped text needs to be segmented.
+export function splitMeasuredRow(row, maxHeight, columnWidths, selectedColumns = []) {
+  if (row.height <= maxHeight) return [row];
+
+  const order = getColumnOrder(selectedColumns);
+  const { body } = tableFontSizes(order.length);
+  const lineHeight = body * TABLE_LINE_HEIGHT_FACTOR;
+  const maxTextLines = Math.max(1, Math.floor((maxHeight - TABLE_CELL_PADDING_Y * 2) / lineHeight));
+  const offsets = Object.fromEntries(order.map((key) => [key, 0]));
+  const segments = [];
+
+  function hasRemaining() {
+    return order.some((key) => offsets[key] < (row.wrapped[key] || []).length);
+  }
+
+  while (hasRemaining()) {
+    const wrapped = {};
+    let textHeight = 0;
+
+    for (const key of order) {
+      const lines = row.wrapped[key] || [];
+      const start = offsets[key];
+      const chunk = lines.slice(start, start + maxTextLines);
+      offsets[key] = start + chunk.length;
+      wrapped[key] = chunk;
+
+      if (chunk.length) {
+        textHeight = Math.max(
+          textHeight,
+          measureLinesHeight(chunk.length, body, TABLE_LINE_HEIGHT_FACTOR) + TABLE_CELL_PADDING_Y * 2,
+        );
+      }
+    }
+
+    segments.push({
+      item: row.item,
+      wrapped,
+      height: Math.min(maxHeight, Math.max(textHeight, body + TABLE_CELL_PADDING_Y * 2)),
+    });
+  }
+
+  return segments;
 }
 
-function drawColumnBorders(page, x, columnWidths, topY, bottomY) {
+export function measureHeaderHeight(selectedColumns = []) {
+  const count = getColumnOrder(selectedColumns).length;
+  const { header } = tableFontSizes(count);
+  return measureLinesHeight(1, header, TABLE_LINE_HEIGHT_FACTOR) + TABLE_CELL_PADDING_Y * 2;
+}
+
+function drawColumnBorders(page, x, columnWidths, order, topY, bottomY) {
   let cursor = x;
-  page.drawLine({ start: { x: cursor, y: topY }, end: { x: cursor, y: bottomY }, thickness: 0.8, color: BLACK });
-  for (const key of COLUMN_ORDER) {
+  page.drawLine({ start: { x: cursor, y: topY }, end: { x: cursor, y: bottomY }, thickness: 0.7, color: BLACK });
+  for (const key of order) {
     cursor += columnWidths[key];
-    page.drawLine({ start: { x: cursor, y: topY }, end: { x: cursor, y: bottomY }, thickness: 0.8, color: BLACK });
+    page.drawLine({ start: { x: cursor, y: topY }, end: { x: cursor, y: bottomY }, thickness: 0.7, color: BLACK });
   }
 }
 
-// Merged, centered event-title row above the table headers (guide §16).
 export function drawTableTitle(page, { x, y, width, title, font }) {
   const height = TABLE_TITLE_ROW_HEIGHT;
   const bottomY = y - height;
+  page.drawRectangle({ x, y: bottomY, width, height, borderWidth: 0.7, borderColor: BLACK });
 
-  page.drawRectangle({ x, y: bottomY, width, height, borderWidth: 0.8, borderColor: BLACK });
-  const textWidth = font.widthOfTextAtSize(title, TABLE_TITLE_FONT_SIZE);
-  page.drawText(title, {
-    x: x + (width - textWidth) / 2,
-    y: bottomY + (height - TABLE_TITLE_FONT_SIZE) / 2 + 1,
-    size: TABLE_TITLE_FONT_SIZE,
+  const safeTitle = String(title || "");
+  const textWidth = font.widthOfTextAtSize(safeTitle, TABLE_TITLE_FONT_SIZE);
+  const fittedSize = textWidth > width - 12
+    ? Math.max(8, (TABLE_TITLE_FONT_SIZE * (width - 12)) / textWidth)
+    : TABLE_TITLE_FONT_SIZE;
+  const fittedWidth = font.widthOfTextAtSize(safeTitle, fittedSize);
+
+  page.drawText(safeTitle, {
+    x: x + (width - fittedWidth) / 2,
+    y: bottomY + (height - fittedSize) / 2 + 1,
+    size: fittedSize,
     font,
     color: BLACK,
   });
-
   return bottomY;
 }
 
-export function drawTableHeader(page, { x, y, columnWidths, font }) {
-  const height = measureHeaderHeight();
+export function drawTableHeader(page, { x, y, columnWidths, font, selectedColumns = [] }) {
+  const order = getColumnOrder(selectedColumns);
+  const { header } = tableFontSizes(order.length);
+  const height = measureHeaderHeight(selectedColumns);
   const bottomY = y - height;
-  const width = totalWidth(columnWidths);
+  const width = totalWidth(columnWidths, order);
 
-  drawColumnBorders(page, x, columnWidths, y, bottomY);
-  page.drawLine({ start: { x, y }, end: { x: x + width, y }, thickness: 0.8, color: BLACK });
-  page.drawLine({ start: { x, y: bottomY }, end: { x: x + width, y: bottomY }, thickness: 0.8, color: BLACK });
+  drawColumnBorders(page, x, columnWidths, order, y, bottomY);
+  page.drawLine({ start: { x, y }, end: { x: x + width, y }, thickness: 0.7, color: BLACK });
+  page.drawLine({ start: { x, y: bottomY }, end: { x: x + width, y: bottomY }, thickness: 0.7, color: BLACK });
 
   let cursor = x;
-  for (const key of COLUMN_ORDER) {
-    const label = COLUMN_LABELS[key];
-    const textWidth = font.widthOfTextAtSize(label, TABLE_HEADER_FONT_SIZE);
+  for (const key of order) {
+    const label = META[key].label;
+    const labelWidth = font.widthOfTextAtSize(label, header);
     page.drawText(label, {
-      x: cursor + (columnWidths[key] - textWidth) / 2,
-      y: bottomY + (height - TABLE_HEADER_FONT_SIZE) / 2 + 1,
-      size: TABLE_HEADER_FONT_SIZE,
+      x: cursor + Math.max(1, (columnWidths[key] - labelWidth) / 2),
+      y: bottomY + (height - header) / 2 + 1,
+      size: header,
       font,
       color: BLACK,
     });
@@ -108,31 +191,32 @@ export function drawTableHeader(page, { x, y, columnWidths, font }) {
   return bottomY;
 }
 
-// Draws one pre-measured row (from measureRows) with vertically centered,
-// wrapped, centered-aligned cell text (guide §19-21).
-export function drawTableRow(page, { x, y, columnWidths, row, font }) {
+export function drawTableRow(page, { x, y, columnWidths, row, font, selectedColumns = [] }) {
+  const order = getColumnOrder(selectedColumns);
+  const { body } = tableFontSizes(order.length);
   const bottomY = y - row.height;
-  const width = totalWidth(columnWidths);
+  const width = totalWidth(columnWidths, order);
 
-  drawColumnBorders(page, x, columnWidths, y, bottomY);
-  page.drawLine({ start: { x, y: bottomY }, end: { x: x + width, y: bottomY }, thickness: 0.8, color: BLACK });
+  drawColumnBorders(page, x, columnWidths, order, y, bottomY);
+  page.drawLine({ start: { x, y: bottomY }, end: { x: x + width, y: bottomY }, thickness: 0.7, color: BLACK });
 
   let cursor = x;
-  for (const key of COLUMN_ORDER) {
-    const lines = row.wrapped[key];
-    const linesHeight = measureLinesHeight(lines.length, TABLE_BODY_FONT_SIZE, TABLE_LINE_HEIGHT_FACTOR);
+  for (const key of order) {
+    const lines = row.wrapped[key] || [""];
+    const linesHeight = measureLinesHeight(lines.length, body, TABLE_LINE_HEIGHT_FACTOR);
     const topInset = Math.max((row.height - linesHeight) / 2, TABLE_CELL_PADDING_Y);
 
     drawLines(page, lines, {
       x: cursor + TABLE_CELL_PADDING_X,
       topY: y - topInset,
-      width: cellMaxTextWidth(columnWidths[key]),
+      width: Math.max(4, columnWidths[key] - TABLE_CELL_PADDING_X * 2),
       font,
-      fontSize: TABLE_BODY_FONT_SIZE,
+      fontSize: body,
       color: BLACK,
       align: "center",
       lineHeightFactor: TABLE_LINE_HEIGHT_FACTOR,
     });
+
     cursor += columnWidths[key];
   }
 
