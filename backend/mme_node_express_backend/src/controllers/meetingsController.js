@@ -453,10 +453,12 @@ export async function createMeeting(req, res, next) {
   try {
     // If this client has a pending next-meeting assignment (set on a
     // previous meeting), this new meeting is fulfilling it — record who
-    // made that assignment so the new meeting card can show "Assigned by <name>".
+    // made that assignment so the new meeting card can show "Assigned by
+    // <name>", and snapshot the due time onto the new meeting before it's
+    // wiped below, so "done Xm early/late" can still be shown after the fact.
     const pendingNextMeeting = await prisma.clientNextMeeting.findFirst({
       where: { linkedRowKey: rowKey },
-      select: { updatedById: true, createdById: true },
+      select: { updatedById: true, createdById: true, nextMeetingDatetime: true },
     });
     const assignedByEmployeeId = pendingNextMeeting?.updatedById ?? pendingNextMeeting?.createdById ?? null;
 
@@ -467,6 +469,7 @@ export async function createMeeting(req, res, next) {
         createdById: employeeId,
         updatedById: employeeId,
         assignedByEmployeeId,
+        expectedMeetingDatetime: pendingNextMeeting?.nextMeetingDatetime ?? null,
       },
       select: { id: true },
     });

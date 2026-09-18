@@ -687,8 +687,8 @@ function prepareEditedItems(rawItems, existingItems) {
       if (!Number.isFinite(quantity) || quantity <= 0) {
         return { error: "Quantity must be greater than zero." };
       }
-      if (!Number.isFinite(perQtyAmount) || perQtyAmount < 0) {
-        return { error: "Per quantity amount must be zero or more." };
+      if (!Number.isFinite(perQtyAmount) || perQtyAmount <= 0) {
+        return { error: "Per quantity amount must be greater than zero." };
       }
 
       let vendorId = existing.vendorId;

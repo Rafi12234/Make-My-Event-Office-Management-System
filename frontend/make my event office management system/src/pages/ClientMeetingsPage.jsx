@@ -17,6 +17,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  FileText,
   ImagePlus,
   Loader2,
   Pencil,
@@ -216,6 +217,7 @@ function ImageLightbox({ images, initialIndex, onClose }) {
 }
 
 function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged, onDeleted }) {
+  const navigate = useNavigate();
   // A meeting only "counts" once it has at least one item on record —
   // until then the card stays fully unlocked so the employee can freely
   // fill it in and hit Save for the first time.
@@ -494,6 +496,21 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
         </div>
 
         <div className="flex items-center gap-2">
+          {hasContent && (
+            <button
+              onClick={() =>
+                navigate(`/management/meetings/${rowKey}/${meeting.id}/pdf`, {
+                  state: { from: `/management/meetings/${rowKey}` },
+                })
+              }
+              disabled={isSaving || (isEditing && isDirty)}
+              title={isEditing && isDirty ? "Save this meeting before opening the PDF builder" : "Generate PDF from this meeting"}
+              className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-4 py-2 text-xs font-black text-violet-700 shadow-sm transition-all duration-200 hover:border-violet-300 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              <FileText size={13} />
+              PDF Generate
+            </button>
+          )}
           {hasContent && !isEditing && (
             <button
               onClick={handleEdit}

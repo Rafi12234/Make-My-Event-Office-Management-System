@@ -27,6 +27,24 @@ function formatDisplayDatetime(value) {
   return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
+const TAG_STYLES = {
+  early: "bg-emerald-100 text-emerald-700",
+  on_time: "bg-blue-100 text-blue-700",
+  late: "bg-amber-100 text-amber-700",
+};
+
+function CompletionBadge({ tag }) {
+  if (!tag) return null;
+  return (
+    <span
+      title={tag.expectedLabel ? `Originally due ${formatDisplayDatetime(tag.expectedLabel)}` : undefined}
+      className={`rounded-full px-2 py-0.5 text-[10px] font-black ${TAG_STYLES[tag.status] || TAG_STYLES.on_time}`}
+    >
+      {tag.label}
+    </span>
+  );
+}
+
 // Full-screen gallery viewer with prev/next + keyboard navigation, matching
 // ClientMeetingsPage.jsx's ImageLightbox exactly (read-only here — no
 // upload/delete/final-select controls, just browsing).
@@ -108,11 +126,19 @@ function MeetingCard({ meeting, onViewImage }) {
             <CalendarClock size={16} />
           </span>
           <div>
-            <p className="font-black text-mme-purple">{formatDisplayDatetime(meeting.meetingDatetime)}</p>
+            <p className="flex items-center gap-1.5 font-black text-mme-purple">
+              {formatDisplayDatetime(meeting.meetingDatetime)}
+              <CompletionBadge tag={meeting.completionTag} />
+            </p>
             <p className="text-xs font-semibold text-mme-purple/75">
               Logged by {meeting.createdByName || "—"}
               {meeting.assignedByEmployeeName ? ` \u00b7 Assigned by ${meeting.assignedByEmployeeName}` : ""}
             </p>
+            {meeting.completionTag?.expectedLabel && (
+              <p className="text-[11px] font-semibold text-mme-purple/45">
+                Originally due: {formatDisplayDatetime(meeting.completionTag.expectedLabel)}
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -188,6 +214,9 @@ function MeetingCard({ meeting, onViewImage }) {
           <span>Next meeting: <span className="font-bold text-mme-purple">{formatDisplayDatetime(meeting.nextMeetingDatetime)}</span></span>
           {meeting.nextMeetingAssignedEmployeeName && (
             <span>Assigned to <span className="font-bold text-mme-purple">{meeting.nextMeetingAssignedEmployeeName}</span></span>
+          )}
+          {meeting.nextMeetingAssignedByEmployeeName && (
+            <span>Assigned by <span className="font-bold text-mme-purple">{meeting.nextMeetingAssignedByEmployeeName}</span></span>
           )}
         </div>
       </div>

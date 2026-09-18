@@ -88,7 +88,8 @@ function App() {
         <Route path="/accounts/log-cost" element={<RequirePasswordChange><LogCostPage /></RequirePasswordChange>} />
         <Route path="/accounts/vendors" element={<RequirePasswordChange><VendorsPage /></RequirePasswordChange>} />
         <Route path="/accounts/vendors/:id" element={<RequirePasswordChange><VendorProfilePage /></RequirePasswordChange>} />
-        <Route path="/pdf-generator" element={<RequirePasswordChange><PDFGeneratorPage /></RequirePasswordChange>} />
+        <Route path="/management/meetings/:rowKey/:meetingId/pdf" element={<RequirePasswordChange><PDFGeneratorPage /></RequirePasswordChange>} />
+        <Route path="/pdf-generator" element={<Navigate to="/management" replace />} />
         <Route path="/pdf-generator/preview" element={<RequirePasswordChange><PDFPreviewPage /></RequirePasswordChange>} />
         <Route path="/pdf-generator/history" element={<RequirePasswordChange><PDFHistoryPage /></RequirePasswordChange>} />
         <Route path="/admin" element={<Navigate to="/admin-dashboard" replace />} />

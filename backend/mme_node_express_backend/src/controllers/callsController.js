@@ -147,10 +147,12 @@ export async function createCall(req, res, next) {
   try {
     // If this client has a pending next-call assignment (set on a previous
     // call), this new call is fulfilling it — record who made that
-    // assignment so the new call card can show "Assigned by <name>".
+    // assignment so the new call card can show "Assigned by <name>", and
+    // snapshot the due time onto the new call before it's wiped below, so
+    // "done Xm early/late" can still be shown after the fact.
     const pendingNextCall = await prisma.clientNextCall.findFirst({
       where: { linkedRowKey: rowKey },
-      select: { updatedById: true, createdById: true },
+      select: { updatedById: true, createdById: true, nextCallDatetime: true },
     });
     const assignedByEmployeeId = pendingNextCall?.updatedById ?? pendingNextCall?.createdById ?? null;
 
@@ -162,6 +164,7 @@ export async function createCall(req, res, next) {
         createdById: employeeId,
         updatedById: employeeId,
         assignedByEmployeeId,
+        expectedCallDatetime: pendingNextCall?.nextCallDatetime ?? null,
       },
       select: { id: true },
     });

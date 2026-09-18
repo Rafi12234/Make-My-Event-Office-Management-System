@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
 import { NavLink } from "react-router";
-import { Briefcase, ChevronLeft, FileText, LayoutGrid, LogOut, Wallet, X } from "lucide-react";
+import { Briefcase, ChevronLeft, LayoutGrid, LogOut, Wallet, X } from "lucide-react";
 
 const NAV_ITEMS = [
   { to: "/management", label: "Management", icon: LayoutGrid },
   { to: "/accounts", label: "Accounts", icon: Wallet },
-  { to: "/pdf-generator", label: "PDF Generator", icon: FileText },
 ];
 
 function initials(name) {

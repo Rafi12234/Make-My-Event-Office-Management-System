@@ -109,6 +109,16 @@ jobs:
           test -f "mobile/Attendance/backend/routes/attendance.js"
           test -f "mobile/Attendance/backend/controllers/attendanceController.js"
           test -f "mobile/Attendance/backend/utils/officeLocation.js"
+          # PDF Generator module - same deploy pattern as the Accounts/
+          # Attendance modules above. Previously MISSING from this workflow
+          # entirely, which meant server.js's `require(pdfGeneratorBackendDir
+          # + "/routes/pdfGenerator.js")` had nothing to find on the server -
+          # crashed the whole app with MODULE_NOT_FOUND on every deploy.
+          test -f "PDFGenerator/backend/routes/pdfGenerator.js"
+          test -f "PDFGenerator/backend/controllers/pdfGeneratorController.js"
+          test -f "PDFGenerator/backend/services/pdfGeneratorService.js"
+          test -f "PDFGenerator/backend/config/pdfLayout.js"
+          test -f "PDFGenerator/backend/templates/make-my-event-letter-pad.pdf"
           # Money Receipt Generator module (Admin-only) - same deploy pattern
           # as the Accounts/Attendance modules above.
           test -f "MoneyReceiptGenerator/backend/routes/moneyReceipt.js"
@@ -333,6 +343,34 @@ jobs:
             echo "put * attendance-module/routes/"
             echo "lcd \"$GITHUB_WORKSPACE/mobile/Attendance/backend/utils\""
             echo "put * attendance-module/utils/"
+
+            # PDF Generator module (PDFGenerator/backend/*) - same deploy
+            # pattern as Accounts/Attendance above, uploaded into
+            # APP_DIR/pdf-generator-module so its bare imports (express,
+            # pdf-lib) resolve via this app's already-deployed node_modules.
+            # server.js finds it via the PDF_GENERATOR_BACKEND_DIR env var
+            # (set once in cPanel's Setup Node.js App -> Environment
+            # variables), same as ACCOUNTS_BACKEND_DIR. This module was
+            # PREVIOUSLY MISSING from this workflow entirely - server.js
+            # already required it unconditionally, so every deploy crashed
+            # the whole app with MODULE_NOT_FOUND until this was added.
+            echo "cd ${APP_DIR}"
+            echo "-mkdir pdf-generator-module"
+            echo "-mkdir pdf-generator-module/templates"
+            echo "-mkdir pdf-generator-module/config"
+            echo "-mkdir pdf-generator-module/controllers"
+            echo "-mkdir pdf-generator-module/routes"
+            echo "-mkdir pdf-generator-module/services"
+            echo "lcd \"$GITHUB_WORKSPACE/PDFGenerator/backend/templates\""
+            echo "put * pdf-generator-module/templates/"
+            echo "lcd \"$GITHUB_WORKSPACE/PDFGenerator/backend/config\""
+            echo "put * pdf-generator-module/config/"
+            echo "lcd \"$GITHUB_WORKSPACE/PDFGenerator/backend/controllers\""
+            echo "put * pdf-generator-module/controllers/"
+            echo "lcd \"$GITHUB_WORKSPACE/PDFGenerator/backend/routes\""
+            echo "put * pdf-generator-module/routes/"
+            echo "lcd \"$GITHUB_WORKSPACE/PDFGenerator/backend/services\""
+            echo "put * pdf-generator-module/services/"
 
             # Money Receipt Generator module (MoneyReceiptGenerator/backend/*) -
             # Admin-only, same deploy pattern as Accounts/Attendance above,

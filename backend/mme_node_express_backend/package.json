@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "postinstall": "prisma generate && node scripts/ensureAccountsNodeModulesLink.js && node scripts/ensureAttendanceNodeModulesLink.js && node scripts/ensurePdfGeneratorNodeModulesLink.js && node scripts/ensureMoneyReceiptGeneratorNodeModulesLink.js"
+    "postinstall": "(prisma generate || echo \"prisma generate failed - CI-uploaded client will be used in production, this only matters for local dev\") && node scripts/ensureAccountsNodeModulesLink.js && node scripts/ensureAttendanceNodeModulesLink.js && node scripts/ensurePdfGeneratorNodeModulesLink.js && node scripts/ensureMoneyReceiptGeneratorNodeModulesLink.js"
   },
   "dependencies": {
     "@prisma/adapter-mariadb": "^7.9.1",

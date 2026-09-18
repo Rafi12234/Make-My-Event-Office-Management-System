@@ -2,6 +2,24 @@
 // no built-in text layout engine (guide §20). Preserves explicit line
 // breaks in the source text.
 
+function splitLongToken(token, font, fontSize, maxWidth) {
+  if (font.widthOfTextAtSize(token, fontSize) <= maxWidth) return [token];
+
+  const chunks = [];
+  let current = "";
+  for (const char of token) {
+    const candidate = `${current}${char}`;
+    if (!current || font.widthOfTextAtSize(candidate, fontSize) <= maxWidth) {
+      current = candidate;
+    } else {
+      chunks.push(current);
+      current = char;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
 export function wrapText(text, font, fontSize, maxWidth) {
   const paragraphs = String(text ?? "").split(/\r\n|\r|\n/);
   const lines = [];
@@ -16,14 +34,24 @@ export function wrapText(text, font, fontSize, maxWidth) {
 
     let current = "";
     for (const word of words) {
-      const candidate = current ? `${current} ${word}` : word;
-      const width = font.widthOfTextAtSize(candidate, fontSize);
+      const parts = splitLongToken(word, font, fontSize, maxWidth);
+      for (const [partIndex, part] of parts.entries()) {
+        const candidate = current ? `${current} ${part}` : part;
+        const width = font.widthOfTextAtSize(candidate, fontSize);
 
-      if (width <= maxWidth || !current) {
-        current = candidate;
-      } else {
-        lines.push(current);
-        current = word;
+        if (width <= maxWidth) {
+          current = candidate;
+        } else {
+          if (current) lines.push(current);
+          current = part;
+        }
+
+        // All hard-split chunks except the final chunk must end a line;
+        // otherwise joining them with a space would alter the original token.
+        if (partIndex < parts.length - 1) {
+          if (current) lines.push(current);
+          current = "";
+        }
       }
     }
     if (current) lines.push(current);

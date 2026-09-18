@@ -24,6 +24,12 @@ const EVENT_LABELS = {
   next_call: "Next Call",
 };
 
+const TAG_STYLES = {
+  early: "bg-emerald-100 text-emerald-700",
+  on_time: "bg-blue-100 text-blue-700",
+  late: "bg-amber-100 text-amber-700",
+};
+
 function pad(n) { return String(n).padStart(2, "0"); }
 
 function buildCalendarDays(year, month) {
@@ -96,24 +102,15 @@ function formatColValue(type, value) {
   return s;
 }
 
-// "Last/Next Meeting Time" columns actually track whichever of a meeting or
-// a call happened/comes next. A client's hover card can list both a meeting
-// and a call the same day, so — unlike the per-event Day page — split each
-// such column into its own "Meeting"-labeled and/or "Call"-labeled row,
-// shown only for the kinds of events this client actually has that day.
-function buildDetailFields(worksheetColumns, clientRowData, clientEvents) {
-  const hasMeeting = (clientEvents || []).some((ev) => ev.source === "meeting" || ev.source === "next_meeting");
-  const hasCall    = (clientEvents || []).some((ev) => ev.source === "call" || ev.source === "next_call");
-
+// "Last/Next Meeting Time" worksheet columns are excluded here entirely —
+// the card already shows a purpose-built "Next meeting/call: ..." line
+// (with assignee + early/late tag), so repeating the same schedule as a
+// generic detail field is redundant clutter, not useful information.
+function buildDetailFields(worksheetColumns, clientRowData) {
   const fields = [];
   for (const col of worksheetColumns || []) {
     if (col.name === "Client Name" || col.type === "meeting_manager") continue;
-
-    if (col.type === "last_meeting_time" || col.type === "next_meeting_time") {
-      if (hasMeeting) fields.push({ ...col, key: `${col.key}__meeting`, value: clientRowData[`${col.key}__meeting`] });
-      if (hasCall) fields.push({ ...col, key: `${col.key}__call`, name: col.name.replace("Meeting", "Call"), value: clientRowData[`${col.key}__call`] });
-      continue;
-    }
+    if (col.type === "last_meeting_time" || col.type === "next_meeting_time") continue;
 
     fields.push({ ...col, value: clientRowData[col.key] });
   }
@@ -185,7 +182,7 @@ function EmployeeDayHoverCard({ employeeName, employeeColor, dayEvents, rowData,
 
   const totalDetailFields = clients.reduce((sum, client) => {
     const clientRowData = rowData?.[client.rowKey] || {};
-    return sum + buildDetailFields(worksheetColumns, clientRowData, client.events).length;
+    return sum + buildDetailFields(worksheetColumns, clientRowData).length;
   }, 0);
   const wide = totalDetailFields + dayEvents.length > 6;
   const style = computeTooltipStyle(rect, { wide });
@@ -205,7 +202,7 @@ function EmployeeDayHoverCard({ employeeName, employeeColor, dayEvents, rowData,
       <div className={wide ? "mt-3 columns-2 gap-x-6" : "mt-3 space-y-3"}>
         {clients.map((client) => {
           const clientRowData = rowData?.[client.rowKey] || {};
-          const detailFields = buildDetailFields(worksheetColumns, clientRowData, client.events);
+          const detailFields = buildDetailFields(worksheetColumns, clientRowData);
 
           return (
             <div key={client.rowKey || client.clientName} className="break-inside-avoid-column border-b border-mme-pink/30 pb-3 last:border-0 last:pb-0">
@@ -249,10 +246,24 @@ function EmployeeDayHoverCard({ employeeName, employeeColor, dayEvents, rowData,
                     {ev.notes && <p className="mt-1.5 text-[11px] leading-5 text-mme-purple/70">{ev.notes}</p>}
 
                     {ev.source === "meeting" && ev.nextMeetingDatetime && (
-                      <p className="mt-1.5 text-[11px] font-bold text-mme-purple/70">Next meeting: {formatDisplay(ev.nextMeetingDatetime)}</p>
+                      <p className="mt-1.5 text-[11px] font-bold text-mme-purple/70">
+                        Next meeting: {formatDisplay(ev.nextMeetingDatetime)}
+                        {ev.nextMeetingTag && (
+                          <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-black ${TAG_STYLES[ev.nextMeetingTag.status] || TAG_STYLES.on_time}`}>
+                            {ev.nextMeetingTag.label}
+                          </span>
+                        )}
+                      </p>
                     )}
                     {ev.source === "call" && ev.nextCallDatetime && (
-                      <p className="mt-1.5 text-[11px] font-bold text-mme-purple/70">Next call: {formatDisplay(ev.nextCallDatetime)}</p>
+                      <p className="mt-1.5 text-[11px] font-bold text-mme-purple/70">
+                        Next call: {formatDisplay(ev.nextCallDatetime)}
+                        {ev.nextCallTag && (
+                          <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-black ${TAG_STYLES[ev.nextCallTag.status] || TAG_STYLES.on_time}`}>
+                            {ev.nextCallTag.label}
+                          </span>
+                        )}
+                      </p>
                     )}
                   </div>
                 ))}

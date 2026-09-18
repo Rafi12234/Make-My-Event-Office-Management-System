@@ -18,8 +18,26 @@ function isOverdueDatetime(value) {
   return !Number.isNaN(date.getTime()) && date.getTime() < Date.now();
 }
 
+const TAG_STYLES = {
+  early: "bg-emerald-100 text-emerald-700",
+  on_time: "bg-blue-100 text-blue-700",
+  late: "bg-amber-100 text-amber-700",
+};
+
+function CompletionBadge({ tag }) {
+  if (!tag) return null;
+  return (
+    <span
+      title={tag.expectedLabel ? `Originally due ${formatDisplayDatetime(tag.expectedLabel)}` : undefined}
+      className={`rounded-full px-2 py-0.5 text-[10px] font-black ${TAG_STYLES[tag.status] || TAG_STYLES.on_time}`}
+    >
+      {tag.label}
+    </span>
+  );
+}
+
 function CallCard({ call }) {
-  const overdue = Boolean(call.nextCallDatetime) && isOverdueDatetime(call.nextCallDatetime);
+  const overdue = !call.nextCallFulfilled && Boolean(call.nextCallDatetime) && isOverdueDatetime(call.nextCallDatetime);
 
   return (
     <div className="overflow-hidden rounded-3xl border border-mme-pink/60 bg-white shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
@@ -29,11 +47,19 @@ function CallCard({ call }) {
             <Phone size={16} />
           </span>
           <div>
-            <p className="font-black text-mme-purple">{formatDisplayDatetime(call.callDatetime)}</p>
+            <p className="flex items-center gap-1.5 font-black text-mme-purple">
+              {formatDisplayDatetime(call.callDatetime)}
+              <CompletionBadge tag={call.completionTag} />
+            </p>
             <p className="text-xs font-semibold text-mme-purple/75">
               Logged by {call.createdByName || "—"}
               {call.assignedByEmployeeName ? ` \u00b7 Assigned by ${call.assignedByEmployeeName}` : ""}
             </p>
+            {call.completionTag?.expectedLabel && (
+              <p className="text-[11px] font-semibold text-mme-purple/45">
+                Originally due: {formatDisplayDatetime(call.completionTag.expectedLabel)}
+              </p>
+            )}
           </div>
         </div>
         {overdue && (
@@ -58,6 +84,9 @@ function CallCard({ call }) {
           </span>
           {call.nextCallAssignedEmployeeName && (
             <span className="text-mme-purple/75">Assigned to <span className="font-bold text-mme-purple">{call.nextCallAssignedEmployeeName}</span></span>
+          )}
+          {call.nextCallAssignedByEmployeeName && (
+            <span className="text-mme-purple/75">Assigned by <span className="font-bold text-mme-purple">{call.nextCallAssignedByEmployeeName}</span></span>
           )}
         </div>
       </div>

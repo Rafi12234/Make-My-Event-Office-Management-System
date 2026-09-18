@@ -1,6 +1,7 @@
 import { prisma } from "../config/prisma.js";
-import { formatDateOnly, formatTimeOnly, formatDateTime } from "../utils/dbDates.js";
+import { formatDateOnly, formatTimeOnly, formatDateTime, nowInBusinessTimezone } from "../utils/dbDates.js";
 import { computeMeetingCallTimes } from "../utils/meetingCallTimes.js";
+import { buildCompletionTag } from "../utils/completionTag.js";
 
 // ─── Helpers ───────────────────────────────────────────────────
 
@@ -174,7 +175,7 @@ export async function getAdminCalendarMonth(req, res, next) {
       prisma.clientMeeting.findMany({
         where: { meetingDatetime: { gte: rangeStart, lte: rangeEnd } },
         select: {
-          id: true, linkedRowKey: true, meetingDatetime: true,
+          id: true, linkedRowKey: true, meetingDatetime: true, expectedMeetingDatetime: true,
           discussionNotes: true, requirements: true, createdById: true,
           nextMeeting: {
             select: {
@@ -187,7 +188,7 @@ export async function getAdminCalendarMonth(req, res, next) {
       prisma.clientCall.findMany({
         where: { callDatetime: { gte: rangeStart, lte: rangeEnd } },
         select: {
-          id: true, linkedRowKey: true, callDatetime: true, callDiscussion: true, createdById: true,
+          id: true, linkedRowKey: true, callDatetime: true, expectedCallDatetime: true, callDiscussion: true, createdById: true,
           nextCall: {
             select: {
               nextCallDatetime: true, assignedEmployeeId: true,
@@ -213,12 +214,24 @@ export async function getAdminCalendarMonth(req, res, next) {
       ...nextCalls.map((n) => n.linkedRowKey),
     ];
     const { namesByRowKey, rowDataByRowKey, worksheetColumns } = await resolveRowDetails(sheetId, rowKeys);
-    const now = new Date();
+    // Stored datetimes are naive business-wall-clock digits (see dbDates.js) —
+    // comparing against a real-instant `new Date()` silently shifts every
+    // missed/upcoming check by the server's UTC offset from Dhaka time.
+    const now = nowInBusinessTimezone();
 
     const events = [];
+    // Lets a next-meeting/next-call fold into its own parent meeting/call
+    // card (below) instead of also rendering as a second, separate card —
+    // the parent already shows "Next meeting/call: ..." inline, so showing
+    // both is the same schedule twice, not two different activities.
+    // Raw Date kept alongside each event (not sent to the client) so the
+    // same-day merge below can compare the parent's own actual time
+    // against the assigned deadline.
+    const meetingEventById = new Map();
+    const callEventById = new Map();
 
     for (const m of meetings) {
-      events.push({
+      const event = {
         id: `meeting_${m.id}`,
         source: "meeting",
         date: extractDate(m.meetingDatetime),
@@ -228,15 +241,20 @@ export async function getAdminCalendarMonth(req, res, next) {
         notes: m.discussionNotes,
         requirements: m.requirements || null,
         meetingId: m.id,
+        done: true,
+        completionTag: buildCompletionTag(m.meetingDatetime, m.expectedMeetingDatetime),
         nextMeetingDatetime: formatDateTime(m.nextMeeting?.nextMeetingDatetime),
         nextMeetingAssignedEmployeeId: m.nextMeeting?.assignedEmployeeId ?? null,
         nextMeetingAssignedEmployeeName: m.nextMeeting?.assignedEmployee?.fullName || null,
+        nextMeetingTag: null,
         ...employeeTag(m.createdById),
-      });
+      };
+      events.push(event);
+      meetingEventById.set(m.id, { event, rawDatetime: m.meetingDatetime });
     }
 
     for (const c of calls) {
-      events.push({
+      const event = {
         id: `call_${c.id}`,
         source: "call",
         date: extractDate(c.callDatetime),
@@ -245,14 +263,32 @@ export async function getAdminCalendarMonth(req, res, next) {
         rowKey: c.linkedRowKey,
         notes: c.callDiscussion,
         callId: c.id,
+        done: true,
+        completionTag: buildCompletionTag(c.callDatetime, c.expectedCallDatetime),
         nextCallDatetime: formatDateTime(c.nextCall?.nextCallDatetime),
         nextCallAssignedEmployeeId: c.nextCall?.assignedEmployeeId ?? null,
         nextCallAssignedEmployeeName: c.nextCall?.assignedEmployee?.fullName || null,
+        nextCallTag: null,
         ...employeeTag(c.createdById),
-      });
+      };
+      events.push(event);
+      callEventById.set(c.id, { event, rawDatetime: c.callDatetime });
     }
 
     for (const n of nextMeetings) {
+      const missed = n.nextMeetingDatetime < now;
+      const parentEntry = meetingEventById.get(n.meetingId);
+      // Only fold into the parent card when the follow-up is due the SAME
+      // day the parent meeting happened — otherwise it must still surface
+      // as its own event on its actual due date, or it becomes invisible
+      // there (a next-meeting due days later is a real, separate to-do).
+      if (parentEntry && parentEntry.event.date === extractDate(n.nextMeetingDatetime)) {
+        // The parent meeting already happened before this same-day deadline
+        // (that's the only way it could set it) — so it's never genuinely
+        // "missed", only early/on-time/late relative to that deadline.
+        parentEntry.event.nextMeetingTag = buildCompletionTag(parentEntry.rawDatetime, n.nextMeetingDatetime);
+        continue;
+      }
       events.push({
         id: `next_meeting_${n.id}`,
         source: "next_meeting",
@@ -260,7 +296,8 @@ export async function getAdminCalendarMonth(req, res, next) {
         time: extractTime(n.nextMeetingDatetime),
         clientName: namesByRowKey.get(n.linkedRowKey) || "",
         rowKey: n.linkedRowKey,
-        missed: n.nextMeetingDatetime < now,
+        done: false,
+        missed,
         meetingId: n.meetingId,
         assignedEmployeeIdRaw: n.assignedEmployeeId,
         ...employeeTag(n.assignedEmployeeId || n.createdById),
@@ -268,6 +305,19 @@ export async function getAdminCalendarMonth(req, res, next) {
     }
 
     for (const n of nextCalls) {
+      const missed = n.nextCallDatetime < now;
+      const parentEntry = callEventById.get(n.callId);
+      // Only fold into the parent card when the follow-up is due the SAME
+      // day the parent call happened — otherwise it must still surface as
+      // its own event on its actual due date, or it becomes invisible there
+      // (a next-call due days later is a real, separate to-do).
+      if (parentEntry && parentEntry.event.date === extractDate(n.nextCallDatetime)) {
+        // The parent call already happened before this same-day deadline
+        // (that's the only way it could set it) — so it's never genuinely
+        // "missed", only early/on-time/late relative to that deadline.
+        parentEntry.event.nextCallTag = buildCompletionTag(parentEntry.rawDatetime, n.nextCallDatetime);
+        continue;
+      }
       events.push({
         id: `next_call_${n.id}`,
         source: "next_call",
@@ -275,7 +325,8 @@ export async function getAdminCalendarMonth(req, res, next) {
         time: extractTime(n.nextCallDatetime),
         clientName: namesByRowKey.get(n.linkedRowKey) || "",
         rowKey: n.linkedRowKey,
-        missed: n.nextCallDatetime < now,
+        done: false,
+        missed,
         callId: n.callId,
         assignedEmployeeIdRaw: n.assignedEmployeeId,
         ...employeeTag(n.assignedEmployeeId || n.createdById),
