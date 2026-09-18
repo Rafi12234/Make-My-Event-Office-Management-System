@@ -997,11 +997,15 @@ model MoneyReceipt {
   clientPhone   String   @map("client_phone") @db.VarChar(50)
   clientEmail   String?  @map("client_email") @db.VarChar(255)
   clientAddress String?  @map("client_address") @db.VarChar(500)
+  // Free-text billing party — may differ from the client's own name (e.g. a company).
+  billedTo      String?  @map("billed_to") @db.VarChar(255)
 
   eventName        String?   @map("event_name") @db.VarChar(255)
   eventDate        DateTime? @map("event_date") @db.Date
   eventVenue       String?   @map("event_venue") @db.VarChar(255)
   bookingReference String?   @map("booking_reference") @db.VarChar(100)
+  // Whether this booking/event is confirmed — independent of paymentStatus.
+  bookingStatus    MoneyReceiptBookingStatus @default(not_confirmed) @map("booking_status")
 
   // DECIMAL (never FLOAT) for financial precision — backend always
   // recalculates duePayment/paymentStatus itself, never trusts the client.
@@ -1039,6 +1043,13 @@ model MoneyReceipt {
   @@index([clientPhone], map: "idx_money_receipts_client_phone")
 
   @@map("money_receipts")
+}
+
+enum MoneyReceiptBookingStatus {
+  confirmed
+  not_confirmed
+
+  @@map("money_receipt_booking_status")
 }
 
 enum MoneyReceiptPaymentMethod {

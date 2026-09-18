@@ -8,6 +8,12 @@ const STATUS_STYLES = {
 };
 const STATUS_LABELS = { paid: "PAID", partially_paid: "PARTIALLY PAID", unpaid: "UNPAID" };
 
+const BOOKING_STATUS_STYLES = {
+  confirmed: "bg-emerald-50 text-emerald-700",
+  not_confirmed: "bg-slate-100 text-slate-500",
+};
+const BOOKING_STATUS_LABELS = { confirmed: "CONFIRMED", not_confirmed: "NOT CONFIRM" };
+
 // Every generated money receipt, newest first — financial records, so
 // Archive never deletes anything (see moneyReceiptController.js).
 export default function MoneyReceiptHistoryTable({ receipts, onPreview, onDownload, onArchive, busyReceiptId }) {
@@ -30,6 +36,7 @@ export default function MoneyReceiptHistoryTable({ receipts, onPreview, onDownlo
               <th className="px-4 py-3">Date</th>
               <th className="px-4 py-3">Client</th>
               <th className="px-4 py-3">Event</th>
+              <th className="px-4 py-3">Booking</th>
               <th className="px-4 py-3">Total</th>
               <th className="px-4 py-3">Advance</th>
               <th className="px-4 py-3">Due</th>
@@ -48,6 +55,11 @@ export default function MoneyReceiptHistoryTable({ receipts, onPreview, onDownlo
                   <td className="px-4 py-3 text-slate-600">{formatDisplayDate(receipt.receiptDate)}</td>
                   <td className="px-4 py-3 font-semibold text-slate-800">{receipt.clientName}</td>
                   <td className="px-4 py-3 text-slate-600">{receipt.eventName || "—"}</td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-wide ${BOOKING_STATUS_STYLES[receipt.bookingStatus]}`}>
+                      {BOOKING_STATUS_LABELS[receipt.bookingStatus]}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 text-slate-600">{formatBDT(receipt.totalPayment)}</td>
                   <td className="px-4 py-3 text-slate-600">{formatBDT(receipt.advancePayment)}</td>
                   <td className="px-4 py-3 font-bold text-slate-700">{formatBDT(receipt.duePayment)}</td>

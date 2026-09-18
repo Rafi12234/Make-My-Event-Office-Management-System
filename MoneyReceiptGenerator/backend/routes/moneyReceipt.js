@@ -6,6 +6,7 @@ import {
   previewMoneyReceipt,
   createMoneyReceipt,
   listMoneyReceipts,
+  listConfirmedClients,
   getMoneyReceipt,
   downloadMoneyReceipt,
   archiveMoneyReceipt,
@@ -16,6 +17,8 @@ const router = Router();
 router.post("/preview", previewMoneyReceipt);
 router.post("/", createMoneyReceipt);
 router.get("/", listMoneyReceipts);
+// Must come before "/:id" so "confirmed-clients" isn't matched as an id.
+router.get("/confirmed-clients", listConfirmedClients);
 router.get("/:id", getMoneyReceipt);
 router.get("/:id/download", downloadMoneyReceipt);
 router.patch("/:id/archive", archiveMoneyReceipt);

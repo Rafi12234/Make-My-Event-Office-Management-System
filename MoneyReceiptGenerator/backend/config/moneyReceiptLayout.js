@@ -66,6 +66,8 @@ export const COLORS = {
   dueRedBg: { r: 0.99, g: 0.9, b: 0.9 },
   partialAmber: { r: 0.6, g: 0.4, b: 0.02 },
   partialAmberBg: { r: 1, g: 0.96, b: 0.85 },
+  neutralGray: { r: 0.35, g: 0.35, b: 0.4 },
+  neutralGrayBg: { r: 0.92, g: 0.92, b: 0.94 },
 };
 
 
@@ -93,6 +95,11 @@ export const PAYMENT_STATUS_LABELS = {
   unpaid: "UNPAID",
   partially_paid: "PARTIALLY PAID",
   paid: "PAID",
+};
+
+export const BOOKING_STATUS_LABELS = {
+  confirmed: "CONFIRMED",
+  not_confirmed: "NOT CONFIRM",
 };
 
 // Fixed terms & conditions, always rendered as page 2 of every receipt (not
