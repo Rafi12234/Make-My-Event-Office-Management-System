@@ -1,6 +1,5 @@
-// Optional "NB:" numbered notes list drawn under the summary table on page
-// 1 (guide reference sample) — plain user-authored text, entirely optional
-// (renderNbSection is a no-op when nbPoints is empty).
+// Numbered N.B. list rendered immediately after the summary table.
+// All N.B. text is deliberately bold, including the numbering.
 import { rgb } from "pdf-lib";
 import { PAGE_CONTENT, createTemplatedPage } from "../config/pdfLayout.js";
 import { wrapText, measureLinesHeight, drawLines } from "./textRenderer.js";
@@ -13,10 +12,8 @@ const LINE_HEIGHT_FACTOR = 1.25;
 const GAP_ABOVE_HEADING = 16;
 const GAP_AFTER_HEADING = 6;
 const ITEM_GAP = 5;
-const NUMBER_COLUMN_WIDTH = 18; // reserved width for "N." so wrapped lines hang-indent under the text
+const NUMBER_COLUMN_WIDTH = 18;
 
-// Draws below wherever the table finished ({ page, y }), spilling onto a
-// fresh templated page if it runs out of room. Returns unused when empty.
 export async function renderNbSection(outputPdf, { nbPoints, fonts, templatePdf, page, y }) {
   const points = (nbPoints || []).map((text) => String(text).trim()).filter(Boolean);
   if (points.length === 0) return { page, y };
@@ -45,7 +42,9 @@ export async function renderNbSection(outputPdf, { nbPoints, fonts, templatePdf,
   const textMaxWidth = PAGE_CONTENT.width - NUMBER_COLUMN_WIDTH;
 
   for (const [index, text] of points.entries()) {
-    const lines = wrapText(text, fonts.regular, ITEM_FONT_SIZE, textMaxWidth);
+    // Measure with the same bold font that is used to draw the text so
+    // wrapping remains accurate and cannot overflow the safe PDF width.
+    const lines = wrapText(text, fonts.bold, ITEM_FONT_SIZE, textMaxWidth);
     const blockHeight = measureLinesHeight(lines.length, ITEM_FONT_SIZE, LINE_HEIGHT_FACTOR);
 
     await ensureRoom(blockHeight);
@@ -54,7 +53,7 @@ export async function renderNbSection(outputPdf, { nbPoints, fonts, templatePdf,
       x: PAGE_CONTENT.x,
       y: cursorY - ITEM_FONT_SIZE,
       size: ITEM_FONT_SIZE,
-      font: fonts.regular,
+      font: fonts.bold,
       color: BLACK,
     });
 
@@ -62,7 +61,7 @@ export async function renderNbSection(outputPdf, { nbPoints, fonts, templatePdf,
       x: PAGE_CONTENT.x + NUMBER_COLUMN_WIDTH,
       topY: cursorY,
       width: textMaxWidth,
-      font: fonts.regular,
+      font: fonts.bold,
       fontSize: ITEM_FONT_SIZE,
       color: BLACK,
       lineHeightFactor: LINE_HEIGHT_FACTOR,

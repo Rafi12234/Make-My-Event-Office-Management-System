@@ -1,52 +1,56 @@
-// Thin wiring only — business logic lives in controllers/pdfGeneratorController.js
-// (same convention as Accounts/backend/routes/accounts.js).
 import { Router } from "express";
 import multer from "multer";
 import {
-  previewDocument,
-  createDocument,
-  listDocuments,
-  getDocument,
-  downloadDocument,
   archiveDocument,
+  createDocumentItem,
+  deleteDocumentItem,
+  deleteDocumentItemImage,
+  downloadDocument,
+  ensureMeetingDraft,
+  generateDocument,
+  getDocument,
+  importExcelRows,
+  listDocuments,
+  previewDocument,
+  resetDraftFromMeeting,
+  serveDocumentImage,
+  updateDocument,
+  uploadDocumentItemImage,
 } from "../controllers/pdfGeneratorController.js";
 
-const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png"]);
-
-// memoryStorage (guide §71) — the renderer needs the raw bytes in-process
-// anyway (embedded directly into the PDF), and the controller decides
-// per-item whether/where to also persist them to disk.
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB per reference image
-    files: 200, // up to 50 items x up to 10 photos each (see MAX_IMAGES_PER_ITEM)
-  },
+  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
   fileFilter(req, file, callback) {
-    if (!ALLOWED_IMAGE_TYPES.has(file.mimetype)) {
-      return callback(new Error("Only JPG, JPEG and PNG reference images are supported."));
+    if (!new Set(["image/jpeg", "image/png"]).has(file.mimetype)) {
+      return callback(new Error("Only JPG, JPEG and PNG images are supported in generated PDFs."));
     }
     callback(null, true);
   },
 });
 
-// Every photo for a given item is sent under that item's SAME
-// "image_<clientId>" field name — upload.any() accepts repeated field names
-// as separate entries, matched back to each item by `imageKey` in the
-// controller, so one item can carry multiple reference photos.
-function uploadImagesMiddleware(req, res, next) {
-  upload.any()(req, res, (error) => {
-    if (error) return res.status(422).json({ message: error.message || "Reference image upload failed." });
+function uploadSingleImage(req, res, next) {
+  upload.single("image")(req, res, (error) => {
+    if (error) return res.status(422).json({ message: error.message || "Image upload failed." });
     next();
   });
 }
 
 const router = Router();
 
-router.post("/preview", uploadImagesMiddleware, previewDocument);
-router.post("/documents", uploadImagesMiddleware, createDocument);
+router.post("/meeting/:rowKey/:meetingId/draft", ensureMeetingDraft);
 router.get("/documents", listDocuments);
 router.get("/documents/:id", getDocument);
+router.put("/documents/:id", updateDocument);
+router.post("/documents/:id/reset-from-meeting", resetDraftFromMeeting);
+router.post("/documents/:id/import-excel", importExcelRows);
+router.post("/documents/:id/items", createDocumentItem);
+router.delete("/documents/:id/items/:itemId", deleteDocumentItem);
+router.post("/documents/:id/items/:itemId/images", uploadSingleImage, uploadDocumentItemImage);
+router.delete("/documents/:id/items/:itemId/images/:imageId", deleteDocumentItemImage);
+router.get("/documents/:id/images/:imageId/file", serveDocumentImage);
+router.post("/documents/:id/preview", previewDocument);
+router.post("/documents/:id/generate", generateDocument);
 router.get("/documents/:id/download", downloadDocument);
 router.patch("/documents/:id/archive", archiveDocument);
 

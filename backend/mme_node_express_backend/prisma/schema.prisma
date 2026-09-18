@@ -63,7 +63,10 @@ model Employee {
   voidedAccountExpenses       AccountExpense[]       @relation("AccountExpenseVoidedByAdmin")
   approvedAccountExpenses     AccountExpense[]       @relation("AccountExpenseApprovedByAdmin")
   attendances              Attendance[]
-  pdfDocuments             PdfDocument[]
+  createdPdfDocuments       PdfDocument[]          @relation("PdfDocumentCreatedBy")
+  updatedPdfDocuments       PdfDocument[]          @relation("PdfDocumentUpdatedBy")
+  uploadedPdfDocumentImages PdfDocumentItemImage[] @relation("PdfDocumentImageUploadedBy")
+  pdfDocumentImports        PdfDocumentImport[]    @relation("PdfDocumentImportImportedBy")
   moneyReceipts            MoneyReceipt[]
 
   @@index([createdById], map: "fk_emp_created_by")
@@ -286,6 +289,7 @@ model ClientMeeting {
   images     ClientMeetingImage[]
   items      MeetingItem[]
   nextMeeting ClientNextMeeting?
+  pdfDocuments PdfDocument[]
 
   @@index([createdById], map: "client_meetings_ibfk_1")
   @@index([updatedById], map: "client_meetings_ibfk_2")
@@ -336,10 +340,12 @@ model ClientMeetingImage {
   meeting    ClientMeeting @relation(fields: [meetingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "client_meeting_images_ibfk_1")
   uploadedBy Employee?     @relation(fields: [uploadedById], references: [id], onUpdate: NoAction, map: "client_meeting_images_ibfk_2")
   item       MeetingItem?  @relation(fields: [itemId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "client_meeting_images_ibfk_3")
+  pdfDocumentImages PdfDocumentItemImage[]
 
   @@index([uploadedById], map: "client_meeting_images_ibfk_2")
   @@index([itemId], map: "client_meeting_images_ibfk_3")
   @@index([meetingId], map: "idx_meeting_images_meeting")
+  @@index([meetingId, itemId], map: "idx_meeting_images_meeting_item")
   @@map("client_meeting_images")
 }
 
@@ -360,6 +366,7 @@ model MeetingItem {
   updatedBy Employee?     @relation("MeetingItemUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "meeting_items_ibfk_3")
 
   images ClientMeetingImage[]
+  pdfDocumentItems PdfDocumentItem[]
 
   @@index([meetingId], map: "idx_meeting_items_meeting")
   @@index([createdById], map: "meeting_items_ibfk_2")
@@ -839,99 +846,140 @@ model Attendance {
 }
 
 
-// PDF Generator module — event proposal / decoration-specification documents
-// (Make My Event letter-pad summary table + reference-photo pages). See
-// PDF_GENERATOR_MODULE_IMPLEMENTATION_GUIDE_UPDATED.md for the full spec.
+// PDF Generator module — meeting-linked editable proposal documents.
+// Client Meeting remains the source record; every PDF document is an editable
+// snapshot so PDF-only edits never mutate meeting_items/client_meeting_images.
 model PdfDocument {
-  id                BigInt            @id @default(autoincrement()) @db.UnsignedBigInt
-  documentNo        String?           @unique @map("document_no") @db.VarChar(100)
+  id                BigInt                @id @default(autoincrement()) @db.UnsignedBigInt
+  meetingId         BigInt?               @map("meeting_id") @db.UnsignedBigInt
+  linkedRowKey      String?               @map("linked_row_key") @db.Char(36)
+  documentNo        String?               @unique @map("document_no") @db.VarChar(100)
+  sourceMode        PdfDocumentSourceMode @default(manual) @map("source_mode")
+  eventDate         DateTime              @map("event_date") @db.Date
+  eventTitle        String                @map("event_title") @db.VarChar(255)
+  selectedColumns   Json                  @map("selected_columns")
+  nbPoints          Json                  @map("nb_points")
+  createdById       BigInt                @map("created_by") @db.UnsignedBigInt
+  updatedById       BigInt?               @map("updated_by") @db.UnsignedBigInt
+  status            PdfDocumentStatus     @default(draft)
+  generatedFileName String?               @map("generated_file_name") @db.VarChar(255)
+  generatedFilePath String?               @map("generated_file_path") @db.VarChar(600)
+  pageCount         Int?                  @map("page_count") @db.UnsignedInt
+  templateVersion   String                @default("make-my-event-letter-pad-v1") @map("template_version") @db.VarChar(50)
+  generatedAt       DateTime?             @map("generated_at") @db.DateTime(0)
+  createdAt         DateTime              @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt         DateTime              @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
 
-  eventDate         DateTime          @map("event_date") @db.Date
-  eventTitle        String            @map("event_title") @db.VarChar(255)
-
-  // Optional user-authored "NB:" numbered notes list shown under the summary
-  // table on page 1 — plain array of strings, never mandatory.
-  nbPoints          Json?             @map("nb_points")
-
-  createdById       BigInt            @map("created_by") @db.UnsignedBigInt
-
-  status            PdfDocumentStatus @default(generated)
-
-  generatedFileName String?           @map("generated_file_name") @db.VarChar(255)
-  generatedFilePath String?           @map("generated_file_path") @db.VarChar(600)
-
-  pageCount         Int?              @map("page_count")
-
-  templateVersion   String            @default("palm-view-style-v1") @map("template_version") @db.VarChar(50)
-
-  generatedAt       DateTime?         @map("generated_at") @db.DateTime(0)
-
-  createdAt         DateTime          @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt         DateTime          @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
-
-  createdBy Employee          @relation(fields: [createdById], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_pdf_documents_created_by")
+  meeting   ClientMeeting?       @relation(fields: [meetingId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_pdf_documents_meeting")
+  createdBy Employee             @relation("PdfDocumentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_pdf_documents_created_by")
+  updatedBy Employee?            @relation("PdfDocumentUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_pdf_documents_updated_by")
   items     PdfDocumentItem[]
+  imports   PdfDocumentImport[]
 
-  @@index([createdById], map: "fk_pdf_documents_created_by")
+  @@index([meetingId], map: "idx_pdf_documents_meeting")
+  @@index([linkedRowKey], map: "idx_pdf_documents_linked_row")
   @@index([eventDate], map: "idx_pdf_documents_event_date")
   @@index([createdAt], map: "idx_pdf_documents_created_at")
-
+  @@index([createdById], map: "fk_pdf_documents_created_by")
+  @@index([updatedById], map: "fk_pdf_documents_updated_by")
   @@map("pdf_documents")
 }
 
 model PdfDocumentItem {
-  id                         BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  id                  BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  documentId          BigInt   @map("document_id") @db.UnsignedBigInt
+  sourceMeetingItemId BigInt?  @map("source_meeting_item_id") @db.UnsignedBigInt
+  sortOrder           Int      @map("sort_order") @db.UnsignedInt
+  itemName            String   @map("item_name") @db.VarChar(255)
+  description         String?  @db.Text
+  quantity            String   @default("1") @db.VarChar(100)
+  size                String?  @db.VarChar(120)
+  sqft                Decimal? @db.Decimal(14, 2)
+  tsqft               Decimal? @db.Decimal(14, 2)
+  unit                String?  @db.VarChar(80)
+  price               Decimal? @db.Decimal(14, 2)
+  customCaption       String?  @map("custom_caption") @db.VarChar(1000)
+  createdAt           DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt           DateTime @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
 
-  documentId                 BigInt   @map("document_id") @db.UnsignedBigInt
-  sortOrder                  Int      @map("sort_order")
-
-  itemName                   String   @map("item_name") @db.VarChar(255)
-  description                String   @db.Text
-  quantity                   String   @db.VarChar(100)
-
-  customCaption              String?  @map("custom_caption") @db.VarChar(1000)
-
-  createdAt                  DateTime @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt                  DateTime @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
-
-  document PdfDocument           @relation(fields: [documentId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_pdf_document_items_document")
-  images   PdfDocumentItemImage[]
+  document          PdfDocument           @relation(fields: [documentId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_pdf_document_items_document")
+  sourceMeetingItem MeetingItem?          @relation(fields: [sourceMeetingItemId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_pdf_document_items_source_meeting_item")
+  images            PdfDocumentItemImage[]
 
   @@unique([documentId, sortOrder], map: "uq_pdf_document_item_order")
   @@index([documentId], map: "idx_pdf_document_items_document")
-
+  @@index([sourceMeetingItemId], map: "idx_pdf_document_items_source_meeting_item")
   @@map("pdf_document_items")
 }
 
-// An item may now carry multiple reference photos (was a single nullable
-// column on PdfDocumentItem — superseded by this child table so an item can
-// have zero, one, or many photos, each rendered as its own block/page).
 model PdfDocumentItemImage {
-  id               BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  id                   BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  documentItemId       BigInt   @map("document_item_id") @db.UnsignedBigInt
+  sourceMeetingImageId BigInt?  @map("source_meeting_image_id") @db.UnsignedBigInt
+  sortOrder            Int      @map("sort_order") @db.UnsignedInt
+  imagePath            String   @map("image_path") @db.VarChar(600)
+  storedFileName       String?  @map("stored_file_name") @db.VarChar(255)
+  originalName         String?  @map("original_name") @db.VarChar(255)
+  mimeType             String?  @map("mime_type") @db.VarChar(100)
+  fileSizeBytes        Int?     @map("file_size_bytes") @db.UnsignedInt
+  uploadedById         BigInt?  @map("uploaded_by") @db.UnsignedBigInt
+  createdAt            DateTime @default(now()) @map("created_at") @db.DateTime(0)
 
-  documentItemId   BigInt   @map("document_item_id") @db.UnsignedBigInt
-  sortOrder        Int      @map("sort_order")
-
-  imagePath        String   @map("image_path") @db.VarChar(600)
-  originalName     String?  @map("original_name") @db.VarChar(255)
-  mimeType         String?  @map("mime_type") @db.VarChar(100)
-
-  createdAt        DateTime @default(now()) @map("created_at") @db.DateTime(0)
-
-  documentItem PdfDocumentItem @relation(fields: [documentItemId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_pdf_document_item_images_item")
+  documentItem       PdfDocumentItem    @relation(fields: [documentItemId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_pdf_document_item_images_item")
+  sourceMeetingImage ClientMeetingImage? @relation(fields: [sourceMeetingImageId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_pdf_document_item_images_source_meeting_image")
+  uploadedBy         Employee?           @relation("PdfDocumentImageUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_pdf_document_item_images_uploaded_by")
 
   @@unique([documentItemId, sortOrder], map: "uq_pdf_document_item_image_order")
   @@index([documentItemId], map: "idx_pdf_document_item_images_item")
-
+  @@index([sourceMeetingImageId], map: "idx_pdf_document_item_images_source_meeting_image")
+  @@index([uploadedById], map: "fk_pdf_document_item_images_uploaded_by")
   @@map("pdf_document_item_images")
+}
+
+model PdfDocumentImport {
+  id                BigInt                  @id @default(autoincrement()) @db.UnsignedBigInt
+  documentId        BigInt                  @map("document_id") @db.UnsignedBigInt
+  importedById      BigInt?                 @map("imported_by") @db.UnsignedBigInt
+  originalFileName  String                  @map("original_file_name") @db.VarChar(255)
+  storedFilePath    String?                 @map("stored_file_path") @db.VarChar(600)
+  selectedSheetName String?                 @map("selected_sheet_name") @db.VarChar(255)
+  status            PdfDocumentImportStatus @default(pending)
+  totalRows         Int                     @default(0) @map("total_rows") @db.UnsignedInt
+  importedRows      Int                     @default(0) @map("imported_rows") @db.UnsignedInt
+  failedRows        Int                     @default(0) @map("failed_rows") @db.UnsignedInt
+  detectedHeaders   Json?                   @map("detected_headers")
+  columnMapping     Json?                   @map("column_mapping")
+  errorMessage      String?                 @map("error_message") @db.Text
+  createdAt         DateTime                @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt         DateTime                @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+
+  document   PdfDocument @relation(fields: [documentId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_pdf_document_imports_document")
+  importedBy Employee?    @relation("PdfDocumentImportImportedBy", fields: [importedById], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_pdf_document_imports_imported_by")
+
+  @@index([documentId], map: "idx_pdf_document_imports_document")
+  @@index([importedById], map: "idx_pdf_document_imports_imported_by")
+  @@index([createdAt], map: "idx_pdf_document_imports_created_at")
+  @@map("pdf_document_imports")
+}
+
+enum PdfDocumentSourceMode {
+  meeting
+  excel
+  manual
 }
 
 enum PdfDocumentStatus {
   draft
   generated
   archived
+}
 
-  @@map("pdf_document_status")
+enum PdfDocumentImportStatus {
+  pending
+  processing
+  completed
+  partial
+  failed
 }
 
 // Money Receipt Generator module — Admin-only official payment receipts for

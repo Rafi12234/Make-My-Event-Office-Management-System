@@ -1,42 +1,9 @@
-// PDF Generator module frontend service — mirrors Accounts/frontend/services/
-// accountsService.js's conventions (credentials: "include" for the session
-// cookie, FormData multipart requests, no employeeId ever sent from here —
-// the backend derives it from the session).
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
-
-function buildDocumentFormData({ eventDate, eventTitle, items, nbPoints }) {
-  const formData = new FormData();
-  formData.append(
-    "document",
-    JSON.stringify({
-      eventDate,
-      eventTitle,
-      items: items.map((item) => ({
-        itemName: item.itemName,
-        description: item.description,
-        quantity: item.quantity,
-        customCaption: item.customCaption?.trim() || null,
-        imageKey: item.referenceImages?.length ? `image_${item.clientId}` : null,
-      })),
-      // Optional "NB:" notes — plain strings, blanks filtered out server-side too.
-      nbPoints: (nbPoints || []).map((point) => point.text?.trim() || "").filter(Boolean),
-    }),
-  );
-
-  for (const item of items) {
-    for (const file of item.referenceImages || []) {
-      formData.append(`image_${item.clientId}`, file);
-    }
-  }
-
-  return formData;
-}
+const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, "");
 
 async function parseJsonResponse(response) {
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload.message || `Request failed with status ${response.status}.`);
-  }
+  if (!response.ok) throw new Error(payload.message || `Request failed with status ${response.status}.`);
   return payload.data ?? payload;
 }
 
@@ -48,21 +15,104 @@ async function parsePdfResponse(response) {
   return response.blob();
 }
 
-export async function previewPdfDocument(documentForm) {
-  const response = await fetch(`${API_BASE_URL}/pdf-generator/preview`, {
+export function resolvePdfImageUrl(url) {
+  if (!url) return "";
+  if (/^https?:\/\//i.test(url)) return url;
+  return `${API_ORIGIN}${url.startsWith("/") ? url : `/${url}`}`;
+}
+
+export async function ensureMeetingPdfDraft(rowKey, meetingId) {
+  const response = await fetch(`${API_BASE_URL}/pdf-generator/meeting/${rowKey}/${meetingId}/draft`, {
+    method: "POST",
+    credentials: "include",
+    headers: { Accept: "application/json" },
+  });
+  return parseJsonResponse(response);
+}
+
+export async function savePdfDraft(documentId, draft) {
+  const response = await fetch(`${API_BASE_URL}/pdf-generator/documents/${documentId}`, {
+    method: "PUT",
+    credentials: "include",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(draft),
+  });
+  return parseJsonResponse(response);
+}
+
+export async function resetPdfDraftFromMeeting(documentId) {
+  const response = await fetch(`${API_BASE_URL}/pdf-generator/documents/${documentId}/reset-from-meeting`, {
+    method: "POST",
+    credentials: "include",
+    headers: { Accept: "application/json" },
+  });
+  return parseJsonResponse(response);
+}
+
+export async function importExcelIntoPdfDraft(documentId, payload) {
+  const response = await fetch(`${API_BASE_URL}/pdf-generator/documents/${documentId}/import-excel`, {
+    method: "POST",
+    credentials: "include",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return parseJsonResponse(response);
+}
+
+
+export async function createPdfDocumentItem(documentId, itemName) {
+  const response = await fetch(`${API_BASE_URL}/pdf-generator/documents/${documentId}/items`, {
+    method: "POST",
+    credentials: "include",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({ itemName }),
+  });
+  return parseJsonResponse(response);
+}
+
+export async function deletePdfDocumentItem(documentId, itemId) {
+  const response = await fetch(`${API_BASE_URL}/pdf-generator/documents/${documentId}/items/${itemId}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: { Accept: "application/json" },
+  });
+  return parseJsonResponse(response);
+}
+
+export async function uploadPdfItemImage(documentId, itemId, file) {
+  const formData = new FormData();
+  formData.append("image", file);
+  const response = await fetch(`${API_BASE_URL}/pdf-generator/documents/${documentId}/items/${itemId}/images`, {
+    method: "POST",
+    credentials: "include",
+    body: formData,
+  });
+  return parseJsonResponse(response);
+}
+
+export async function deletePdfItemImage(documentId, itemId, imageId) {
+  const response = await fetch(`${API_BASE_URL}/pdf-generator/documents/${documentId}/items/${itemId}/images/${imageId}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: { Accept: "application/json" },
+  });
+  return parseJsonResponse(response);
+}
+
+export async function previewPdfDocument(documentId) {
+  const response = await fetch(`${API_BASE_URL}/pdf-generator/documents/${documentId}/preview`, {
     method: "POST",
     credentials: "include",
     headers: { Accept: "application/pdf" },
-    body: buildDocumentFormData(documentForm),
   });
   return parsePdfResponse(response);
 }
 
-export async function createPdfDocument(documentForm) {
-  const response = await fetch(`${API_BASE_URL}/pdf-generator/documents`, {
+export async function generatePdfDocument(documentId) {
+  const response = await fetch(`${API_BASE_URL}/pdf-generator/documents/${documentId}/generate`, {
     method: "POST",
     credentials: "include",
-    body: buildDocumentFormData(documentForm),
+    headers: { Accept: "application/json" },
   });
   return parseJsonResponse(response);
 }
@@ -78,9 +128,7 @@ export async function getPdfDocument(id) {
 }
 
 export async function downloadPdfDocument(id) {
-  const response = await fetch(`${API_BASE_URL}/pdf-generator/documents/${id}/download`, {
-    credentials: "include",
-  });
+  const response = await fetch(`${API_BASE_URL}/pdf-generator/documents/${id}/download`, { credentials: "include" });
   return parsePdfResponse(response);
 }
 
@@ -92,8 +140,6 @@ export async function archivePdfDocument(id) {
   return parseJsonResponse(response);
 }
 
-// Triggers a real browser download for a blob (from previewPdfDocument /
-// downloadPdfDocument) without navigating away from the SPA.
 export function saveBlobAs(blob, filename) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
