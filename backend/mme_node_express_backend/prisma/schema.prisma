@@ -7,67 +7,65 @@ datasource db {
 }
 
 model Employee {
-  id           BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
-  fullName     String    @map("full_name") @db.VarChar(150)
-  email        String    @unique @db.VarChar(190)
-  roleId       Int?      @map("role_id") @db.UnsignedTinyInt
-  passwordHash String?   @map("password_hash") @db.VarChar(255)
-  mustChangePassword Boolean @default(true) @map("must_change_password")
-  createdById  BigInt?   @map("created_by") @db.UnsignedBigInt
-  isActive     Boolean?  @default(true) @map("is_active")
-  // Fixed calendar-legend color for this employee (admin panel, feature 3).
-  colorHex     String?   @map("color_hex") @db.VarChar(7)
-  lastUsedAt   DateTime? @map("last_used_at") @db.DateTime(0)
-  createdAt    DateTime? @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt    DateTime? @default(now()) @map("updated_at") @db.DateTime(0)
-
-  role             Role?      @relation(fields: [roleId], references: [id], onUpdate: NoAction, map: "fk_emp_role")
-  createdBy        Employee?  @relation("EmployeeCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "fk_emp_created_by")
-  createdEmployees Employee[] @relation("EmployeeCreatedBy")
-
-  activityLogs             ActivityLog[]
-  assignedCalendarEvents   CalendarEvent[]      @relation("CalendarEventAssignedEmployee")
-  createdCalendarEvents    CalendarEvent[]      @relation("CalendarEventCreatedBy")
-  updatedCalendarEvents    CalendarEvent[]      @relation("CalendarEventUpdatedBy")
-  createdClientCalls       ClientCall[]         @relation("ClientCallCreatedBy")
-  updatedClientCalls       ClientCall[]         @relation("ClientCallUpdatedBy")
-  assignedByClientCalls    ClientCall[]         @relation("ClientCallAssignedBy")
-  createdClientNextCalls   ClientNextCall[]     @relation("ClientNextCallCreatedBy")
-  updatedClientNextCalls   ClientNextCall[]     @relation("ClientNextCallUpdatedBy")
-  assignedClientNextCalls  ClientNextCall[]     @relation("ClientNextCallAssignedEmployee")
-  finalizations            ClientFinalization[]
-  uploadedMeetingImages    ClientMeetingImage[]
-  createdClientMeetings    ClientMeeting[]      @relation("ClientMeetingCreatedBy")
-  updatedClientMeetings    ClientMeeting[]      @relation("ClientMeetingUpdatedBy")
-  assignedByClientMeetings ClientMeeting[]      @relation("ClientMeetingAssignedBy")
-  createdClientNextMeetings  ClientNextMeeting[] @relation("ClientNextMeetingCreatedBy")
-  updatedClientNextMeetings  ClientNextMeeting[] @relation("ClientNextMeetingUpdatedBy")
-  assignedClientNextMeetings ClientNextMeeting[] @relation("ClientNextMeetingAssignedEmployee")
-  createdMeetingItems      MeetingItem[]        @relation("MeetingItemCreatedBy")
-  updatedMeetingItems      MeetingItem[]        @relation("MeetingItemUpdatedBy")
-  excelImports             ExcelImport[]
-  createdManagementSheets  ManagementSheet[]    @relation("ManagementSheetCreatedBy")
-  updatedManagementSheets  ManagementSheet[]    @relation("ManagementSheetUpdatedBy")
-  selectedSheetCells       SheetCell[]          @relation("SheetCellEmployeeValue")
-  createdSheetCells        SheetCell[]          @relation("SheetCellCreatedBy")
-  updatedSheetCells        SheetCell[]          @relation("SheetCellUpdatedBy")
-  createdSheetColumns      SheetColumn[]        @relation("SheetColumnCreatedBy")
-  updatedSheetColumns      SheetColumn[]        @relation("SheetColumnUpdatedBy")
-  createdSheetRows         SheetRow[]           @relation("SheetRowCreatedBy")
-  updatedSheetRows         SheetRow[]           @relation("SheetRowUpdatedBy")
-  accountMoneyReceived     AccountMoneyReceived[]
-  accountExpenses          AccountExpense[]
-  accountWallet            AccountWallet?
-  createdAccountMoneyReceived AccountMoneyReceived[] @relation("AccountMoneyReceivedCreatedByAdmin")
-  createdAccountExpenses      AccountExpense[]       @relation("AccountExpenseCreatedByAdmin")
-  voidedAccountExpenses       AccountExpense[]       @relation("AccountExpenseVoidedByAdmin")
-  approvedAccountExpenses     AccountExpense[]       @relation("AccountExpenseApprovedByAdmin")
-  attendances              Attendance[]
-  createdPdfDocuments       PdfDocument[]          @relation("PdfDocumentCreatedBy")
-  updatedPdfDocuments       PdfDocument[]          @relation("PdfDocumentUpdatedBy")
-  uploadedPdfDocumentImages PdfDocumentItemImage[] @relation("PdfDocumentImageUploadedBy")
-  pdfDocumentImports        PdfDocumentImport[]    @relation("PdfDocumentImportImportedBy")
-  moneyReceipts            MoneyReceipt[]
+  id                                                      BigInt                 @id @default(autoincrement()) @db.UnsignedBigInt
+  fullName                                                String                 @map("full_name") @db.VarChar(150)
+  email                                                   String                 @unique(map: "email") @db.VarChar(190)
+  roleId                                                  Int?                   @map("role_id") @db.UnsignedTinyInt
+  passwordHash                                            String?                @map("password_hash") @db.VarChar(255)
+  mustChangePassword                                      Boolean                @default(true) @map("must_change_password")
+  createdById                                             BigInt?                @map("created_by") @db.UnsignedBigInt
+  isActive                                                Boolean?               @default(true) @map("is_active")
+  colorHex                                                String?                @map("color_hex") @db.VarChar(7)
+  lastUsedAt                                              DateTime?              @map("last_used_at") @db.DateTime(0)
+  createdAt                                               DateTime?              @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt                                               DateTime?              @default(now()) @map("updated_at") @db.DateTime(0)
+  approvedAccountExpenses                                 AccountExpense[]       @relation("AccountExpenseApprovedByAdmin")
+  createdAccountExpenses                                  AccountExpense[]       @relation("AccountExpenseCreatedByAdmin")
+  accountExpenses                                         AccountExpense[]
+  voidedAccountExpenses                                   AccountExpense[]       @relation("AccountExpenseVoidedByAdmin")
+  createdAccountMoneyReceived                             AccountMoneyReceived[] @relation("AccountMoneyReceivedCreatedByAdmin")
+  accountMoneyReceived                                    AccountMoneyReceived[]
+  accountWallet                                           AccountWallet?
+  activityLogs                                            ActivityLog[]
+  attendances                                             Attendance[]
+  assignedCalendarEvents                                  CalendarEvent[]        @relation("CalendarEventAssignedEmployee")
+  createdCalendarEvents                                   CalendarEvent[]        @relation("CalendarEventCreatedBy")
+  updatedCalendarEvents                                   CalendarEvent[]        @relation("CalendarEventUpdatedBy")
+  createdClientCalls                                      ClientCall[]           @relation("ClientCallCreatedBy")
+  updatedClientCalls                                      ClientCall[]           @relation("ClientCallUpdatedBy")
+  assignedByClientCalls                                   ClientCall[]           @relation("ClientCallAssignedBy")
+  finalizations                                           ClientFinalization[]
+  uploadedMeetingImages                                   ClientMeetingImage[]
+  createdClientMeetings                                   ClientMeeting[]        @relation("ClientMeetingCreatedBy")
+  updatedClientMeetings                                   ClientMeeting[]        @relation("ClientMeetingUpdatedBy")
+  assignedByClientMeetings                                ClientMeeting[]        @relation("ClientMeetingAssignedBy")
+  client_meetings_client_meetings_completed_byToemployees ClientMeeting[]        @relation("client_meetings_completed_byToemployees")
+  createdClientNextCalls                                  ClientNextCall[]       @relation("ClientNextCallCreatedBy")
+  updatedClientNextCalls                                  ClientNextCall[]       @relation("ClientNextCallUpdatedBy")
+  assignedClientNextCalls                                 ClientNextCall[]       @relation("ClientNextCallAssignedEmployee")
+  createdClientNextMeetings                               ClientNextMeeting[]    @relation("ClientNextMeetingCreatedBy")
+  updatedClientNextMeetings                               ClientNextMeeting[]    @relation("ClientNextMeetingUpdatedBy")
+  assignedClientNextMeetings                              ClientNextMeeting[]    @relation("ClientNextMeetingAssignedEmployee")
+  createdBy                                               Employee?              @relation("EmployeeCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "fk_emp_created_by")
+  createdEmployees                                        Employee[]             @relation("EmployeeCreatedBy")
+  role                                                    Role?                  @relation(fields: [roleId], references: [id], onUpdate: NoAction, map: "fk_emp_role")
+  excelImports                                            ExcelImport[]
+  createdManagementSheets                                 ManagementSheet[]      @relation("ManagementSheetCreatedBy")
+  updatedManagementSheets                                 ManagementSheet[]      @relation("ManagementSheetUpdatedBy")
+  createdMeetingItems                                     MeetingItem[]          @relation("MeetingItemCreatedBy")
+  updatedMeetingItems                                     MeetingItem[]          @relation("MeetingItemUpdatedBy")
+  moneyReceipts                                           MoneyReceipt[]
+  pdfDocumentImports                                      PdfDocumentImport[]    @relation("PdfDocumentImportImportedBy")
+  uploadedPdfDocumentImages                               PdfDocumentItemImage[] @relation("PdfDocumentImageUploadedBy")
+  createdPdfDocuments                                     PdfDocument[]          @relation("PdfDocumentCreatedBy")
+  updatedPdfDocuments                                     PdfDocument[]          @relation("PdfDocumentUpdatedBy")
+  selectedSheetCells                                      SheetCell[]            @relation("SheetCellEmployeeValue")
+  createdSheetCells                                       SheetCell[]            @relation("SheetCellCreatedBy")
+  updatedSheetCells                                       SheetCell[]            @relation("SheetCellUpdatedBy")
+  createdSheetColumns                                     SheetColumn[]          @relation("SheetColumnCreatedBy")
+  updatedSheetColumns                                     SheetColumn[]          @relation("SheetColumnUpdatedBy")
+  createdSheetRows                                        SheetRow[]             @relation("SheetRowCreatedBy")
+  updatedSheetRows                                        SheetRow[]             @relation("SheetRowUpdatedBy")
 
   @@index([createdById], map: "fk_emp_created_by")
   @@index([roleId], map: "fk_emp_role")
@@ -75,20 +73,12 @@ model Employee {
 }
 
 model Role {
-  id        Int      @id @default(autoincrement()) @db.UnsignedTinyInt
-  name      RoleName @unique(map: "uq_role_name")
-  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(0)
-
+  id        Int        @id @default(autoincrement()) @db.UnsignedTinyInt
+  name      RoleName   @unique(map: "uq_role_name")
+  createdAt DateTime   @default(now()) @map("created_at") @db.DateTime(0)
   employees Employee[]
 
   @@map("roles")
-}
-
-enum RoleName {
-  Admin
-  Employee
-
-  @@map("roles_name")
 }
 
 model ActivityLog {
@@ -99,28 +89,25 @@ model ActivityLog {
   entityId    BigInt?   @map("entity_id")
   description String?   @db.Text
   createdAt   DateTime? @default(now()) @map("created_at") @db.DateTime(0)
-
-  employee Employee? @relation(fields: [employeeId], references: [id], onUpdate: NoAction, map: "activity_logs_ibfk_1")
+  employee    Employee? @relation(fields: [employeeId], references: [id], onUpdate: NoAction, map: "activity_logs_ibfk_1")
 
   @@index([employeeId], map: "employee_id")
   @@map("activity_logs")
 }
 
 model ManagementSheet {
-  id          BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
-  sheetName   String    @unique(map: "sheet_name") @map("sheet_name") @db.VarChar(150)
-  description String?   @db.Text
-  isDefault   Boolean?  @default(false) @map("is_default")
-  isActive    Boolean?  @default(true) @map("is_active")
-  createdById BigInt?   @map("created_by") @db.UnsignedBigInt
-  updatedById BigInt?   @map("updated_by") @db.UnsignedBigInt
-  createdAt   DateTime? @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt   DateTime? @default(now()) @map("updated_at") @db.DateTime(0)
-
-  createdBy Employee? @relation("ManagementSheetCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "management_sheets_ibfk_1")
-  updatedBy Employee? @relation("ManagementSheetUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "management_sheets_ibfk_2")
-
+  id           BigInt        @id @default(autoincrement()) @db.UnsignedBigInt
+  sheetName    String        @unique(map: "sheet_name") @map("sheet_name") @db.VarChar(150)
+  description  String?       @db.Text
+  isDefault    Boolean?      @default(false) @map("is_default")
+  isActive     Boolean?      @default(true) @map("is_active")
+  createdById  BigInt?       @map("created_by") @db.UnsignedBigInt
+  updatedById  BigInt?       @map("updated_by") @db.UnsignedBigInt
+  createdAt    DateTime?     @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt    DateTime?     @default(now()) @map("updated_at") @db.DateTime(0)
   excelImports ExcelImport[]
+  createdBy    Employee?     @relation("ManagementSheetCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "management_sheets_ibfk_1")
+  updatedBy    Employee?     @relation("ManagementSheetUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "management_sheets_ibfk_2")
   sheetColumns SheetColumn[]
   sheetRows    SheetRow[]
 
@@ -146,18 +133,631 @@ model SheetColumn {
   updatedById     BigInt?                  @map("updated_by") @db.UnsignedBigInt
   createdAt       DateTime?                @default(now()) @map("created_at") @db.DateTime(0)
   updatedAt       DateTime?                @default(now()) @map("updated_at") @db.DateTime(0)
-
-  sheet     ManagementSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "sheet_columns_ibfk_1")
-  createdBy Employee?       @relation("SheetColumnCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "sheet_columns_ibfk_2")
-  updatedBy Employee?       @relation("SheetColumnUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "sheet_columns_ibfk_3")
-
-  cells SheetCell[]
+  cells           SheetCell[]
+  sheet           ManagementSheet          @relation(fields: [sheetId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "sheet_columns_ibfk_1")
+  createdBy       Employee?                @relation("SheetColumnCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "sheet_columns_ibfk_2")
+  updatedBy       Employee?                @relation("SheetColumnUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "sheet_columns_ibfk_3")
 
   @@unique([sheetId, columnKey], map: "sheet_id")
   @@unique([sheetId, columnName], map: "sheet_id_2")
   @@index([createdById], map: "created_by")
   @@index([updatedById], map: "updated_by")
   @@map("sheet_columns")
+}
+
+model SheetRow {
+  id          BigInt          @id @default(autoincrement()) @db.UnsignedBigInt
+  rowKey      String          @map("row_key") @db.Char(36)
+  sheetId     BigInt          @map("sheet_id") @db.UnsignedBigInt
+  rowPosition Int             @map("row_position") @db.UnsignedInt
+  createdById BigInt?         @map("created_by") @db.UnsignedBigInt
+  updatedById BigInt?         @map("updated_by") @db.UnsignedBigInt
+  isArchived  Boolean?        @default(false) @map("is_archived")
+  archivedAt  DateTime?       @map("archived_at") @db.DateTime(0)
+  createdAt   DateTime?       @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt   DateTime?       @default(now()) @map("updated_at") @db.DateTime(0)
+  cells       SheetCell[]
+  sheet       ManagementSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "sheet_rows_ibfk_1")
+  createdBy   Employee?       @relation("SheetRowCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "sheet_rows_ibfk_2")
+  updatedBy   Employee?       @relation("SheetRowUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "sheet_rows_ibfk_3")
+
+  @@unique([sheetId, rowKey], map: "sheet_id")
+  @@unique([sheetId, rowPosition], map: "sheet_id_2")
+  @@index([createdById], map: "created_by")
+  @@index([updatedById], map: "updated_by")
+  @@map("sheet_rows")
+}
+
+model SheetCell {
+  id              BigInt      @id @default(autoincrement()) @db.UnsignedBigInt
+  rowId           BigInt      @map("row_id") @db.UnsignedBigInt
+  columnId        BigInt      @map("column_id") @db.UnsignedBigInt
+  valueText       String?     @map("value_text") @db.LongText
+  valueInteger    BigInt?     @map("value_integer")
+  valueDecimal    Decimal?    @map("value_decimal") @db.Decimal(20, 4)
+  valueDate       DateTime?   @map("value_date") @db.Date
+  valueTime       DateTime?   @map("value_time") @db.Time(0)
+  valueDatetime   DateTime?   @map("value_datetime") @db.DateTime(0)
+  valueBoolean    Boolean?    @map("value_boolean")
+  valueEmployeeId BigInt?     @map("value_employee_id") @db.UnsignedBigInt
+  valueJson       Json?       @map("value_json")
+  displayValue    String?     @map("display_value") @db.Text
+  alreadyBooked   Boolean     @default(false) @map("already_booked")
+  bookedFromMme   Boolean     @default(false) @map("booked_from_mme")
+  createdById     BigInt?     @map("created_by") @db.UnsignedBigInt
+  updatedById     BigInt?     @map("updated_by") @db.UnsignedBigInt
+  createdAt       DateTime?   @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt       DateTime?   @default(now()) @map("updated_at") @db.DateTime(0)
+  row             SheetRow    @relation(fields: [rowId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "sheet_cells_ibfk_1")
+  column          SheetColumn @relation(fields: [columnId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "sheet_cells_ibfk_2")
+  valueEmployee   Employee?   @relation("SheetCellEmployeeValue", fields: [valueEmployeeId], references: [id], onUpdate: NoAction, map: "sheet_cells_ibfk_3")
+  createdBy       Employee?   @relation("SheetCellCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "sheet_cells_ibfk_4")
+  updatedBy       Employee?   @relation("SheetCellUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "sheet_cells_ibfk_5")
+
+  @@unique([rowId, columnId], map: "row_id")
+  @@index([columnId], map: "column_id")
+  @@index([createdById], map: "created_by")
+  @@index([updatedById], map: "updated_by")
+  @@index([valueEmployeeId], map: "value_employee_id")
+  @@map("sheet_cells")
+}
+
+model ClientMeeting {
+  id                                                BigInt               @id @default(autoincrement()) @db.UnsignedBigInt
+  linkedRowKey                                      String               @map("linked_row_key") @db.Char(36)
+  meetingDatetime                                   DateTime?            @map("meeting_datetime") @db.DateTime(0)
+  expectedMeetingDatetime                           DateTime?            @map("expected_meeting_datetime") @db.DateTime(0)
+  discussionNotes                                   String?              @map("discussion_notes") @db.Text
+  requirements                                      Json?
+  createdById                                       BigInt?              @map("created_by") @db.UnsignedBigInt
+  updatedById                                       BigInt?              @map("updated_by") @db.UnsignedBigInt
+  assignedByEmployeeId                              BigInt?              @map("assigned_by_employee_id") @db.UnsignedBigInt
+  createdAt                                         DateTime             @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt                                         DateTime             @default(now()) @map("updated_at") @db.DateTime(0)
+  is_completed                                      Boolean              @default(false)
+  completed_by                                      BigInt?              @db.UnsignedBigInt
+  completed_at                                      DateTime?            @db.DateTime(0)
+  images                                            ClientMeetingImage[]
+  createdBy                                         Employee?            @relation("ClientMeetingCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "client_meetings_ibfk_1")
+  updatedBy                                         Employee?            @relation("ClientMeetingUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "client_meetings_ibfk_2")
+  assignedBy                                        Employee?            @relation("ClientMeetingAssignedBy", fields: [assignedByEmployeeId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_client_meetings_assigned_by")
+  employees_client_meetings_completed_byToemployees Employee?            @relation("client_meetings_completed_byToemployees", fields: [completed_by], references: [id], onUpdate: NoAction, map: "fk_client_meetings_completed_by")
+  nextMeeting                                       ClientNextMeeting?
+  items                                             MeetingItem[]
+  pdfDocuments                                      PdfDocument[]
+
+  @@index([createdById], map: "client_meetings_ibfk_1")
+  @@index([updatedById], map: "client_meetings_ibfk_2")
+  @@index([assignedByEmployeeId], map: "fk_client_meetings_assigned_by")
+  @@index([meetingDatetime], map: "idx_client_meetings_datetime")
+  @@index([linkedRowKey], map: "idx_client_meetings_row")
+  @@index([completed_by], map: "fk_client_meetings_completed_by")
+  @@map("client_meetings")
+}
+
+model ClientNextMeeting {
+  id                  BigInt        @id @default(autoincrement()) @db.UnsignedBigInt
+  linkedRowKey        String        @map("linked_row_key") @db.Char(36)
+  meetingId           BigInt        @unique(map: "meeting_id") @map("meeting_id") @db.UnsignedBigInt
+  nextMeetingDatetime DateTime      @map("next_meeting_datetime") @db.DateTime(0)
+  assignedEmployeeId  BigInt?       @map("assigned_employee_id") @db.UnsignedBigInt
+  createdById         BigInt?       @map("created_by") @db.UnsignedBigInt
+  updatedById         BigInt?       @map("updated_by") @db.UnsignedBigInt
+  createdAt           DateTime      @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt           DateTime      @default(now()) @map("updated_at") @db.DateTime(0)
+  meeting             ClientMeeting @relation(fields: [meetingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "client_next_meetings_ibfk_1")
+  createdBy           Employee?     @relation("ClientNextMeetingCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "client_next_meetings_ibfk_2")
+  updatedBy           Employee?     @relation("ClientNextMeetingUpdatedBy", fields: [updatedById], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "client_next_meetings_ibfk_3")
+  assignedEmployee    Employee?     @relation("ClientNextMeetingAssignedEmployee", fields: [assignedEmployeeId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "client_next_meetings_ibfk_4")
+
+  @@index([createdById], map: "client_next_meetings_ibfk_2")
+  @@index([updatedById], map: "client_next_meetings_ibfk_3")
+  @@index([assignedEmployeeId], map: "client_next_meetings_ibfk_4")
+  @@index([linkedRowKey], map: "idx_client_next_meetings_row")
+  @@map("client_next_meetings")
+}
+
+model ClientMeetingImage {
+  id                BigInt                 @id @default(autoincrement()) @db.UnsignedBigInt
+  meetingId         BigInt                 @map("meeting_id") @db.UnsignedBigInt
+  itemId            BigInt?                @map("item_id") @db.UnsignedBigInt
+  storedFileName    String                 @map("stored_file_name") @db.VarChar(255)
+  originalFileName  String?                @map("original_file_name") @db.VarChar(255)
+  tagName           String?                @map("tag_name") @db.VarChar(120)
+  fileUrl           String                 @map("file_url") @db.VarChar(500)
+  fileSizeBytes     Int?                   @map("file_size_bytes") @db.UnsignedInt
+  uploadedById      BigInt?                @map("uploaded_by") @db.UnsignedBigInt
+  createdAt         DateTime               @default(now()) @map("created_at") @db.DateTime(0)
+  isFinalSelected   Boolean                @default(false) @map("is_final_selected")
+  meeting           ClientMeeting          @relation(fields: [meetingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "client_meeting_images_ibfk_1")
+  uploadedBy        Employee?              @relation(fields: [uploadedById], references: [id], onUpdate: NoAction, map: "client_meeting_images_ibfk_2")
+  item              MeetingItem?           @relation(fields: [itemId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "client_meeting_images_ibfk_3")
+  pdfDocumentImages PdfDocumentItemImage[]
+
+  @@index([uploadedById], map: "client_meeting_images_ibfk_2")
+  @@index([itemId], map: "client_meeting_images_ibfk_3")
+  @@index([meetingId], map: "idx_meeting_images_meeting")
+  @@index([meetingId, itemId], map: "idx_meeting_images_meeting_item")
+  @@map("client_meeting_images")
+}
+
+model MeetingItem {
+  id               BigInt               @id @default(autoincrement()) @db.UnsignedBigInt
+  meetingId        BigInt               @map("meeting_id") @db.UnsignedBigInt
+  itemKey          String               @map("item_key") @db.VarChar(80)
+  customLabel      String?              @map("custom_label") @db.VarChar(160)
+  description      String?              @db.Text
+  quantity         Int?                 @default(1) @db.UnsignedInt
+  createdById      BigInt?              @map("created_by") @db.UnsignedBigInt
+  updatedById      BigInt?              @map("updated_by") @db.UnsignedBigInt
+  createdAt        DateTime             @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt        DateTime             @default(now()) @map("updated_at") @db.DateTime(0)
+  images           ClientMeetingImage[]
+  meeting          ClientMeeting        @relation(fields: [meetingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "meeting_items_ibfk_1")
+  createdBy        Employee?            @relation("MeetingItemCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "meeting_items_ibfk_2")
+  updatedBy        Employee?            @relation("MeetingItemUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "meeting_items_ibfk_3")
+  pdfDocumentItems PdfDocumentItem[]
+
+  @@index([meetingId], map: "idx_meeting_items_meeting")
+  @@index([createdById], map: "meeting_items_ibfk_2")
+  @@index([updatedById], map: "meeting_items_ibfk_3")
+  @@map("meeting_items")
+}
+
+model ClientCall {
+  id                   BigInt          @id @default(autoincrement()) @db.UnsignedBigInt
+  linkedRowKey         String          @map("linked_row_key") @db.Char(36)
+  callDatetime         DateTime?       @map("call_datetime") @db.DateTime(0)
+  expectedCallDatetime DateTime?       @map("expected_call_datetime") @db.DateTime(0)
+  callDiscussion       String?         @map("call_discussion") @db.Text
+  createdById          BigInt?         @map("created_by") @db.UnsignedBigInt
+  updatedById          BigInt?         @map("updated_by") @db.UnsignedBigInt
+  assignedByEmployeeId BigInt?         @map("assigned_by_employee_id") @db.UnsignedBigInt
+  createdAt            DateTime        @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt            DateTime        @default(now()) @map("updated_at") @db.DateTime(0)
+  createdBy            Employee?       @relation("ClientCallCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "client_calls_ibfk_1")
+  updatedBy            Employee?       @relation("ClientCallUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "client_calls_ibfk_2")
+  assignedBy           Employee?       @relation("ClientCallAssignedBy", fields: [assignedByEmployeeId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "client_calls_ibfk_3")
+  nextCall             ClientNextCall?
+
+  @@index([createdById], map: "client_calls_ibfk_1")
+  @@index([updatedById], map: "client_calls_ibfk_2")
+  @@index([assignedByEmployeeId], map: "client_calls_ibfk_3")
+  @@index([linkedRowKey], map: "idx_client_calls_row")
+  @@map("client_calls")
+}
+
+model ClientNextCall {
+  id                 BigInt     @id @default(autoincrement()) @db.UnsignedBigInt
+  linkedRowKey       String     @map("linked_row_key") @db.Char(36)
+  callId             BigInt     @unique(map: "call_id") @map("call_id") @db.UnsignedBigInt
+  nextCallDatetime   DateTime   @map("next_call_datetime") @db.DateTime(0)
+  assignedEmployeeId BigInt?    @map("assigned_employee_id") @db.UnsignedBigInt
+  createdById        BigInt?    @map("created_by") @db.UnsignedBigInt
+  updatedById        BigInt?    @map("updated_by") @db.UnsignedBigInt
+  createdAt          DateTime   @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt          DateTime   @default(now()) @map("updated_at") @db.DateTime(0)
+  call               ClientCall @relation(fields: [callId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "client_next_calls_ibfk_1")
+  createdBy          Employee?  @relation("ClientNextCallCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "client_next_calls_ibfk_2")
+  updatedBy          Employee?  @relation("ClientNextCallUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "client_next_calls_ibfk_3")
+  assignedEmployee   Employee?  @relation("ClientNextCallAssignedEmployee", fields: [assignedEmployeeId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "client_next_calls_ibfk_4")
+
+  @@index([createdById], map: "client_next_calls_ibfk_2")
+  @@index([updatedById], map: "client_next_calls_ibfk_3")
+  @@index([assignedEmployeeId], map: "client_next_calls_ibfk_4")
+  @@index([linkedRowKey], map: "idx_client_next_calls_row")
+  @@map("client_next_calls")
+}
+
+model ClientFinalization {
+  id              BigInt                   @id @default(autoincrement()) @db.UnsignedBigInt
+  linkedRowKey    String                   @unique(map: "uq_client_finalizations_row") @map("linked_row_key") @db.Char(36)
+  finalizedById   BigInt?                  @map("finalized_by") @db.UnsignedBigInt
+  finalizedAt     DateTime                 @map("finalized_at") @db.DateTime(0)
+  finalizedBudget Decimal?                 @map("finalized_budget") @db.Decimal(12, 2)
+  createdAt       DateTime?                @default(now()) @map("created_at") @db.Timestamp(0)
+  updatedAt       DateTime?                @default(now()) @map("updated_at") @db.Timestamp(0)
+  items           ClientFinalizationItem[]
+  finalizedBy     Employee?                @relation(fields: [finalizedById], references: [id], onUpdate: NoAction, map: "fk_client_finalizations_employee")
+
+  @@index([finalizedById], map: "fk_client_finalizations_employee")
+  @@map("client_finalizations")
+}
+
+model ClientFinalizationItem {
+  id             BigInt                    @id @default(autoincrement()) @db.UnsignedBigInt
+  finalizationId BigInt                    @map("finalization_id") @db.UnsignedBigInt
+  itemKey        String                    @map("item_key") @db.VarChar(80)
+  customLabel    String?                   @map("custom_label") @db.VarChar(160)
+  description    String?                   @db.Text
+  quantity       Int?                      @default(1) @db.UnsignedInt
+  createdAt      DateTime                  @default(now()) @map("created_at") @db.DateTime(0)
+  images         ClientFinalizationImage[]
+  finalization   ClientFinalization        @relation(fields: [finalizationId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_finalization_items_finalization")
+
+  @@index([finalizationId], map: "fk_finalization_items_finalization")
+  @@map("client_finalization_items")
+}
+
+model ClientFinalizationImage {
+  id                 BigInt                 @id @default(autoincrement()) @db.UnsignedBigInt
+  finalizationItemId BigInt                 @map("finalization_item_id") @db.UnsignedBigInt
+  storedFileName     String                 @map("stored_file_name") @db.VarChar(255)
+  originalFileName   String?                @map("original_file_name") @db.VarChar(255)
+  fileUrl            String                 @map("file_url") @db.VarChar(500)
+  fileSizeBytes      Int?                   @map("file_size_bytes") @db.UnsignedInt
+  createdAt          DateTime               @default(now()) @map("created_at") @db.DateTime(0)
+  item               ClientFinalizationItem @relation(fields: [finalizationItemId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_finalization_images_item")
+
+  @@index([finalizationItemId], map: "fk_finalization_images_item")
+  @@map("client_finalization_images")
+}
+
+model CalendarEvent {
+  id                 BigInt                 @id @default(autoincrement()) @db.UnsignedBigInt
+  title              String                 @db.VarChar(255)
+  description        String?                @db.Text
+  eventDate          DateTime               @map("event_date") @db.Date
+  eventTime          DateTime?              @map("event_time") @db.Time(0)
+  eventType          CalendarEventType      @default(task) @map("event_type")
+  clientName         String?                @map("client_name") @db.VarChar(150)
+  companyName        String?                @map("company_name") @db.VarChar(150)
+  linkedRowKey       String?                @map("linked_row_key") @db.Char(36)
+  assignedEmployeeId BigInt?                @map("assigned_employee_id") @db.UnsignedBigInt
+  priority           CalendarEventPriority? @default(Medium)
+  status             CalendarEventStatus?   @default(Pending)
+  createdById        BigInt?                @map("created_by") @db.UnsignedBigInt
+  updatedById        BigInt?                @map("updated_by") @db.UnsignedBigInt
+  createdAt          DateTime               @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt          DateTime               @default(now()) @map("updated_at") @db.DateTime(0)
+  assignedEmployee   Employee?              @relation("CalendarEventAssignedEmployee", fields: [assignedEmployeeId], references: [id], onUpdate: NoAction, map: "calendar_events_ibfk_1")
+  createdBy          Employee?              @relation("CalendarEventCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "calendar_events_ibfk_2")
+  updatedBy          Employee?              @relation("CalendarEventUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "calendar_events_ibfk_3")
+
+  @@index([assignedEmployeeId], map: "calendar_events_ibfk_1")
+  @@index([createdById], map: "calendar_events_ibfk_2")
+  @@index([updatedById], map: "calendar_events_ibfk_3")
+  @@index([eventDate], map: "idx_calendar_event_date")
+  @@index([linkedRowKey], map: "idx_calendar_linked_row")
+  @@map("calendar_events")
+}
+
+model ExcelImport {
+  id               BigInt             @id @default(autoincrement()) @db.UnsignedBigInt
+  sheetId          BigInt?            @map("sheet_id") @db.UnsignedBigInt
+  importedById     BigInt?            @map("imported_by") @db.UnsignedBigInt
+  originalFileName String             @map("original_file_name") @db.VarChar(255)
+  storedFilePath   String?            @map("stored_file_path") @db.VarChar(500)
+  importMode       ExcelImportMode?   @default(append) @map("import_mode")
+  status           ExcelImportStatus? @default(pending)
+  totalColumns     Int?               @default(0) @map("total_columns")
+  totalRows        Int?               @default(0) @map("total_rows")
+  importedRows     Int?               @default(0) @map("imported_rows")
+  failedRows       Int?               @default(0) @map("failed_rows")
+  detectedHeaders  Json?              @map("detected_headers")
+  columnMapping    Json?              @map("column_mapping")
+  errorMessage     String?            @map("error_message") @db.Text
+  createdAt        DateTime?          @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt        DateTime?          @default(now()) @map("updated_at") @db.DateTime(0)
+  errors           ExcelImportError[]
+  sheet            ManagementSheet?   @relation(fields: [sheetId], references: [id], onUpdate: NoAction, map: "excel_imports_ibfk_1")
+  importedBy       Employee?          @relation(fields: [importedById], references: [id], onUpdate: NoAction, map: "excel_imports_ibfk_2")
+
+  @@index([importedById], map: "imported_by")
+  @@index([sheetId], map: "sheet_id")
+  @@map("excel_imports")
+}
+
+model ExcelImportError {
+  id              BigInt      @id @default(autoincrement()) @db.UnsignedBigInt
+  importId        BigInt      @map("import_id") @db.UnsignedBigInt
+  excelRowNumber  Int?        @map("excel_row_number")
+  excelColumnName String?     @map("excel_column_name") @db.VarChar(150)
+  errorCode       String?     @map("error_code") @db.VarChar(100)
+  errorMessage    String      @map("error_message") @db.Text
+  rowData         Json?       @map("row_data")
+  createdAt       DateTime?   @default(now()) @map("created_at") @db.DateTime(0)
+  import          ExcelImport @relation(fields: [importId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "excel_import_errors_ibfk_1")
+
+  @@index([importId], map: "import_id")
+  @@map("excel_import_errors")
+}
+
+model AccountMoneyReceived {
+  id               BigInt             @id @default(autoincrement()) @db.UnsignedBigInt
+  employeeId       BigInt?            @map("employee_id") @db.UnsignedBigInt
+  amount           Decimal            @db.Decimal(12, 2)
+  receivedDate     DateTime           @map("received_date") @db.Date
+  note             String?            @db.VarChar(255)
+  source           AccountEntrySource @default(employee)
+  createdByAdminId BigInt?            @map("created_by_admin_id") @db.UnsignedBigInt
+  createdAt        DateTime           @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt        DateTime           @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  createdByAdmin   Employee?          @relation("AccountMoneyReceivedCreatedByAdmin", fields: [createdByAdminId], references: [id], onUpdate: NoAction, map: "fk_account_money_received_created_admin")
+  employee         Employee?          @relation(fields: [employeeId], references: [id], onUpdate: NoAction, map: "fk_account_money_received_employee")
+
+  @@index([employeeId], map: "fk_account_money_received_employee")
+  @@index([createdByAdminId], map: "fk_account_money_received_created_admin")
+  @@index([receivedDate], map: "idx_account_money_received_date")
+  @@map("account_money_received")
+}
+
+model Vendor {
+  id           BigInt               @id @default(autoincrement()) @db.UnsignedBigInt
+  name         String               @db.VarChar(190)
+  category     String?              @db.VarChar(100)
+  contactName  String?              @map("contact_name") @db.VarChar(190)
+  contactPhone String?              @map("contact_phone") @db.VarChar(50)
+  contactEmail String?              @map("contact_email") @db.VarChar(190)
+  notes        String?              @db.VarChar(500)
+  isActive     Boolean              @default(true) @map("is_active")
+  createdAt    DateTime             @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt    DateTime             @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  expenseItems AccountExpenseItem[]
+  balance      VendorBalance?
+
+  @@map("vendors")
+}
+
+model VendorBalance {
+  vendorId       BigInt   @id @map("vendor_id") @db.UnsignedBigInt
+  currentBalance Decimal  @default(0.00) @map("current_balance") @db.Decimal(12, 2)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  vendor         Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_vendor_balances_vendor")
+
+  @@map("vendor_balances")
+}
+
+model AccountExpense {
+  id                      BigInt               @id @default(autoincrement()) @db.UnsignedBigInt
+  employeeId              BigInt?              @map("employee_id") @db.UnsignedBigInt
+  costType                AccountCostType      @map("cost_type")
+  linkedRowKey            String?              @map("linked_row_key") @db.Char(36)
+  eventClientNameSnapshot String?              @map("event_client_name_snapshot") @db.VarChar(190)
+  eventDateSnapshot       DateTime?            @map("event_date_snapshot") @db.Date
+  totalAmount             Decimal              @map("total_amount") @db.Decimal(12, 2)
+  walletDeductionAmount   Decimal              @default(0.00) @map("wallet_deduction_amount") @db.Decimal(12, 2)
+  paymentSource           AccountPaymentSource @default(employee_wallet) @map("payment_source")
+  createdByAdminId        BigInt?              @map("created_by_admin_id") @db.UnsignedBigInt
+  status                  AccountRecordStatus  @default(active)
+  voidReason              String?              @map("void_reason") @db.VarChar(255)
+  voidedByAdminId         BigInt?              @map("voided_by_admin_id") @db.UnsignedBigInt
+  voidedAt                DateTime?            @map("voided_at") @db.DateTime(0)
+  approved                Boolean              @default(false)
+  approvedByAdminId       BigInt?              @map("approved_by_admin_id") @db.UnsignedBigInt
+  approvedAt              DateTime?            @map("approved_at") @db.DateTime(0)
+  createdAt               DateTime             @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt               DateTime             @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  items                   AccountExpenseItem[]
+  approvedByAdmin         Employee?            @relation("AccountExpenseApprovedByAdmin", fields: [approvedByAdminId], references: [id], onUpdate: NoAction, map: "fk_account_expenses_approved_admin")
+  createdByAdmin          Employee?            @relation("AccountExpenseCreatedByAdmin", fields: [createdByAdminId], references: [id], onUpdate: NoAction, map: "fk_account_expenses_created_admin")
+  employee                Employee?            @relation(fields: [employeeId], references: [id], onUpdate: NoAction, map: "fk_account_expenses_employee")
+  voidedByAdmin           Employee?            @relation("AccountExpenseVoidedByAdmin", fields: [voidedByAdminId], references: [id], onUpdate: NoAction, map: "fk_account_expenses_voided_admin")
+
+  @@index([employeeId], map: "fk_account_expenses_employee")
+  @@index([createdByAdminId], map: "fk_account_expenses_created_admin")
+  @@index([voidedByAdminId], map: "fk_account_expenses_voided_admin")
+  @@index([approvedByAdminId], map: "fk_account_expenses_approved_admin")
+  @@index([linkedRowKey], map: "idx_account_expenses_row")
+  @@index([createdAt], map: "idx_account_expenses_created")
+  @@map("account_expenses")
+}
+
+model AccountExpenseItem {
+  id                      BigInt               @id @default(autoincrement()) @db.UnsignedBigInt
+  expenseId               BigInt               @map("expense_id") @db.UnsignedBigInt
+  purpose                 String               @db.VarChar(190)
+  costDate                DateTime             @map("cost_date") @db.Date
+  quantity                Decimal              @db.Decimal(10, 2)
+  perQtyAmount            Decimal              @map("per_qty_amount") @db.Decimal(12, 2)
+  totalAmount             Decimal              @map("total_amount") @db.Decimal(12, 2)
+  receiptStoredFileName   String?              @map("receipt_stored_file_name") @db.VarChar(255)
+  receiptOriginalFileName String?              @map("receipt_original_file_name") @db.VarChar(255)
+  receiptFileUrl          String?              @map("receipt_file_url") @db.VarChar(500)
+  receiptFileSizeBytes    Int?                 @map("receipt_file_size_bytes") @db.UnsignedInt
+  vendorId                BigInt?              @map("vendor_id") @db.UnsignedBigInt
+  paymentStatus           VendorPaymentStatus? @map("payment_status")
+  settlesItemId           BigInt?              @map("settles_item_id") @db.UnsignedBigInt
+  settlesAllOwed          Boolean              @default(false) @map("settles_all_owed")
+  createdAt               DateTime             @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt               DateTime             @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  expense                 AccountExpense       @relation(fields: [expenseId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_account_expense_items_expense")
+  settlesItem             AccountExpenseItem?  @relation("ItemSettlement", fields: [settlesItemId], references: [id], onUpdate: NoAction, map: "fk_account_expense_items_settles")
+  settledBy               AccountExpenseItem[] @relation("ItemSettlement")
+  vendor                  Vendor?              @relation(fields: [vendorId], references: [id], onUpdate: NoAction, map: "fk_account_expense_items_vendor")
+
+  @@index([expenseId], map: "fk_account_expense_items_expense")
+  @@index([vendorId], map: "fk_account_expense_items_vendor")
+  @@index([settlesItemId], map: "fk_account_expense_items_settles")
+  @@map("account_expense_items")
+}
+
+model AccountWallet {
+  employeeId     BigInt   @id @map("employee_id") @db.UnsignedBigInt
+  currentBalance Decimal  @default(0.00) @map("current_balance") @db.Decimal(12, 2)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  employee       Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_account_wallets_employee")
+
+  @@map("account_wallets")
+}
+
+model Attendance {
+  id                        BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  employeeId                BigInt    @map("employee_id") @db.UnsignedBigInt
+  attendanceDate            DateTime  @map("attendance_date") @db.Date
+  signInAt                  DateTime  @map("sign_in_at") @db.DateTime(0)
+  signInLatitude            Decimal   @map("sign_in_latitude") @db.Decimal(10, 7)
+  signInLongitude           Decimal   @map("sign_in_longitude") @db.Decimal(10, 7)
+  signInAccuracy            Decimal?  @map("sign_in_accuracy") @db.Decimal(8, 2)
+  signInDistanceFromOffice  Decimal?  @map("sign_in_distance_from_office") @db.Decimal(8, 2)
+  signInInsideOffice        Boolean?  @map("sign_in_inside_office")
+  signOutAt                 DateTime? @map("sign_out_at") @db.DateTime(0)
+  signOutLatitude           Decimal?  @map("sign_out_latitude") @db.Decimal(10, 7)
+  signOutLongitude          Decimal?  @map("sign_out_longitude") @db.Decimal(10, 7)
+  signOutAccuracy           Decimal?  @map("sign_out_accuracy") @db.Decimal(8, 2)
+  signOutDistanceFromOffice Decimal?  @map("sign_out_distance_from_office") @db.Decimal(8, 2)
+  signOutInsideOffice       Boolean?  @map("sign_out_inside_office")
+  createdAt                 DateTime  @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt                 DateTime  @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  employee                  Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_attendance_employee")
+
+  @@unique([employeeId, attendanceDate], map: "uq_attendance_employee_date")
+  @@index([employeeId], map: "fk_attendance_employee")
+  @@map("attendances")
+}
+
+model PdfDocument {
+  id                BigInt                @id @default(autoincrement()) @db.UnsignedBigInt
+  meetingId         BigInt?               @map("meeting_id") @db.UnsignedBigInt
+  linkedRowKey      String?               @map("linked_row_key") @db.Char(36)
+  documentNo        String?               @unique(map: "uq_pdf_documents_document_no") @map("document_no") @db.VarChar(100)
+  sourceMode        PdfDocumentSourceMode @default(manual) @map("source_mode")
+  eventDate         DateTime              @map("event_date") @db.Date
+  eventTitle        String                @map("event_title") @db.VarChar(255)
+  selectedColumns   Json                  @map("selected_columns")
+  nbPoints          Json                  @map("nb_points")
+  createdById       BigInt                @map("created_by") @db.UnsignedBigInt
+  updatedById       BigInt?               @map("updated_by") @db.UnsignedBigInt
+  status            PdfDocumentStatus     @default(draft)
+  generatedFileName String?               @map("generated_file_name") @db.VarChar(255)
+  generatedFilePath String?               @map("generated_file_path") @db.VarChar(600)
+  pageCount         Int?                  @map("page_count") @db.UnsignedInt
+  templateVersion   String                @default("make-my-event-letter-pad-v1") @map("template_version") @db.VarChar(50)
+  generatedAt       DateTime?             @map("generated_at") @db.DateTime(0)
+  createdAt         DateTime              @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt         DateTime              @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  imports           PdfDocumentImport[]
+  items             PdfDocumentItem[]
+  createdBy         Employee              @relation("PdfDocumentCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pdf_documents_created_by")
+  meeting           ClientMeeting?        @relation(fields: [meetingId], references: [id], onUpdate: NoAction, map: "fk_pdf_documents_meeting")
+  updatedBy         Employee?             @relation("PdfDocumentUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "fk_pdf_documents_updated_by")
+
+  @@index([meetingId], map: "idx_pdf_documents_meeting")
+  @@index([linkedRowKey], map: "idx_pdf_documents_linked_row")
+  @@index([eventDate], map: "idx_pdf_documents_event_date")
+  @@index([createdAt], map: "idx_pdf_documents_created_at")
+  @@index([createdById], map: "fk_pdf_documents_created_by")
+  @@index([updatedById], map: "fk_pdf_documents_updated_by")
+  @@map("pdf_documents")
+}
+
+model PdfDocumentItem {
+  id                  BigInt                 @id @default(autoincrement()) @db.UnsignedBigInt
+  documentId          BigInt                 @map("document_id") @db.UnsignedBigInt
+  sourceMeetingItemId BigInt?                @map("source_meeting_item_id") @db.UnsignedBigInt
+  sortOrder           Int                    @map("sort_order") @db.UnsignedInt
+  itemName            String                 @map("item_name") @db.VarChar(255)
+  description         String?                @db.Text
+  quantity            String                 @default("1") @db.VarChar(100)
+  size                String?                @db.VarChar(120)
+  sqft                Decimal?               @db.Decimal(14, 2)
+  tsqft               Decimal?               @db.Decimal(14, 2)
+  unit                String?                @db.VarChar(80)
+  price               Decimal?               @db.Decimal(14, 2)
+  customCaption       String?                @map("custom_caption") @db.VarChar(1000)
+  createdAt           DateTime               @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt           DateTime               @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  images              PdfDocumentItemImage[]
+  document            PdfDocument            @relation(fields: [documentId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_pdf_document_items_document")
+  sourceMeetingItem   MeetingItem?           @relation(fields: [sourceMeetingItemId], references: [id], onUpdate: NoAction, map: "fk_pdf_document_items_source_meeting_item")
+
+  @@unique([documentId, sortOrder], map: "uq_pdf_document_item_order")
+  @@index([documentId], map: "idx_pdf_document_items_document")
+  @@index([sourceMeetingItemId], map: "idx_pdf_document_items_source_meeting_item")
+  @@map("pdf_document_items")
+}
+
+model PdfDocumentItemImage {
+  id                   BigInt              @id @default(autoincrement()) @db.UnsignedBigInt
+  documentItemId       BigInt              @map("document_item_id") @db.UnsignedBigInt
+  sourceMeetingImageId BigInt?             @map("source_meeting_image_id") @db.UnsignedBigInt
+  sortOrder            Int                 @map("sort_order") @db.UnsignedInt
+  imagePath            String              @map("image_path") @db.VarChar(600)
+  storedFileName       String?             @map("stored_file_name") @db.VarChar(255)
+  originalName         String?             @map("original_name") @db.VarChar(255)
+  mimeType             String?             @map("mime_type") @db.VarChar(100)
+  fileSizeBytes        Int?                @map("file_size_bytes") @db.UnsignedInt
+  uploadedById         BigInt?             @map("uploaded_by") @db.UnsignedBigInt
+  createdAt            DateTime            @default(now()) @map("created_at") @db.DateTime(0)
+  documentItem         PdfDocumentItem     @relation(fields: [documentItemId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_pdf_document_item_images_item")
+  sourceMeetingImage   ClientMeetingImage? @relation(fields: [sourceMeetingImageId], references: [id], onUpdate: NoAction, map: "fk_pdf_document_item_images_source_meeting_image")
+  uploadedBy           Employee?           @relation("PdfDocumentImageUploadedBy", fields: [uploadedById], references: [id], onUpdate: NoAction, map: "fk_pdf_document_item_images_uploaded_by")
+
+  @@unique([documentItemId, sortOrder], map: "uq_pdf_document_item_image_order")
+  @@index([documentItemId], map: "idx_pdf_document_item_images_item")
+  @@index([sourceMeetingImageId], map: "idx_pdf_document_item_images_source_meeting_image")
+  @@index([uploadedById], map: "fk_pdf_document_item_images_uploaded_by")
+  @@map("pdf_document_item_images")
+}
+
+model PdfDocumentImport {
+  id                BigInt                  @id @default(autoincrement()) @db.UnsignedBigInt
+  documentId        BigInt                  @map("document_id") @db.UnsignedBigInt
+  importedById      BigInt?                 @map("imported_by") @db.UnsignedBigInt
+  originalFileName  String                  @map("original_file_name") @db.VarChar(255)
+  storedFilePath    String?                 @map("stored_file_path") @db.VarChar(600)
+  selectedSheetName String?                 @map("selected_sheet_name") @db.VarChar(255)
+  status            PdfDocumentImportStatus @default(pending)
+  totalRows         Int                     @default(0) @map("total_rows") @db.UnsignedInt
+  importedRows      Int                     @default(0) @map("imported_rows") @db.UnsignedInt
+  failedRows        Int                     @default(0) @map("failed_rows") @db.UnsignedInt
+  detectedHeaders   Json?                   @map("detected_headers")
+  columnMapping     Json?                   @map("column_mapping")
+  errorMessage      String?                 @map("error_message") @db.Text
+  createdAt         DateTime                @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt         DateTime                @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  document          PdfDocument             @relation(fields: [documentId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_pdf_document_imports_document")
+  importedBy        Employee?               @relation("PdfDocumentImportImportedBy", fields: [importedById], references: [id], onUpdate: NoAction, map: "fk_pdf_document_imports_imported_by")
+
+  @@index([documentId], map: "idx_pdf_document_imports_document")
+  @@index([importedById], map: "idx_pdf_document_imports_imported_by")
+  @@index([createdAt], map: "idx_pdf_document_imports_created_at")
+  @@map("pdf_document_imports")
+}
+
+model MoneyReceipt {
+  id                   BigInt                    @id @default(autoincrement()) @db.UnsignedBigInt
+  receiptNo            String?                   @unique(map: "uq_money_receipts_receipt_no") @map("receipt_no") @db.VarChar(100)
+  receiptDate          DateTime                  @map("receipt_date") @db.Date
+  clientName           String                    @map("client_name") @db.VarChar(255)
+  clientPhone          String                    @map("client_phone") @db.VarChar(50)
+  clientEmail          String?                   @map("client_email") @db.VarChar(255)
+  clientAddress        String?                   @map("client_address") @db.VarChar(500)
+  eventName            String?                   @map("event_name") @db.VarChar(255)
+  eventDate            DateTime?                 @map("event_date") @db.Date
+  eventVenue           String?                   @map("event_venue") @db.VarChar(255)
+  bookingReference     String?                   @map("booking_reference") @db.VarChar(100)
+  totalPayment         Decimal                   @map("total_payment") @db.Decimal(14, 2)
+  advancePayment       Decimal                   @map("advance_payment") @db.Decimal(14, 2)
+  duePayment           Decimal                   @map("due_payment") @db.Decimal(14, 2)
+  paymentMethod        MoneyReceiptPaymentMethod @default(cash) @map("payment_method")
+  paymentMethodOther   String?                   @map("payment_method_other") @db.VarChar(100)
+  transactionReference String?                   @map("transaction_reference") @db.VarChar(150)
+  paymentStatus        MoneyReceiptPaymentStatus @map("payment_status")
+  remarks              String?                   @db.Text
+  createdById          BigInt                    @map("created_by") @db.UnsignedBigInt
+  status               MoneyReceiptStatus        @default(generated)
+  generatedFileName    String?                   @map("generated_file_name") @db.VarChar(255)
+  generatedFilePath    String?                   @map("generated_file_path") @db.VarChar(600)
+  pageCount            Int?                      @map("page_count")
+  generatedAt          DateTime?                 @map("generated_at") @db.DateTime(0)
+  createdAt            DateTime                  @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt            DateTime                  @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  createdBy            Employee                  @relation(fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_money_receipts_created_by")
+
+  @@index([createdById], map: "fk_money_receipts_created_by")
+  @@index([receiptDate], map: "idx_money_receipts_receipt_date")
+  @@index([createdAt], map: "idx_money_receipts_created_at")
+  @@index([clientName], map: "idx_money_receipts_client_name")
+  @@index([clientPhone], map: "idx_money_receipts_client_phone")
+  @@map("money_receipts")
+}
+
+enum RoleName {
+  Admin
+  Employee
+
+  @@map("roles_name")
 }
 
 enum SheetColumnDataType {
@@ -198,322 +798,6 @@ enum SheetColumnCalendarRole {
   @@map("sheet_columns_calendar_role")
 }
 
-model SheetRow {
-  id          BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
-  rowKey      String    @map("row_key") @db.Char(36)
-  sheetId     BigInt    @map("sheet_id") @db.UnsignedBigInt
-  rowPosition Int       @map("row_position") @db.UnsignedInt
-  createdById BigInt?   @map("created_by") @db.UnsignedBigInt
-  updatedById BigInt?   @map("updated_by") @db.UnsignedBigInt
-  isArchived  Boolean?  @default(false) @map("is_archived")
-  archivedAt  DateTime? @map("archived_at") @db.DateTime(0)
-  createdAt   DateTime? @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt   DateTime? @default(now()) @map("updated_at") @db.DateTime(0)
-
-  sheet     ManagementSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "sheet_rows_ibfk_1")
-  createdBy Employee?       @relation("SheetRowCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "sheet_rows_ibfk_2")
-  updatedBy Employee?       @relation("SheetRowUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "sheet_rows_ibfk_3")
-
-  cells SheetCell[]
-
-  @@unique([sheetId, rowKey], map: "sheet_id")
-  @@unique([sheetId, rowPosition], map: "sheet_id_2")
-  @@index([createdById], map: "created_by")
-  @@index([updatedById], map: "updated_by")
-  @@map("sheet_rows")
-}
-
-model SheetCell {
-  id              BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
-  rowId           BigInt    @map("row_id") @db.UnsignedBigInt
-  columnId        BigInt    @map("column_id") @db.UnsignedBigInt
-  valueText       String?   @map("value_text") @db.LongText
-  valueInteger    BigInt?   @map("value_integer")
-  valueDecimal    Decimal?  @map("value_decimal") @db.Decimal(20, 4)
-  valueDate       DateTime? @map("value_date") @db.Date
-  valueTime       DateTime? @map("value_time") @db.Time(0)
-  valueDatetime   DateTime? @map("value_datetime") @db.DateTime(0)
-  valueBoolean    Boolean?  @map("value_boolean")
-  valueEmployeeId BigInt?   @map("value_employee_id") @db.UnsignedBigInt
-  valueJson       Json?     @map("value_json")
-  displayValue    String?   @map("display_value") @db.Text
-  // Set on the row's "Event Date" cell only — marks the client as already
-  // booked with another event management company (toggled via the Event
-  // Date cell's badge button; drives the row's highlight color).
-  alreadyBooked   Boolean   @default(false) @map("already_booked")
-  // Set on the row's "Event Date" cell only — automatically flips to true
-  // when the employee confirms & finalizes the client's event (drives the
-  // row's green highlight on the Management page).
-  bookedFromMme   Boolean   @default(false) @map("booked_from_mme")
-  createdById     BigInt?   @map("created_by") @db.UnsignedBigInt
-  updatedById     BigInt?   @map("updated_by") @db.UnsignedBigInt
-  createdAt       DateTime? @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt       DateTime? @default(now()) @map("updated_at") @db.DateTime(0)
-
-  row           SheetRow    @relation(fields: [rowId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "sheet_cells_ibfk_1")
-  column        SheetColumn @relation(fields: [columnId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "sheet_cells_ibfk_2")
-  valueEmployee Employee?   @relation("SheetCellEmployeeValue", fields: [valueEmployeeId], references: [id], onUpdate: NoAction, map: "sheet_cells_ibfk_3")
-  createdBy     Employee?   @relation("SheetCellCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "sheet_cells_ibfk_4")
-  updatedBy     Employee?   @relation("SheetCellUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "sheet_cells_ibfk_5")
-
-  @@unique([rowId, columnId], map: "row_id")
-  @@index([columnId], map: "column_id")
-  @@index([createdById], map: "created_by")
-  @@index([updatedById], map: "updated_by")
-  @@index([valueEmployeeId], map: "value_employee_id")
-  @@map("sheet_cells")
-}
-
-model ClientMeeting {
-  id              BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
-  linkedRowKey    String    @map("linked_row_key") @db.Char(36)
-  meetingDatetime DateTime? @map("meeting_datetime") @db.DateTime(0)
-  // Snapshot of the next-meeting time this meeting fulfills (copied over right
-  // before that ClientNextMeeting row is deleted) — null if this meeting wasn't
-  // scheduled by an earlier meeting's follow-up. Lets the calendar show "done
-  // Xm early/late" instead of losing the original due time once fulfilled.
-  expectedMeetingDatetime DateTime? @map("expected_meeting_datetime") @db.DateTime(0)
-  discussionNotes String?   @map("discussion_notes") @db.Text
-  requirements    Json?
-  createdById     BigInt?   @map("created_by") @db.UnsignedBigInt
-  updatedById     BigInt?   @map("updated_by") @db.UnsignedBigInt
-  // Who scheduled this meeting via a previous meeting's next-meeting assignment (null if not created to fulfill one).
-  assignedByEmployeeId BigInt? @map("assigned_by_employee_id") @db.UnsignedBigInt
-  createdAt       DateTime  @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt       DateTime  @default(now()) @map("updated_at") @db.DateTime(0)
-
-  createdBy   Employee? @relation("ClientMeetingCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "client_meetings_ibfk_1")
-  updatedBy   Employee? @relation("ClientMeetingUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "client_meetings_ibfk_2")
-  assignedBy  Employee? @relation("ClientMeetingAssignedBy", fields: [assignedByEmployeeId], references: [id], onUpdate: NoAction, map: "fk_client_meetings_assigned_by")
-
-  images     ClientMeetingImage[]
-  items      MeetingItem[]
-  nextMeeting ClientNextMeeting?
-  pdfDocuments PdfDocument[]
-
-  @@index([createdById], map: "client_meetings_ibfk_1")
-  @@index([updatedById], map: "client_meetings_ibfk_2")
-  @@index([assignedByEmployeeId], map: "fk_client_meetings_assigned_by")
-  @@index([meetingDatetime], map: "idx_client_meetings_datetime")
-  @@index([linkedRowKey], map: "idx_client_meetings_row")
-  @@map("client_meetings")
-}
-
-// Stores the "Next Meeting Date & Time" scheduled from a meeting card, plus
-// who is assigned to hold that next meeting — mirrors ClientNextCall.
-model ClientNextMeeting {
-  id                  BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
-  linkedRowKey        String   @map("linked_row_key") @db.Char(36)
-  meetingId           BigInt   @unique @map("meeting_id") @db.UnsignedBigInt
-  nextMeetingDatetime DateTime @map("next_meeting_datetime") @db.DateTime(0)
-  assignedEmployeeId  BigInt?  @map("assigned_employee_id") @db.UnsignedBigInt
-  createdById         BigInt?  @map("created_by") @db.UnsignedBigInt
-  updatedById         BigInt?  @map("updated_by") @db.UnsignedBigInt
-  createdAt           DateTime @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt           DateTime @default(now()) @map("updated_at") @db.DateTime(0)
-
-  meeting          ClientMeeting @relation(fields: [meetingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "client_next_meetings_ibfk_1")
-  createdBy        Employee?     @relation("ClientNextMeetingCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "client_next_meetings_ibfk_2")
-  updatedBy        Employee?     @relation("ClientNextMeetingUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "client_next_meetings_ibfk_3")
-  assignedEmployee Employee?     @relation("ClientNextMeetingAssignedEmployee", fields: [assignedEmployeeId], references: [id], onUpdate: NoAction, map: "client_next_meetings_ibfk_4")
-
-  @@index([createdById], map: "client_next_meetings_ibfk_2")
-  @@index([updatedById], map: "client_next_meetings_ibfk_3")
-  @@index([assignedEmployeeId], map: "client_next_meetings_ibfk_4")
-  @@index([linkedRowKey], map: "idx_client_next_meetings_row")
-  @@map("client_next_meetings")
-}
-
-model ClientMeetingImage {
-  id               BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
-  meetingId        BigInt   @map("meeting_id") @db.UnsignedBigInt
-  itemId           BigInt?  @map("item_id") @db.UnsignedBigInt
-  storedFileName   String   @map("stored_file_name") @db.VarChar(255)
-  originalFileName String?  @map("original_file_name") @db.VarChar(255)
-  tagName          String?  @map("tag_name") @db.VarChar(120)
-  fileUrl          String   @map("file_url") @db.VarChar(500)
-  fileSizeBytes    Int?     @map("file_size_bytes") @db.UnsignedInt
-  uploadedById     BigInt?  @map("uploaded_by") @db.UnsignedBigInt
-  createdAt        DateTime @default(now()) @map("created_at") @db.DateTime(0)
-  isFinalSelected  Boolean  @default(false) @map("is_final_selected")
-
-  meeting    ClientMeeting @relation(fields: [meetingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "client_meeting_images_ibfk_1")
-  uploadedBy Employee?     @relation(fields: [uploadedById], references: [id], onUpdate: NoAction, map: "client_meeting_images_ibfk_2")
-  item       MeetingItem?  @relation(fields: [itemId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "client_meeting_images_ibfk_3")
-  pdfDocumentImages PdfDocumentItemImage[]
-
-  @@index([uploadedById], map: "client_meeting_images_ibfk_2")
-  @@index([itemId], map: "client_meeting_images_ibfk_3")
-  @@index([meetingId], map: "idx_meeting_images_meeting")
-  @@index([meetingId, itemId], map: "idx_meeting_images_meeting_item")
-  @@map("client_meeting_images")
-}
-
-model MeetingItem {
-  id          BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
-  meetingId   BigInt   @map("meeting_id") @db.UnsignedBigInt
-  itemKey     String   @map("item_key") @db.VarChar(80)
-  customLabel String?  @map("custom_label") @db.VarChar(160)
-  description String?  @db.Text
-  quantity    Int?     @default(1) @db.UnsignedInt
-  createdById BigInt?  @map("created_by") @db.UnsignedBigInt
-  updatedById BigInt?  @map("updated_by") @db.UnsignedBigInt
-  createdAt   DateTime @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt   DateTime @default(now()) @map("updated_at") @db.DateTime(0)
-
-  meeting   ClientMeeting @relation(fields: [meetingId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "meeting_items_ibfk_1")
-  createdBy Employee?     @relation("MeetingItemCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "meeting_items_ibfk_2")
-  updatedBy Employee?     @relation("MeetingItemUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "meeting_items_ibfk_3")
-
-  images ClientMeetingImage[]
-  pdfDocumentItems PdfDocumentItem[]
-
-  @@index([meetingId], map: "idx_meeting_items_meeting")
-  @@index([createdById], map: "meeting_items_ibfk_2")
-  @@index([updatedById], map: "meeting_items_ibfk_3")
-  @@map("meeting_items")
-}
-
-model ClientCall {
-  id                 BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
-  linkedRowKey       String    @map("linked_row_key") @db.Char(36)
-  callDatetime       DateTime? @map("call_datetime") @db.DateTime(0)
-  // Snapshot of the next-call time this call fulfills (copied over right
-  // before that ClientNextCall row is deleted) — null if this call wasn't
-  // scheduled by an earlier call's follow-up. Lets the calendar show "done
-  // Xm early/late" instead of losing the original due time once fulfilled.
-  expectedCallDatetime DateTime? @map("expected_call_datetime") @db.DateTime(0)
-  callDiscussion      String?   @map("call_discussion") @db.Text
-  createdById        BigInt?   @map("created_by") @db.UnsignedBigInt
-  updatedById        BigInt?   @map("updated_by") @db.UnsignedBigInt
-  // Who scheduled this call via a previous call's next-call assignment (null if this call wasn't created to fulfill one).
-  assignedByEmployeeId BigInt? @map("assigned_by_employee_id") @db.UnsignedBigInt
-  createdAt          DateTime  @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt          DateTime  @default(now()) @map("updated_at") @db.DateTime(0)
-
-  createdBy   Employee? @relation("ClientCallCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "client_calls_ibfk_1")
-  updatedBy   Employee? @relation("ClientCallUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "client_calls_ibfk_2")
-  assignedBy  Employee? @relation("ClientCallAssignedBy", fields: [assignedByEmployeeId], references: [id], onUpdate: NoAction, map: "client_calls_ibfk_3")
-  nextCall    ClientNextCall?
-
-  @@index([createdById], map: "client_calls_ibfk_1")
-  @@index([updatedById], map: "client_calls_ibfk_2")
-  @@index([assignedByEmployeeId], map: "client_calls_ibfk_3")
-  @@index([linkedRowKey], map: "idx_client_calls_row")
-  @@map("client_calls")
-}
-
-// Stores the "Next Meeting Call Date & Time" scheduled from a call card, so
-// missed follow-ups can be tracked (a schedule whose date has passed with
-// no corresponding new call logged for that client).
-model ClientNextCall {
-  id                 BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
-  linkedRowKey       String   @map("linked_row_key") @db.Char(36)
-  callId             BigInt   @unique @map("call_id") @db.UnsignedBigInt
-  nextCallDatetime   DateTime @map("next_call_datetime") @db.DateTime(0)
-  // Who should make the next call (defaults to the logged-in employee on the frontend, but reassignable).
-  assignedEmployeeId BigInt?  @map("assigned_employee_id") @db.UnsignedBigInt
-  createdById        BigInt?  @map("created_by") @db.UnsignedBigInt
-  updatedById        BigInt?  @map("updated_by") @db.UnsignedBigInt
-  createdAt          DateTime @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt          DateTime @default(now()) @map("updated_at") @db.DateTime(0)
-
-  call             ClientCall @relation(fields: [callId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "client_next_calls_ibfk_1")
-  createdBy        Employee?  @relation("ClientNextCallCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "client_next_calls_ibfk_2")
-  updatedBy        Employee?  @relation("ClientNextCallUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "client_next_calls_ibfk_3")
-  assignedEmployee Employee?  @relation("ClientNextCallAssignedEmployee", fields: [assignedEmployeeId], references: [id], onUpdate: NoAction, map: "client_next_calls_ibfk_4")
-
-  @@index([createdById], map: "client_next_calls_ibfk_2")
-  @@index([updatedById], map: "client_next_calls_ibfk_3")
-  @@index([assignedEmployeeId], map: "client_next_calls_ibfk_4")
-  @@index([linkedRowKey], map: "idx_client_next_calls_row")
-  @@map("client_next_calls")
-}
-
-model ClientFinalization {
-  id              BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
-  linkedRowKey    String    @unique(map: "uq_client_finalizations_row") @map("linked_row_key") @db.Char(36)
-  finalizedById   BigInt?   @map("finalized_by") @db.UnsignedBigInt
-  finalizedAt     DateTime  @map("finalized_at") @db.DateTime(0)
-  finalizedBudget Decimal?  @map("finalized_budget") @db.Decimal(12, 2)
-  createdAt       DateTime? @default(now()) @map("created_at") @db.Timestamp(0)
-  updatedAt       DateTime? @default(now()) @map("updated_at") @db.Timestamp(0)
-
-  finalizedBy Employee? @relation(fields: [finalizedById], references: [id], onUpdate: NoAction, map: "fk_client_finalizations_employee")
-  items       ClientFinalizationItem[]
-
-  @@index([finalizedById], map: "fk_client_finalizations_employee")
-  @@map("client_finalizations")
-}
-
-// One row per distinct item (Stage, Entry Gate, ...) finalized for a
-// client — aggregated across every meeting the item ever appeared in, not
-// tied to a single meeting's MeetingItem row (which is per-meeting/copied
-// forward). Rewritten wholesale on every "Confirm & Finalize" submit.
-model ClientFinalizationItem {
-  id             BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
-  finalizationId BigInt   @map("finalization_id") @db.UnsignedBigInt
-  itemKey        String   @map("item_key") @db.VarChar(80)
-  customLabel    String?  @map("custom_label") @db.VarChar(160)
-  description    String?  @db.Text
-  quantity       Int?     @default(1) @db.UnsignedInt
-  createdAt      DateTime @default(now()) @map("created_at") @db.DateTime(0)
-
-  finalization ClientFinalization        @relation(fields: [finalizationId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_finalization_items_finalization")
-  images       ClientFinalizationImage[]
-
-  @@index([finalizationId], map: "fk_finalization_items_finalization")
-  @@map("client_finalization_items")
-}
-
-// A copy of the chosen image's metadata (same stored_file_name as the
-// source ClientMeetingImage) — kept independent so a finalized selection
-// survives even if the source meeting/item is later edited or deleted.
-model ClientFinalizationImage {
-  id                 BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
-  finalizationItemId BigInt   @map("finalization_item_id") @db.UnsignedBigInt
-  storedFileName     String   @map("stored_file_name") @db.VarChar(255)
-  originalFileName   String?  @map("original_file_name") @db.VarChar(255)
-  fileUrl            String   @map("file_url") @db.VarChar(500)
-  fileSizeBytes      Int?     @map("file_size_bytes") @db.UnsignedInt
-  createdAt          DateTime @default(now()) @map("created_at") @db.DateTime(0)
-
-  item ClientFinalizationItem @relation(fields: [finalizationItemId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_finalization_images_item")
-
-  @@index([finalizationItemId], map: "fk_finalization_images_item")
-  @@map("client_finalization_images")
-}
-
-model CalendarEvent {
-  id                 BigInt                 @id @default(autoincrement()) @db.UnsignedBigInt
-  title              String                 @db.VarChar(255)
-  description        String?                @db.Text
-  eventDate          DateTime               @map("event_date") @db.Date
-  eventTime          DateTime?              @map("event_time") @db.Time(0)
-  eventType          CalendarEventType      @default(task) @map("event_type")
-  clientName         String?                @map("client_name") @db.VarChar(150)
-  companyName        String?                @map("company_name") @db.VarChar(150)
-  linkedRowKey       String?                @map("linked_row_key") @db.Char(36)
-  assignedEmployeeId BigInt?                @map("assigned_employee_id") @db.UnsignedBigInt
-  priority           CalendarEventPriority? @default(Medium)
-  status             CalendarEventStatus?   @default(Pending)
-  createdById        BigInt?                @map("created_by") @db.UnsignedBigInt
-  updatedById        BigInt?                @map("updated_by") @db.UnsignedBigInt
-  createdAt          DateTime               @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt          DateTime               @default(now()) @map("updated_at") @db.DateTime(0)
-
-  assignedEmployee Employee? @relation("CalendarEventAssignedEmployee", fields: [assignedEmployeeId], references: [id], onUpdate: NoAction, map: "calendar_events_ibfk_1")
-  createdBy        Employee? @relation("CalendarEventCreatedBy", fields: [createdById], references: [id], onUpdate: NoAction, map: "calendar_events_ibfk_2")
-  updatedBy        Employee? @relation("CalendarEventUpdatedBy", fields: [updatedById], references: [id], onUpdate: NoAction, map: "calendar_events_ibfk_3")
-
-  @@index([assignedEmployeeId], map: "calendar_events_ibfk_1")
-  @@index([createdById], map: "calendar_events_ibfk_2")
-  @@index([updatedById], map: "calendar_events_ibfk_3")
-  @@index([eventDate], map: "idx_calendar_event_date")
-  @@index([linkedRowKey], map: "idx_calendar_linked_row")
-  @@map("calendar_events")
-}
-
 enum CalendarEventType {
   meeting
   followup
@@ -541,34 +825,6 @@ enum CalendarEventStatus {
   @@map("calendar_events_status")
 }
 
-model ExcelImport {
-  id               BigInt             @id @default(autoincrement()) @db.UnsignedBigInt
-  sheetId          BigInt?            @map("sheet_id") @db.UnsignedBigInt
-  importedById     BigInt?            @map("imported_by") @db.UnsignedBigInt
-  originalFileName String             @map("original_file_name") @db.VarChar(255)
-  storedFilePath   String?            @map("stored_file_path") @db.VarChar(500)
-  importMode       ExcelImportMode?   @default(append) @map("import_mode")
-  status           ExcelImportStatus? @default(pending)
-  totalColumns     Int?               @default(0) @map("total_columns")
-  totalRows        Int?               @default(0) @map("total_rows")
-  importedRows     Int?               @default(0) @map("imported_rows")
-  failedRows       Int?               @default(0) @map("failed_rows")
-  detectedHeaders  Json?              @map("detected_headers")
-  columnMapping    Json?              @map("column_mapping")
-  errorMessage     String?            @map("error_message") @db.Text
-  createdAt        DateTime?          @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt        DateTime?          @default(now()) @map("updated_at") @db.DateTime(0)
-
-  sheet      ManagementSheet? @relation(fields: [sheetId], references: [id], onUpdate: NoAction, map: "excel_imports_ibfk_1")
-  importedBy Employee?        @relation(fields: [importedById], references: [id], onUpdate: NoAction, map: "excel_imports_ibfk_2")
-
-  errors ExcelImportError[]
-
-  @@index([importedById], map: "imported_by")
-  @@index([sheetId], map: "sheet_id")
-  @@map("excel_imports")
-}
-
 enum ExcelImportMode {
   create_new_sheet
   append
@@ -588,48 +844,6 @@ enum ExcelImportStatus {
   @@map("excel_imports_status")
 }
 
-model ExcelImportError {
-  id              BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
-  importId        BigInt    @map("import_id") @db.UnsignedBigInt
-  excelRowNumber  Int?      @map("excel_row_number")
-  excelColumnName String?   @map("excel_column_name") @db.VarChar(150)
-  errorCode       String?   @map("error_code") @db.VarChar(100)
-  errorMessage    String    @map("error_message") @db.Text
-  rowData         Json?     @map("row_data")
-  createdAt       DateTime? @default(now()) @map("created_at") @db.DateTime(0)
-
-  import ExcelImport @relation(fields: [importId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "excel_import_errors_ibfk_1")
-
-  @@index([importId], map: "import_id")
-  @@map("excel_import_errors")
-}
-
-// ─── Accounts (employee wallet / expense tracking) ─────────────────────
-
-// Repeatable log of money the boss gave an employee, adds to the
-// employee's wallet. Employees can only append; Admins can additionally
-// correct an entry (voiding is not supported for this record type).
-model AccountMoneyReceived {
-  id               BigInt              @id @default(autoincrement()) @db.UnsignedBigInt
-  employeeId       BigInt?             @map("employee_id") @db.UnsignedBigInt
-  amount           Decimal             @db.Decimal(12, 2)
-  receivedDate     DateTime            @map("received_date") @db.Date
-  note             String?             @db.VarChar(255)
-  source           AccountEntrySource  @default(employee)
-  createdByAdminId BigInt?             @map("created_by_admin_id") @db.UnsignedBigInt
-  createdAt        DateTime            @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt        DateTime            @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
-
-  employee       Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_money_received_employee")
-  createdByAdmin Employee? @relation("AccountMoneyReceivedCreatedByAdmin", fields: [createdByAdminId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_money_received_created_admin")
-
-  @@index([employeeId], map: "fk_account_money_received_employee")
-  @@index([createdByAdminId], map: "fk_account_money_received_created_admin")
-  @@index([receivedDate], map: "idx_account_money_received_date")
-  @@map("account_money_received")
-}
-
-// Who originally entered a financial record.
 enum AccountEntrySource {
   employee
   admin
@@ -637,8 +851,6 @@ enum AccountEntrySource {
   @@map("account_entry_source")
 }
 
-// Financial records are never hard-deleted; voiding reverses the
-// wallet/vendor effect while the original row stays visible.
 enum AccountRecordStatus {
   active
   void
@@ -646,9 +858,6 @@ enum AccountRecordStatus {
   @@map("account_record_status")
 }
 
-// Where the money for an expense came from. "employee_wallet" is the
-// normal employee submission; "company" is an Admin-created direct cost or
-// vendor payment that must not touch any employee wallet.
 enum AccountPaymentSource {
   employee_wallet
   company
@@ -670,298 +879,6 @@ enum VendorPaymentStatus {
   @@map("account_expense_items_payment_status")
 }
 
-// A payee an employee can spend against (Transportation/Carpenter/Flower
-// etc.) — company-wide, not per-employee. Creation/deactivation is
-// Admin-only (UI pending); isActive is the only lifecycle control, there
-// is no delete endpoint so history never dangles.
-model Vendor {
-  id           BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
-  name         String   @db.VarChar(190)
-  category     String?  @db.VarChar(100)
-  contactName  String?  @map("contact_name") @db.VarChar(190)
-  contactPhone String?  @map("contact_phone") @db.VarChar(50)
-  contactEmail String?  @map("contact_email") @db.VarChar(190)
-  notes        String?  @db.VarChar(500)
-  isActive     Boolean  @default(true) @map("is_active")
-  createdAt    DateTime @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
-
-  expenseItems AccountExpenseItem[]
-  balance      VendorBalance?
-
-  @@map("vendors")
-}
-
-// Stored running balance per vendor (negative = we owe the vendor,
-// positive = we've paid/advanced beyond what's owed) — shared across all
-// employees, kept in sync transactionally alongside AccountExpenseItem
-// writes, same convention as AccountWallet.
-model VendorBalance {
-  vendorId       BigInt   @id @map("vendor_id") @db.UnsignedBigInt
-  currentBalance Decimal  @default(0) @map("current_balance") @db.Decimal(12, 2)
-  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
-
-  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_vendor_balances_vendor")
-
-  @@map("vendor_balances")
-}
-
-// One row per "Submit Cost" click (event-based or regular) — immutable
-// once submitted. totalAmount is the total RECORDED COST across all items
-// (including unpaid "to_pay" vendor items) — it is NOT the amount that
-// left the wallet. walletDeductionAmount is the actual cash deducted;
-// (totalAmount - walletDeductionAmount) is what's still owed to vendors.
-model AccountExpense {
-  id                      BigInt          @id @default(autoincrement()) @db.UnsignedBigInt
-  employeeId              BigInt?         @map("employee_id") @db.UnsignedBigInt
-  costType                AccountCostType @map("cost_type")
-  // Plain index into sheet_rows.row_key, NOT a real FK — same convention as
-  // client_meetings.linked_row_key. Only set when costType = "event".
-  linkedRowKey            String?         @map("linked_row_key") @db.Char(36)
-  // Frozen copy of the client name / event date at submit time, so this
-  // history entry stays accurate even if the sheet row is edited later.
-  eventClientNameSnapshot String?         @map("event_client_name_snapshot") @db.VarChar(190)
-  eventDateSnapshot       DateTime?       @map("event_date_snapshot") @db.Date
-  totalAmount             Decimal         @map("total_amount") @db.Decimal(12, 2)
-  walletDeductionAmount   Decimal         @default(0) @map("wallet_deduction_amount") @db.Decimal(12, 2)
-  // "company" rows are Admin direct costs/payments with employeeId = null;
-  // they hit the vendor ledger only and never deduct an employee wallet.
-  paymentSource           AccountPaymentSource @default(employee_wallet) @map("payment_source")
-  createdByAdminId        BigInt?             @map("created_by_admin_id") @db.UnsignedBigInt
-  status                  AccountRecordStatus @default(active)
-  voidReason              String?             @map("void_reason") @db.VarChar(255)
-  voidedByAdminId         BigInt?             @map("voided_by_admin_id") @db.UnsignedBigInt
-  voidedAt                DateTime?           @map("voided_at") @db.DateTime(0)
-  // Admin sign-off — separate from void/status. A bill only counts as a
-  // finalized company expense once an admin has reviewed and approved it.
-  approved                Boolean             @default(false)
-  approvedByAdminId       BigInt?             @map("approved_by_admin_id") @db.UnsignedBigInt
-  approvedAt              DateTime?           @map("approved_at") @db.DateTime(0)
-  createdAt               DateTime        @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt               DateTime        @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
-
-  employee       Employee?            @relation(fields: [employeeId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_expenses_employee")
-  createdByAdmin Employee?            @relation("AccountExpenseCreatedByAdmin", fields: [createdByAdminId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_expenses_created_admin")
-  voidedByAdmin  Employee?            @relation("AccountExpenseVoidedByAdmin", fields: [voidedByAdminId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_expenses_voided_admin")
-  approvedByAdmin Employee?           @relation("AccountExpenseApprovedByAdmin", fields: [approvedByAdminId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_expenses_approved_admin")
-  items          AccountExpenseItem[]
-
-  @@index([employeeId], map: "fk_account_expenses_employee")
-  @@index([createdByAdminId], map: "fk_account_expenses_created_admin")
-  @@index([voidedByAdminId], map: "fk_account_expenses_voided_admin")
-  @@index([approvedByAdminId], map: "fk_account_expenses_approved_admin")
-  @@index([linkedRowKey], map: "idx_account_expenses_row")
-  @@index([createdAt], map: "idx_account_expenses_created")
-  @@map("account_expenses")
-}
-
-// A single row of the 7-column expense table. onDelete: Restrict (not
-// Cascade, unlike this repo's other item/image child tables) — expense
-// records are an immutable audit trail with no delete endpoint at all, so
-// a parent row must never be removable while items still reference it.
-model AccountExpenseItem {
-  id                      BigInt               @id @default(autoincrement()) @db.UnsignedBigInt
-  expenseId               BigInt               @map("expense_id") @db.UnsignedBigInt
-  purpose                 String               @db.VarChar(190)
-  costDate                DateTime             @map("cost_date") @db.Date
-  quantity                Decimal              @db.Decimal(10, 2)
-  perQtyAmount            Decimal              @map("per_qty_amount") @db.Decimal(12, 2)
-  totalAmount             Decimal              @map("total_amount") @db.Decimal(12, 2)
-  receiptStoredFileName   String?              @map("receipt_stored_file_name") @db.VarChar(255)
-  receiptOriginalFileName String?              @map("receipt_original_file_name") @db.VarChar(255)
-  receiptFileUrl          String?              @map("receipt_file_url") @db.VarChar(500)
-  receiptFileSizeBytes    Int?                 @map("receipt_file_size_bytes") @db.UnsignedInt
-  // Both null when this item has no vendor attached (unchanged behaviour).
-  // When vendorId is set, paymentStatus decides the money flow: "paid"
-  // deducts the wallet immediately and settles the vendor ledger; "to_pay"
-  // is a liability only — no wallet deduction until later paid.
-  vendorId                BigInt?              @map("vendor_id") @db.UnsignedBigInt
-  paymentStatus           VendorPaymentStatus? @map("payment_status")
-  // Only meaningful when paymentStatus = "paid": which specific "to_pay"
-  // bill (to the SAME vendor) this payment settles. Null means this is a
-  // standalone payment (e.g. an instant buy) that must never reduce any
-  // other bill's balance, even one to the same vendor on the same event —
-  // "same vendor + same event" alone is not enough to net two items.
-  settlesItemId           BigInt?              @map("settles_item_id") @db.UnsignedBigInt
-  // Alternative to settlesItemId: sweeps this payment across EVERY
-  // still-outstanding bill for the vendor (oldest first) instead of one
-  // named bill. Mutually exclusive with settlesItemId in practice.
-  settlesAllOwed          Boolean              @default(false) @map("settles_all_owed")
-  createdAt               DateTime             @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt               DateTime             @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
-
-  expense     AccountExpense       @relation(fields: [expenseId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_account_expense_items_expense")
-  vendor      Vendor?              @relation(fields: [vendorId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_expense_items_vendor")
-  settlesItem AccountExpenseItem?  @relation("ItemSettlement", fields: [settlesItemId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_account_expense_items_settles")
-  settledBy   AccountExpenseItem[] @relation("ItemSettlement")
-
-  @@index([expenseId], map: "fk_account_expense_items_expense")
-  @@index([vendorId], map: "fk_account_expense_items_vendor")
-  @@index([settlesItemId], map: "fk_account_expense_items_settles")
-  @@map("account_expense_items")
-}
-
-// Stored current balance per employee (received − spent), kept in sync
-// transactionally on every AccountMoneyReceived/AccountExpense write — the
-// fast read path for the wallet header display and (later) admin oversight.
-model AccountWallet {
-  employeeId     BigInt   @id @map("employee_id") @db.UnsignedBigInt
-  currentBalance Decimal  @default(0) @map("current_balance") @db.Decimal(12, 2)
-  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
-
-  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_account_wallets_employee")
-
-  @@map("account_wallets")
-}
-
-
-// Employee GPS-based Sign In / Sign Out attendance (mobile app, V1 —
-// see mobile/Attendance/BUILD_GUIDE.md). One row per employee per business
-// date; attendanceDate/signInAt/signOutAt are always backend-generated using
-// nowInBusinessTimezone() (utils/dbDates.js), never taken from client input.
-model Attendance {
-  id               BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
-  employeeId       BigInt    @map("employee_id") @db.UnsignedBigInt
-  attendanceDate   DateTime  @map("attendance_date") @db.Date
-  signInAt         DateTime  @map("sign_in_at") @db.DateTime(0)
-  signInLatitude   Decimal   @map("sign_in_latitude") @db.Decimal(10, 7)
-  signInLongitude  Decimal   @map("sign_in_longitude") @db.Decimal(10, 7)
-  signInAccuracy   Decimal?  @map("sign_in_accuracy") @db.Decimal(8, 2)
-  signInDistanceFromOffice  Decimal? @map("sign_in_distance_from_office") @db.Decimal(8, 2)
-  signInInsideOffice        Boolean? @map("sign_in_inside_office")
-  signOutAt        DateTime? @map("sign_out_at") @db.DateTime(0)
-  signOutLatitude  Decimal?  @map("sign_out_latitude") @db.Decimal(10, 7)
-  signOutLongitude Decimal?  @map("sign_out_longitude") @db.Decimal(10, 7)
-  signOutAccuracy  Decimal?  @map("sign_out_accuracy") @db.Decimal(8, 2)
-  signOutDistanceFromOffice Decimal? @map("sign_out_distance_from_office") @db.Decimal(8, 2)
-  signOutInsideOffice       Boolean? @map("sign_out_inside_office")
-  createdAt        DateTime  @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
-
-  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_attendance_employee")
-
-  @@unique([employeeId, attendanceDate], map: "uq_attendance_employee_date")
-  @@index([employeeId], map: "fk_attendance_employee")
-  @@map("attendances")
-}
-
-
-// PDF Generator module — meeting-linked editable proposal documents.
-// Client Meeting remains the source record; every PDF document is an editable
-// snapshot so PDF-only edits never mutate meeting_items/client_meeting_images.
-model PdfDocument {
-  id                BigInt                @id @default(autoincrement()) @db.UnsignedBigInt
-  meetingId         BigInt?               @map("meeting_id") @db.UnsignedBigInt
-  linkedRowKey      String?               @map("linked_row_key") @db.Char(36)
-  documentNo        String?               @unique @map("document_no") @db.VarChar(100)
-  sourceMode        PdfDocumentSourceMode @default(manual) @map("source_mode")
-  eventDate         DateTime              @map("event_date") @db.Date
-  eventTitle        String                @map("event_title") @db.VarChar(255)
-  selectedColumns   Json                  @map("selected_columns")
-  nbPoints          Json                  @map("nb_points")
-  createdById       BigInt                @map("created_by") @db.UnsignedBigInt
-  updatedById       BigInt?               @map("updated_by") @db.UnsignedBigInt
-  status            PdfDocumentStatus     @default(draft)
-  generatedFileName String?               @map("generated_file_name") @db.VarChar(255)
-  generatedFilePath String?               @map("generated_file_path") @db.VarChar(600)
-  pageCount         Int?                  @map("page_count") @db.UnsignedInt
-  templateVersion   String                @default("make-my-event-letter-pad-v1") @map("template_version") @db.VarChar(50)
-  generatedAt       DateTime?             @map("generated_at") @db.DateTime(0)
-  createdAt         DateTime              @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt         DateTime              @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
-
-  meeting   ClientMeeting?       @relation(fields: [meetingId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_pdf_documents_meeting")
-  createdBy Employee             @relation("PdfDocumentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_pdf_documents_created_by")
-  updatedBy Employee?            @relation("PdfDocumentUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_pdf_documents_updated_by")
-  items     PdfDocumentItem[]
-  imports   PdfDocumentImport[]
-
-  @@index([meetingId], map: "idx_pdf_documents_meeting")
-  @@index([linkedRowKey], map: "idx_pdf_documents_linked_row")
-  @@index([eventDate], map: "idx_pdf_documents_event_date")
-  @@index([createdAt], map: "idx_pdf_documents_created_at")
-  @@index([createdById], map: "fk_pdf_documents_created_by")
-  @@index([updatedById], map: "fk_pdf_documents_updated_by")
-  @@map("pdf_documents")
-}
-
-model PdfDocumentItem {
-  id                  BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
-  documentId          BigInt   @map("document_id") @db.UnsignedBigInt
-  sourceMeetingItemId BigInt?  @map("source_meeting_item_id") @db.UnsignedBigInt
-  sortOrder           Int      @map("sort_order") @db.UnsignedInt
-  itemName            String   @map("item_name") @db.VarChar(255)
-  description         String?  @db.Text
-  quantity            String   @default("1") @db.VarChar(100)
-  size                String?  @db.VarChar(120)
-  sqft                Decimal? @db.Decimal(14, 2)
-  tsqft               Decimal? @db.Decimal(14, 2)
-  unit                String?  @db.VarChar(80)
-  price               Decimal? @db.Decimal(14, 2)
-  customCaption       String?  @map("custom_caption") @db.VarChar(1000)
-  createdAt           DateTime @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt           DateTime @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
-
-  document          PdfDocument           @relation(fields: [documentId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_pdf_document_items_document")
-  sourceMeetingItem MeetingItem?          @relation(fields: [sourceMeetingItemId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_pdf_document_items_source_meeting_item")
-  images            PdfDocumentItemImage[]
-
-  @@unique([documentId, sortOrder], map: "uq_pdf_document_item_order")
-  @@index([documentId], map: "idx_pdf_document_items_document")
-  @@index([sourceMeetingItemId], map: "idx_pdf_document_items_source_meeting_item")
-  @@map("pdf_document_items")
-}
-
-model PdfDocumentItemImage {
-  id                   BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
-  documentItemId       BigInt   @map("document_item_id") @db.UnsignedBigInt
-  sourceMeetingImageId BigInt?  @map("source_meeting_image_id") @db.UnsignedBigInt
-  sortOrder            Int      @map("sort_order") @db.UnsignedInt
-  imagePath            String   @map("image_path") @db.VarChar(600)
-  storedFileName       String?  @map("stored_file_name") @db.VarChar(255)
-  originalName         String?  @map("original_name") @db.VarChar(255)
-  mimeType             String?  @map("mime_type") @db.VarChar(100)
-  fileSizeBytes        Int?     @map("file_size_bytes") @db.UnsignedInt
-  uploadedById         BigInt?  @map("uploaded_by") @db.UnsignedBigInt
-  createdAt            DateTime @default(now()) @map("created_at") @db.DateTime(0)
-
-  documentItem       PdfDocumentItem    @relation(fields: [documentItemId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_pdf_document_item_images_item")
-  sourceMeetingImage ClientMeetingImage? @relation(fields: [sourceMeetingImageId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_pdf_document_item_images_source_meeting_image")
-  uploadedBy         Employee?           @relation("PdfDocumentImageUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_pdf_document_item_images_uploaded_by")
-
-  @@unique([documentItemId, sortOrder], map: "uq_pdf_document_item_image_order")
-  @@index([documentItemId], map: "idx_pdf_document_item_images_item")
-  @@index([sourceMeetingImageId], map: "idx_pdf_document_item_images_source_meeting_image")
-  @@index([uploadedById], map: "fk_pdf_document_item_images_uploaded_by")
-  @@map("pdf_document_item_images")
-}
-
-model PdfDocumentImport {
-  id                BigInt                  @id @default(autoincrement()) @db.UnsignedBigInt
-  documentId        BigInt                  @map("document_id") @db.UnsignedBigInt
-  importedById      BigInt?                 @map("imported_by") @db.UnsignedBigInt
-  originalFileName  String                  @map("original_file_name") @db.VarChar(255)
-  storedFilePath    String?                 @map("stored_file_path") @db.VarChar(600)
-  selectedSheetName String?                 @map("selected_sheet_name") @db.VarChar(255)
-  status            PdfDocumentImportStatus @default(pending)
-  totalRows         Int                     @default(0) @map("total_rows") @db.UnsignedInt
-  importedRows      Int                     @default(0) @map("imported_rows") @db.UnsignedInt
-  failedRows        Int                     @default(0) @map("failed_rows") @db.UnsignedInt
-  detectedHeaders   Json?                   @map("detected_headers")
-  columnMapping     Json?                   @map("column_mapping")
-  errorMessage      String?                 @map("error_message") @db.Text
-  createdAt         DateTime                @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt         DateTime                @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
-
-  document   PdfDocument @relation(fields: [documentId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_pdf_document_imports_document")
-  importedBy Employee?    @relation("PdfDocumentImportImportedBy", fields: [importedById], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_pdf_document_imports_imported_by")
-
-  @@index([documentId], map: "idx_pdf_document_imports_document")
-  @@index([importedById], map: "idx_pdf_document_imports_imported_by")
-  @@index([createdAt], map: "idx_pdf_document_imports_created_at")
-  @@map("pdf_document_imports")
-}
-
 enum PdfDocumentSourceMode {
   meeting
   excel
@@ -980,76 +897,6 @@ enum PdfDocumentImportStatus {
   completed
   partial
   failed
-}
-
-// Money Receipt Generator module — Admin-only official payment receipts for
-// clients (separate from the employee-facing PDF Generator/Accounts wallet
-// tracking). Financial snapshot is frozen at generation time (guide-style
-// audit-integrity requirement) — later client/event edits elsewhere never
-// retroactively change an already-generated receipt.
-model MoneyReceipt {
-  id            BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
-  receiptNo     String?  @unique @map("receipt_no") @db.VarChar(100)
-
-  receiptDate   DateTime @map("receipt_date") @db.Date
-
-  clientName    String   @map("client_name") @db.VarChar(255)
-  clientPhone   String   @map("client_phone") @db.VarChar(50)
-  clientEmail   String?  @map("client_email") @db.VarChar(255)
-  clientAddress String?  @map("client_address") @db.VarChar(500)
-  // Free-text billing party — may differ from the client's own name (e.g. a company).
-  billedTo      String?  @map("billed_to") @db.VarChar(255)
-
-  eventName        String?   @map("event_name") @db.VarChar(255)
-  eventDate        DateTime? @map("event_date") @db.Date
-  eventVenue       String?   @map("event_venue") @db.VarChar(255)
-  bookingReference String?   @map("booking_reference") @db.VarChar(100)
-  // Whether this booking/event is confirmed — independent of paymentStatus.
-  bookingStatus    MoneyReceiptBookingStatus @default(not_confirmed) @map("booking_status")
-
-  // DECIMAL (never FLOAT) for financial precision — backend always
-  // recalculates duePayment/paymentStatus itself, never trusts the client.
-  totalPayment   Decimal @map("total_payment") @db.Decimal(14, 2)
-  advancePayment Decimal @map("advance_payment") @db.Decimal(14, 2)
-  duePayment     Decimal @map("due_payment") @db.Decimal(14, 2)
-
-  paymentMethod        MoneyReceiptPaymentMethod @default(cash) @map("payment_method")
-  paymentMethodOther   String?                   @map("payment_method_other") @db.VarChar(100)
-  transactionReference String?                   @map("transaction_reference") @db.VarChar(150)
-
-  paymentStatus MoneyReceiptPaymentStatus @map("payment_status")
-  remarks       String?                   @db.Text
-
-  createdById BigInt @map("created_by") @db.UnsignedBigInt
-
-  status MoneyReceiptStatus @default(generated)
-
-  generatedFileName String? @map("generated_file_name") @db.VarChar(255)
-  generatedFilePath String? @map("generated_file_path") @db.VarChar(600)
-
-  pageCount Int? @map("page_count")
-
-  generatedAt DateTime? @map("generated_at") @db.DateTime(0)
-
-  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
-
-  createdBy Employee @relation(fields: [createdById], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_money_receipts_created_by")
-
-  @@index([createdById], map: "fk_money_receipts_created_by")
-  @@index([receiptDate], map: "idx_money_receipts_receipt_date")
-  @@index([createdAt], map: "idx_money_receipts_created_at")
-  @@index([clientName], map: "idx_money_receipts_client_name")
-  @@index([clientPhone], map: "idx_money_receipts_client_phone")
-
-  @@map("money_receipts")
-}
-
-enum MoneyReceiptBookingStatus {
-  confirmed
-  not_confirmed
-
-  @@map("money_receipt_booking_status")
 }
 
 enum MoneyReceiptPaymentMethod {
