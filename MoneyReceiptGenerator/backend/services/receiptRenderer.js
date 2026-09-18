@@ -15,6 +15,7 @@ import {
   FONT_SIZES,
   PAYMENT_METHOD_LABELS,
   PAYMENT_STATUS_LABELS,
+  BOOKING_STATUS_LABELS,
   formatReceiptDate,
 } from "../config/moneyReceiptLayout.js";
 import { wrapText, measureLinesHeight, drawLines } from "./textRenderer.js";
@@ -149,22 +150,65 @@ export function renderReceiptContent(page, { fonts, data, scale = 1 }) {
     cursorY -= blockHeight + gap(6);
   }
 
+  // Renders a colored pill badge (used for both booking Status and Payment
+  // Status) at the current cursorY, then advances cursorY past it.
+  function drawStatusBadge(label, statusText, palette) {
+    const badgeFontSize = fs(FONT_SIZES.statusBadge);
+    const badgeTextWidth = fonts.bold.widthOfTextAtSize(statusText, badgeFontSize);
+    const badgePaddingX = gap(12);
+    const badgeWidth = badgeTextWidth + badgePaddingX * 2;
+    const badgeHeight = badgeFontSize + gap(12);
+
+    page.drawText(label, {
+      x: PAGE_CONTENT.x,
+      y: cursorY - fs(FONT_SIZES.value),
+      size: fs(FONT_SIZES.label),
+      font: fonts.bold,
+      color: color(COLORS.gray),
+    });
+    page.drawRectangle({
+      x: PAGE_CONTENT.x + labelColumnWidth,
+      y: cursorY - badgeHeight + gap(4),
+      width: badgeWidth,
+      height: badgeHeight,
+      color: color(palette.bg),
+    });
+    page.drawText(statusText, {
+      x: PAGE_CONTENT.x + labelColumnWidth + badgePaddingX,
+      y: cursorY - badgeHeight + gap(4) + (badgeHeight - badgeFontSize) / 2 + 1,
+      size: badgeFontSize,
+      font: fonts.bold,
+      color: color(palette.text),
+    });
+    cursorY -= badgeHeight + gap(18);
+  }
+
   // --- Client Information ---
   drawSectionHeading("CLIENT INFORMATION");
   drawRow("Client Name:", data.client.name);
   drawRow("Phone:", data.client.phone);
   drawRow("Email:", data.client.email);
   drawRow("Address:", data.client.address);
+  drawRow("Billed To:", data.client.billedTo);
   cursorY -= gap(6);
 
   // --- Event Information (whole section optional) ---
-  const hasEventInfo = data.event.name || data.event.date || data.event.venue || data.event.bookingReference;
+  const hasEventInfo =
+    data.event.name || data.event.date || data.event.venue || data.event.bookingReference || data.event.bookingStatus;
   if (hasEventInfo) {
     drawSectionHeading("EVENT INFORMATION");
     drawRow("Event:", data.event.name);
     drawRow("Event Date:", data.event.date ? formatReceiptDate(data.event.date) : null);
     drawRow("Venue:", data.event.venue);
     drawRow("Booking ID:", data.event.bookingReference);
+    if (data.event.bookingStatus) {
+      cursorY -= gap(2);
+      const bookingStatusPalette = {
+        confirmed: { text: COLORS.paidGreen, bg: COLORS.paidGreenBg },
+        not_confirmed: { text: COLORS.neutralGray, bg: COLORS.neutralGrayBg },
+      }[data.event.bookingStatus];
+      drawStatusBadge("Status:", BOOKING_STATUS_LABELS[data.event.bookingStatus], bookingStatusPalette);
+    }
     cursorY -= gap(6);
   }
 
@@ -202,44 +246,16 @@ export function renderReceiptContent(page, { fonts, data, scale = 1 }) {
   drawRow("Payment Method:", PAYMENT_METHOD_LABELS[data.payment.method] === "Other" && data.payment.methodOther
     ? data.payment.methodOther
     : PAYMENT_METHOD_LABELS[data.payment.method]);
-  drawRow("Transaction ID:", data.payment.transactionReference);
+  drawRow("Transaction/Reference No. / Account No.:", data.payment.transactionReference);
   cursorY -= gap(4);
 
   // --- Payment Status badge ---
-  const statusPalette = {
+  const paymentStatusPalette = {
     paid: { text: COLORS.paidGreen, bg: COLORS.paidGreenBg },
     partially_paid: { text: COLORS.partialAmber, bg: COLORS.partialAmberBg },
     unpaid: { text: COLORS.dueRed, bg: COLORS.dueRedBg },
   }[data.payment.status];
-  const statusLabel = PAYMENT_STATUS_LABELS[data.payment.status];
-  const badgeFontSize = fs(FONT_SIZES.statusBadge);
-  const badgeTextWidth = fonts.bold.widthOfTextAtSize(statusLabel, badgeFontSize);
-  const badgePaddingX = gap(12);
-  const badgeWidth = badgeTextWidth + badgePaddingX * 2;
-  const badgeHeight = badgeFontSize + gap(12);
-
-  page.drawText("Payment Status:", {
-    x: PAGE_CONTENT.x,
-    y: cursorY - fs(FONT_SIZES.value),
-    size: fs(FONT_SIZES.label),
-    font: fonts.bold,
-    color: color(COLORS.gray),
-  });
-  page.drawRectangle({
-    x: PAGE_CONTENT.x + labelColumnWidth,
-    y: cursorY - badgeHeight + gap(4),
-    width: badgeWidth,
-    height: badgeHeight,
-    color: color(statusPalette.bg),
-  });
-  page.drawText(statusLabel, {
-    x: PAGE_CONTENT.x + labelColumnWidth + badgePaddingX,
-    y: cursorY - badgeHeight + gap(4) + (badgeHeight - badgeFontSize) / 2 + 1,
-    size: badgeFontSize,
-    font: fonts.bold,
-    color: color(statusPalette.text),
-  });
-  cursorY -= badgeHeight + gap(18);
+  drawStatusBadge("Payment Status:", PAYMENT_STATUS_LABELS[data.payment.status], paymentStatusPalette);
 
   // --- Amount Received in Words (advance payment = amount actually received) ---
   drawSectionHeading("AMOUNT RECEIVED IN WORDS");

@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { Receipt } from "lucide-react";
+import { Receipt, User } from "lucide-react";
 import MoneyReceiptGeneratorShell from "../components/MoneyReceiptGeneratorShell";
 import PaymentSummaryCard from "../components/PaymentSummaryCard";
 import {
@@ -8,12 +8,16 @@ import {
   computePaymentSummary,
   validateMoneyReceiptForm,
   PAYMENT_METHOD_OPTIONS,
+  BOOKING_STATUS_OPTIONS,
 } from "../utils/moneyReceiptForm";
-import { previewMoneyReceipt, createMoneyReceipt } from "../services/moneyReceiptService";
+import { previewMoneyReceipt, createMoneyReceipt, listConfirmedClients } from "../services/moneyReceiptService";
 
 const inputClassName =
   "w-full rounded-xl border border-mme-pink/60 bg-white px-3.5 py-2.5 text-sm text-slate-800 outline-none transition-colors focus:border-mme-purple";
-const labelClassName = "mb-1 block text-[11px] font-black uppercase tracking-wide text-slate-500";
+// min-h reserves room for a 2-line label (e.g. "Transaction/Reference No. /
+// Account No. (optional)") so its input stays aligned with 1-line labels in
+// the same grid row, instead of sitting lower than its row-mates.
+const labelClassName = "mb-1 block min-h-[2.4em] text-[11px] font-black uppercase leading-tight tracking-wide text-slate-500";
 
 export default function MoneyReceiptGeneratorPage() {
   const navigate = useNavigate();
@@ -23,6 +27,43 @@ export default function MoneyReceiptGeneratorPage() {
   const [previewError, setPreviewError] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [generateError, setGenerateError] = useState("");
+  const [confirmedClients, setConfirmedClients] = useState([]);
+  const [showClientSuggestions, setShowClientSuggestions] = useState(false);
+
+  // Loaded once — the confirmed-clients list backing the Client Name
+  // autocomplete (rows marked "booked from MME" on the main workspace sheet).
+  useEffect(() => {
+    let cancelled = false;
+    listConfirmedClients()
+      .then((data) => {
+        if (!cancelled) setConfirmedClients(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        // Non-fatal — the form still works without the autocomplete.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const clientSuggestions = useMemo(() => {
+    const term = form.clientName.trim().toLowerCase();
+    const matches = term
+      ? confirmedClients.filter((client) => client.clientName.toLowerCase().includes(term))
+      : confirmedClients;
+    return matches.slice(0, 8);
+  }, [confirmedClients, form.clientName]);
+
+  function handleSelectConfirmedClient(client) {
+    setForm((prev) => ({
+      ...prev,
+      clientName: client.clientName || prev.clientName,
+      clientPhone: client.clientPhone || prev.clientPhone,
+      eventDate: client.eventDate || prev.eventDate,
+      eventVenue: client.eventVenue || prev.eventVenue,
+    }));
+    setShowClientSuggestions(false);
+  }
 
   const summary = computePaymentSummary(form);
 
@@ -74,12 +115,12 @@ export default function MoneyReceiptGeneratorPage() {
       title="Money Receipt Generator"
       subtitle="Create an official payment receipt for a client."
     >
-      <div className="space-y-5">
+      <div className="space-y-4">
         <div className="rounded-2xl border border-mme-pink/60 bg-white p-4 shadow-sm sm:p-5">
           <h2 className="mb-3 flex items-center gap-2 text-sm font-black uppercase tracking-wide text-slate-500">
             <Receipt size={15} /> Receipt Information
           </h2>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
             <div>
               <label className={labelClassName}>Receipt Date</label>
               <input
@@ -98,10 +139,40 @@ export default function MoneyReceiptGeneratorPage() {
 
         <div className="rounded-2xl border border-mme-pink/60 bg-white p-4 shadow-sm sm:p-5">
           <h2 className="mb-3 text-sm font-black uppercase tracking-wide text-slate-500">Client Information</h2>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+            <div className="relative">
               <label className={labelClassName}>Client Name</label>
-              <input className={inputClassName} value={form.clientName} onChange={(e) => updateField("clientName", e.target.value)} placeholder="e.g. John Doe" />
+              <input
+                className={inputClassName}
+                value={form.clientName}
+                onChange={(e) => {
+                  updateField("clientName", e.target.value);
+                  setShowClientSuggestions(true);
+                }}
+                onFocus={() => setShowClientSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowClientSuggestions(false), 150)}
+                placeholder="e.g. John Doe"
+                autoComplete="off"
+              />
+              {showClientSuggestions && clientSuggestions.length > 0 && (
+                <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-xl border border-mme-pink/60 bg-white shadow-lg">
+                  {clientSuggestions.map((client) => (
+                    <button
+                      key={client.rowKey}
+                      type="button"
+                      onMouseDown={() => handleSelectConfirmedClient(client)}
+                      className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-mme-blush/30"
+                    >
+                      <User size={14} className="shrink-0 text-mme-purple/50" />
+                      <span className="min-w-0 flex-1 truncate">
+                        <span className="font-bold">{client.clientName}</span>
+                        {client.clientPhone ? <span className="text-slate-400"> · {client.clientPhone}</span> : null}
+                        {client.eventVenue ? <span className="text-slate-400"> · {client.eventVenue}</span> : null}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <div>
               <label className={labelClassName}>Phone Number</label>
@@ -115,6 +186,10 @@ export default function MoneyReceiptGeneratorPage() {
               <label className={labelClassName}>Address <span className="font-medium normal-case text-slate-400">(optional)</span></label>
               <input className={inputClassName} value={form.clientAddress} onChange={(e) => updateField("clientAddress", e.target.value)} placeholder="Client address" />
             </div>
+            <div>
+              <label className={labelClassName}>Billed To <span className="font-medium normal-case text-slate-400">(optional)</span></label>
+              <input className={inputClassName} value={form.billedTo} onChange={(e) => updateField("billedTo", e.target.value)} placeholder="e.g. company/person being billed" />
+            </div>
           </div>
         </div>
 
@@ -122,7 +197,7 @@ export default function MoneyReceiptGeneratorPage() {
           <h2 className="mb-3 text-sm font-black uppercase tracking-wide text-slate-500">
             Event Information <span className="font-medium normal-case text-slate-400">(optional)</span>
           </h2>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
             <div>
               <label className={labelClassName}>Event Name</label>
               <input className={inputClassName} value={form.eventName} onChange={(e) => updateField("eventName", e.target.value)} placeholder="e.g. Wedding Reception" />
@@ -139,12 +214,20 @@ export default function MoneyReceiptGeneratorPage() {
               <label className={labelClassName}>Booking/Reference ID</label>
               <input className={inputClassName} value={form.bookingReference} onChange={(e) => updateField("bookingReference", e.target.value)} placeholder="e.g. BOOK-001" />
             </div>
+            <div>
+              <label className={labelClassName}>Status</label>
+              <select className={inputClassName} value={form.bookingStatus} onChange={(e) => updateField("bookingStatus", e.target.value)}>
+                {BOOKING_STATUS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
 
         <div className="rounded-2xl border border-mme-pink/60 bg-white p-4 shadow-sm sm:p-5">
           <h2 className="mb-3 text-sm font-black uppercase tracking-wide text-slate-500">Payment Information</h2>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
             <div>
               <label className={labelClassName}>Total Payment (৳)</label>
               <input
@@ -184,7 +267,7 @@ export default function MoneyReceiptGeneratorPage() {
               </div>
             ) : null}
             <div>
-              <label className={labelClassName}>Transaction / Reference No. <span className="font-medium normal-case text-slate-400">(optional)</span></label>
+              <label className={labelClassName}>Transaction/Reference No. / Account No. <span className="font-medium normal-case text-slate-400">(optional)</span></label>
               <input className={inputClassName} value={form.transactionReference} onChange={(e) => updateField("transactionReference", e.target.value)} placeholder="e.g. TXN123456789" />
             </div>
           </div>

@@ -29,10 +29,12 @@ function toReceiptRequestBody(form) {
     clientPhone: form.clientPhone.trim(),
     clientEmail: form.clientEmail.trim() || null,
     clientAddress: form.clientAddress.trim() || null,
+    billedTo: form.billedTo.trim() || null,
     eventName: form.eventName.trim() || null,
     eventDate: form.eventDate || null,
     eventVenue: form.eventVenue.trim() || null,
     bookingReference: form.bookingReference.trim() || null,
+    bookingStatus: form.bookingStatus,
     totalPayment: form.totalPayment,
     advancePayment: form.advancePayment,
     paymentMethod: form.paymentMethod,
@@ -80,6 +82,12 @@ export async function downloadMoneyReceipt(id) {
 
 export async function archiveMoneyReceipt(id) {
   return apiRequest(`/${id}/archive`, { method: "PATCH" });
+}
+
+// Powers the Client Name autocomplete — confirmed (booked-from-MME) clients
+// pulled from the main workspace sheet, with whatever fields it tracks.
+export async function listConfirmedClients() {
+  return apiRequest("/confirmed-clients");
 }
 
 // Triggers a real browser download for a blob without navigating away.
