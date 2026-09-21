@@ -4,12 +4,14 @@ import { formatTaka, loadBookedEvents, loadVendors, submitExpense } from "../ser
 import ExpenseItemsTable, { emptyItem } from "./ExpenseItemsTable";
 import BookedEventPicker from "./BookedEventPicker";
 
+const EVENT_OTHER_VALUE = "__other__";
+
 const COST_TYPES = [
   {
     value: "event",
     icon: PartyPopper,
     title: "Event Based Cost",
-    description: "Vendor due-bill to send to the boss for a confirmed event.",
+    description: "Confirmed-event spending — choose a vendor bill or a direct Other cost.",
   },
   {
     value: "regular",
@@ -20,10 +22,8 @@ const COST_TYPES = [
 ];
 
 // Full "log a new cost" flow.
-// - Event Based Cost: pick any confirmed event (past or upcoming) + the ONE
-//   vendor this bill is for, then list what's owed — every line is always
-//   "To Pay" (this only ever creates a due-bill for the boss to settle,
-//   never deducts the employee's own wallet).
+// - Event Based Cost: choose a confirmed event, then either a real vendor
+//   (creates a due-bill) or Other (direct non-vendor event spending).
 // - Regular Cost: unchanged, flexible per-item vendor + paid/to-pay.
 // Either way, Submit permanently locks it in — no edit/delete afterwards.
 export default function ExpenseForm({ onSubmitted, onCancel }) {
@@ -39,21 +39,27 @@ export default function ExpenseForm({ onSubmitted, onCancel }) {
 
   const selectedEvent = events.find((event) => event.rowKey === selectedRowKey);
   const isEventBill = costType === "event";
+  const isOtherEventCost = isEventBill && eventVendorId === EVENT_OTHER_VALUE;
+  const isVendorEventBill = isEventBill && Boolean(eventVendorId) && !isOtherEventCost;
 
   const billTotal = items.reduce(
     (sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.perQtyAmount) || 0),
     0,
   );
 
-  // Mirrors the backend rule: only vendor-less items and "paid" vendor
-  // items actually leave the wallet. An event bill is always "To Pay", so
-  // it never touches the wallet at all.
-  const walletDeduction = isEventBill
+  // Mirrors the backend rule:
+  // - Event + real vendor: due-bill only, so wallet deduction is 0.
+  // - Event + Other: direct non-vendor spend, so the full amount is pending
+  //   wallet deduction until Admin approval.
+  // - Regular: existing per-item vendor/payment rules remain unchanged.
+  const walletDeduction = isVendorEventBill
     ? 0
-    : items.reduce((sum, item) => {
-        if (item.vendorId && item.paymentStatus === "to_pay") return sum;
-        return sum + (Number(item.quantity) || 0) * (Number(item.perQtyAmount) || 0);
-      }, 0);
+    : isOtherEventCost
+      ? billTotal
+      : items.reduce((sum, item) => {
+          if (item.vendorId && item.paymentStatus === "to_pay") return sum;
+          return sum + (Number(item.quantity) || 0) * (Number(item.perQtyAmount) || 0);
+        }, 0);
 
   useEffect(() => {
     loadVendors()
@@ -74,11 +80,11 @@ export default function ExpenseForm({ onSubmitted, onCancel }) {
     setInvalidIndex(-1);
 
     if (isEventBill && !selectedRowKey) {
-      setError("Select which confirmed event this bill belongs to.");
+      setError("Select which confirmed event this cost belongs to.");
       return;
     }
     if (isEventBill && !eventVendorId) {
-      setError("Select which vendor this bill is for.");
+      setError("Select a vendor or choose Other for a non-vendor event cost.");
       return;
     }
 
@@ -167,7 +173,7 @@ export default function ExpenseForm({ onSubmitted, onCancel }) {
           <div className="mm-rise grid gap-4 sm:grid-cols-2">
             <div>
               <p className="mb-2.5 flex flex-wrap items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-black/55">
-                <CalendarClock size={12} /> Which confirmed event is this bill for?
+                <CalendarClock size={12} /> Which confirmed event is this cost for?
                 {selectedEvent ? (
                   <span className="rounded-md bg-emerald-100 px-1.5 py-0.5 text-[10px] font-black text-emerald-700">
                     {selectedEvent.clientName || "Selected"}
@@ -186,7 +192,7 @@ export default function ExpenseForm({ onSubmitted, onCancel }) {
 
             <div>
               <p className="mb-2.5 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-black/55">
-                <Store size={12} /> Which vendor is this bill for?
+                <Store size={12} /> Vendor / Other
               </p>
               <select
                 value={eventVendorId}
@@ -196,7 +202,8 @@ export default function ExpenseForm({ onSubmitted, onCancel }) {
                 }}
                 className="w-full rounded-xl border border-black/12 bg-white px-3.5 py-3 text-sm font-bold text-black outline-none transition-all duration-300 focus:border-black focus:ring-4 focus:ring-black/8"
               >
-                <option value="">Select a vendor…</option>
+                <option value="">Select a vendor or Other…</option>
+                <option value={EVENT_OTHER_VALUE}>Other — direct event cost (no vendor)</option>
                 {vendors.map((vendor) => (
                   <option key={vendor.id} value={vendor.id}>
                     {vendor.name}
@@ -204,6 +211,17 @@ export default function ExpenseForm({ onSubmitted, onCancel }) {
                   </option>
                 ))}
               </select>
+              {isOtherEventCost ? (
+                <p className="mt-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-[11px] font-bold leading-relaxed text-sky-700">
+                  Use Other for event expenses that are not tied to a vendor, such as food,
+                  transport, tips, helper payments, or small cash purchases. No vendor ledger
+                  entry will be created.
+                </p>
+              ) : isVendorEventBill ? (
+                <p className="mt-2 text-[11px] font-bold leading-relaxed text-black/45">
+                  This amount will be recorded as money owed to the selected vendor.
+                </p>
+              ) : null}
             </div>
           </div>
         ) : null}
@@ -218,7 +236,8 @@ export default function ExpenseForm({ onSubmitted, onCancel }) {
             eventDate={isEventBill ? selectedEvent?.eventDate : null}
             vendors={vendors}
             invalidIndex={invalidIndex}
-            billMode={isEventBill}
+            billMode={isVendorEventBill}
+            directEventMode={isOtherEventCost}
           />
         ) : null}
 
@@ -230,24 +249,30 @@ export default function ExpenseForm({ onSubmitted, onCancel }) {
 
         <p className="flex items-start gap-2 rounded-xl bg-black/[0.03] px-4 py-3 text-[11px] leading-relaxed text-black/45">
           <Ban size={12} className="mt-0.5 shrink-0" />
-          {isEventBill
-            ? "This creates a due-bill for the boss to settle — it never deducts your own wallet. Once submitted, it is locked permanently."
-            : "Once submitted, this cost is locked permanently — it cannot be edited or deleted."}
+          {isVendorEventBill
+            ? "This creates a due-bill for the selected vendor. It does not deduct your wallet. Once submitted, it is locked permanently."
+            : isOtherEventCost
+              ? "This is a direct event expense with no vendor. It will not affect any vendor ledger and will be deducted from your wallet only after Admin approval."
+              : "Once submitted, this cost is locked permanently — it cannot be edited or deleted."}
         </p>
       </div>
 
       <div className="flex items-center justify-between gap-3 border-t border-black/8 bg-[#fafafa] px-5 py-4 sm:px-7">
         <div className="min-w-0">
           <p className="text-[10px] font-black uppercase tracking-[0.16em] text-black/55">
-            {isEventBill ? "Bill total (owed to vendor)" : "Leaves wallet now"}
+            {isVendorEventBill
+              ? "Bill total (owed to vendor)"
+              : isOtherEventCost
+                ? "Direct event cost"
+                : "Leaves wallet now"}
           </p>
           <p
             className={`truncate text-xl font-black tracking-tight ${
-              isEventBill ? "text-amber-600" : "text-rose-600"
+              isVendorEventBill ? "text-amber-600" : "text-rose-600"
             }`}
           >
-            {isEventBill ? "" : "−"}
-            {formatTaka(isEventBill ? billTotal : walletDeduction)}
+            {isVendorEventBill ? "" : "−"}
+            {formatTaka(isVendorEventBill ? billTotal : walletDeduction)}
           </p>
         </div>
         <div className="flex shrink-0 gap-2">
@@ -268,7 +293,13 @@ export default function ExpenseForm({ onSubmitted, onCancel }) {
             ) : (
               <Check size={16} />
             )}
-            {isSubmitting ? "Submitting…" : isEventBill ? "Create Bill" : "Submit Cost"}
+            {isSubmitting
+              ? "Submitting…"
+              : isVendorEventBill
+                ? "Create Bill"
+                : isOtherEventCost
+                  ? "Submit Event Cost"
+                  : "Submit Cost"}
           </button>
         </div>
       </div>
