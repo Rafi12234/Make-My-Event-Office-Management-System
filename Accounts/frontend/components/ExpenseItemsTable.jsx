@@ -149,10 +149,12 @@ export default function ExpenseItemsTable({
   vendors = [],
   invalidIndex = -1,
   billMode = false,
+  directEventMode = false,
 }) {
-  const columns = billMode ? BILL_COLUMNS : FULL_COLUMNS;
-  const storageKey = billMode ? BILL_COL_WEIGHTS_STORAGE_KEY : COL_WEIGHTS_STORAGE_KEY;
-  const defaultWeights = billMode ? DEFAULT_BILL_COL_WEIGHTS : DEFAULT_COL_WEIGHTS;
+  const compactMode = billMode || directEventMode;
+  const columns = compactMode ? BILL_COLUMNS : FULL_COLUMNS;
+  const storageKey = compactMode ? BILL_COL_WEIGHTS_STORAGE_KEY : COL_WEIGHTS_STORAGE_KEY;
+  const defaultWeights = compactMode ? DEFAULT_BILL_COL_WEIGHTS : DEFAULT_COL_WEIGHTS;
   const [colWeights, setColWeights] = useState(() => loadStoredColWeights(storageKey, defaultWeights));
   const [outstandingByVendor, setOutstandingByVendor] = useState({});
   const tableRef = useRef(null);
@@ -234,7 +236,9 @@ export default function ExpenseItemsTable({
     (acc, item) => {
       const total = (Number(item.quantity) || 0) * (Number(item.perQtyAmount) || 0);
       acc.grand += total;
-      if (billMode || (item.vendorId && item.paymentStatus === "to_pay")) acc.pending += total;
+      if (billMode) acc.pending += total;
+      else if (directEventMode) acc.wallet += total;
+      else if (item.vendorId && item.paymentStatus === "to_pay") acc.pending += total;
       else acc.wallet += total;
       return acc;
     },
@@ -287,13 +291,16 @@ export default function ExpenseItemsTable({
           <tbody>
             {items.map((item, index) => {
               const total = (Number(item.quantity) || 0) * (Number(item.perQtyAmount) || 0);
-              const isPending = billMode || (Boolean(item.vendorId) && item.paymentStatus === "to_pay");
+              const isPending =
+                billMode || (!directEventMode && Boolean(item.vendorId) && item.paymentStatus === "to_pay");
               const isInvalid = index === invalidIndex;
-              const impactNote = !item.vendorId
-                ? "No vendor — comes straight out of your wallet."
-                : isPending
-                  ? "Order placed only. Recorded as money owed to this vendor."
-                  : "Paying this vendor now — deducted from your wallet.";
+              const impactNote = directEventMode
+                ? "Other event cost — no vendor ledger. Deducted from your wallet after Admin approval."
+                : !item.vendorId
+                  ? "No vendor — comes straight out of your wallet."
+                  : isPending
+                    ? "Order placed only. Recorded as money owed to this vendor."
+                    : "Paying this vendor now — deducted from your wallet.";
 
               return (
                 <tr
@@ -378,7 +385,7 @@ export default function ExpenseItemsTable({
                     </div>
                   </td>
 
-                  {!billMode ? (
+                  {!compactMode ? (
                     <>
                       <td className="px-2 py-2">
                         <select
@@ -515,7 +522,7 @@ export default function ExpenseItemsTable({
         </button>
       </div>
 
-      <div className={`grid gap-3 ${billMode ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>
+      <div className={`grid gap-3 ${compactMode ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>
         <div className="rounded-2xl border border-black/8 bg-white p-4">
           <p className="text-[9px] font-black uppercase tracking-[0.16em] text-black/55">Grand Total</p>
           <p className="mt-1.5 text-xl font-black tracking-tight text-black">{formatTaka(totals.grand)}</p>
@@ -523,31 +530,33 @@ export default function ExpenseItemsTable({
         {!billMode ? (
           <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
             <p className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.16em] text-rose-500">
-              <Wallet size={11} /> Leaves Wallet
+              <Wallet size={11} /> {directEventMode ? "Direct Event Cost" : "Leaves Wallet"}
             </p>
             <p className="mt-1.5 text-xl font-black tracking-tight text-rose-600">{formatTaka(totals.wallet)}</p>
           </div>
         ) : null}
-        <div
-          className={`rounded-2xl border p-4 transition-colors duration-300 ${
-            totals.pending > 0 ? "border-amber-200 bg-amber-50" : "border-black/8 bg-white"
-          }`}
-        >
-          <p
-            className={`flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.16em] ${
-              totals.pending > 0 ? "text-amber-600" : "text-black/55"
+        {!directEventMode ? (
+          <div
+            className={`rounded-2xl border p-4 transition-colors duration-300 ${
+              totals.pending > 0 ? "border-amber-200 bg-amber-50" : "border-black/8 bg-white"
             }`}
           >
-            <Store size={11} /> {billMode ? "Bill Amount (Owed to Vendor)" : "Owed To Vendors"}
-          </p>
-          <p
-            className={`mt-1.5 text-xl font-black tracking-tight ${
-              totals.pending > 0 ? "text-amber-700" : "text-black/45"
-            }`}
-          >
-            {formatTaka(totals.pending)}
-          </p>
-        </div>
+            <p
+              className={`flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.16em] ${
+                totals.pending > 0 ? "text-amber-600" : "text-black/55"
+              }`}
+            >
+              <Store size={11} /> {billMode ? "Bill Amount (Owed to Vendor)" : "Owed To Vendors"}
+            </p>
+            <p
+              className={`mt-1.5 text-xl font-black tracking-tight ${
+                totals.pending > 0 ? "text-amber-700" : "text-black/45"
+              }`}
+            >
+              {formatTaka(totals.pending)}
+            </p>
+          </div>
+        ) : null}
       </div>
     </div>
   );
