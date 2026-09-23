@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   CalendarClock,
+  FileSpreadsheet,
   ImageUp,
   Info,
   Layers,
@@ -150,6 +151,8 @@ export default function ExpenseItemsTable({
   invalidIndex = -1,
   billMode = false,
   directEventMode = false,
+  onExcelUpload,
+  isImportingExcel = false,
 }) {
   const compactMode = billMode || directEventMode;
   const columns = compactMode ? BILL_COLUMNS : FULL_COLUMNS;
@@ -248,14 +251,53 @@ export default function ExpenseItemsTable({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.16em] text-black/55">
-          <Layers size={13} /> Cost Items ({items.length})
+        <div>
+          <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.16em] text-black/55">
+            <Layers size={13} /> Cost Items ({items.length})
+          </div>
+          <p className="mt-1 text-[10px] font-semibold text-black/40">
+            Excel columns: Purpose / Description / Details, Date, Quantity, Amount / Qty. Extra rows and columns are ignored.
+          </p>
         </div>
-        {eventDate ? (
-          <span className="inline-flex items-center gap-1.5 rounded-lg bg-[#0B0B0F] px-3 py-1.5 text-[11px] font-black text-white">
-            <CalendarClock size={12} /> Event {formatDisplayDate(eventDate)}
-          </span>
-        ) : null}
+
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {onExcelUpload ? (
+            <label
+              className={`inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-[11px] font-black text-emerald-700 transition-all duration-300 ${
+                isImportingExcel
+                  ? "cursor-wait opacity-60"
+                  : "cursor-pointer hover:-translate-y-0.5 hover:border-emerald-500 hover:bg-emerald-100"
+              }`}
+              title="Import cost rows from Excel. Existing form rows will be replaced after confirmation."
+            >
+              {isImportingExcel ? (
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-emerald-300 border-t-emerald-700" />
+              ) : (
+                <FileSpreadsheet size={13} />
+              )}
+              {isImportingExcel ? "Reading Excel…" : "Upload Excel"}
+              <input
+                type="file"
+                accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                disabled={isImportingExcel}
+                className="hidden"
+                onChange={async (event) => {
+                  const file = event.target.files?.[0] || null;
+                  event.target.value = "";
+                  if (file) {
+                    await onExcelUpload(file);
+                  }
+                }}
+              />
+            </label>
+          ) : null}
+
+          {eventDate ? (
+            <span className="inline-flex items-center gap-1.5 rounded-lg bg-[#0B0B0F] px-3 py-1.5 text-[11px] font-black text-white">
+              <CalendarClock size={12} /> Event {formatDisplayDate(eventDate)}
+            </span>
+          ) : null}
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-black/8 bg-white">

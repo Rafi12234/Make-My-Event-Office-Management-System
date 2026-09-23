@@ -3,6 +3,7 @@ import { AlertCircle, Ban, Briefcase, CalendarClock, Check, PartyPopper, Store }
 import { formatTaka, loadBookedEvents, loadVendors, submitExpense } from "../services/accountsService";
 import ExpenseItemsTable, { emptyItem } from "./ExpenseItemsTable";
 import BookedEventPicker from "./BookedEventPicker";
+import { parseExpenseExcelFile } from "../utils/expenseExcelImport.js";
 
 const EVENT_OTHER_VALUE = "__other__";
 
@@ -36,6 +37,8 @@ export default function ExpenseForm({ onSubmitted, onCancel }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [invalidIndex, setInvalidIndex] = useState(-1);
+  const [isImportingExcel, setIsImportingExcel] = useState(false);
+  const [excelImportNotice, setExcelImportNotice] = useState("");
 
   const selectedEvent = events.find((event) => event.rowKey === selectedRowKey);
   const isEventBill = costType === "event";
@@ -73,6 +76,75 @@ export default function ExpenseForm({ onSubmitted, onCancel }) {
       .then(setEvents)
       .catch(() => setEvents([]));
   }, [costType, events.length]);
+
+  function hasMeaningfulManualRows() {
+    return items.some((item) =>
+      Boolean(
+        item.purpose?.trim() ||
+          item.perQtyAmount ||
+          item.receiptFile ||
+          item.vendorId ||
+          Number(item.quantity || 1) !== 1,
+      ),
+    );
+  }
+
+  async function handleExcelUpload(file) {
+    if (!file) return;
+
+    setError("");
+    setInvalidIndex(-1);
+    setExcelImportNotice("");
+    setIsImportingExcel(true);
+
+    try {
+      const parsed = await parseExpenseExcelFile(file);
+
+      if (hasMeaningfulManualRows()) {
+        const shouldReplace = window.confirm(
+          `Import ${parsed.rows.length} cost row${parsed.rows.length === 1 ? "" : "s"} from ${file.name}? This will replace the cost rows currently in the form.`,
+        );
+
+        if (!shouldReplace) {
+          return;
+        }
+      }
+
+      const importedItems = parsed.rows.map((row) => ({
+        ...emptyItem(),
+        purpose: row.purpose,
+        costDate: row.costDate,
+        quantity: row.quantity,
+        perQtyAmount: row.perQtyAmount,
+
+        // Excel intentionally does not carry vendor/payment information.
+        // In Regular Cost the employee can choose a vendor afterwards.
+        vendorId: "",
+        paymentStatus: "paid",
+        settlesItemId: "",
+        receiptFile: null,
+      }));
+
+      setItems(importedItems);
+
+      const ignoredText =
+        parsed.ignoredRowCount > 0
+          ? ` ${parsed.ignoredRowCount} extra or invalid row${
+              parsed.ignoredRowCount === 1 ? " was" : "s were"
+            } ignored.`
+          : "";
+
+      setExcelImportNotice(
+        `Imported ${importedItems.length} cost row${
+          importedItems.length === 1 ? "" : "s"
+        } from ${parsed.sheetName}.${ignoredText} Extra Excel columns are ignored automatically.`,
+      );
+    } catch (err) {
+      setError(err.message || "Could not read this Excel file.");
+    } finally {
+      setIsImportingExcel(false);
+    }
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -143,6 +215,7 @@ export default function ExpenseForm({ onSubmitted, onCancel }) {
                       setEventVendorId("");
                     }
                     setError("");
+                    setExcelImportNotice("");
                     setInvalidIndex(-1);
                   }}
                   className={`mm-pop group relative flex items-start gap-3 overflow-hidden rounded-2xl border p-4 text-left transition-all duration-400 hover:-translate-y-1 ${
@@ -238,7 +311,15 @@ export default function ExpenseForm({ onSubmitted, onCancel }) {
             invalidIndex={invalidIndex}
             billMode={isVendorEventBill}
             directEventMode={isOtherEventCost}
+            onExcelUpload={handleExcelUpload}
+            isImportingExcel={isImportingExcel}
           />
+        ) : null}
+
+        {excelImportNotice ? (
+          <p className="mm-pop rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">
+            {excelImportNotice}
+          </p>
         ) : null}
 
         {error ? (
