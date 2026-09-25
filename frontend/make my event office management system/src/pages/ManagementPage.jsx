@@ -319,7 +319,7 @@ function saveStoredScrollY(employeeId, scrollY) {
     // Ignore storage failures (e.g. private browsing quota).
   }
 }
-
+const OTHER_VENUE_VALUE = "__other__";
 /* ─── Hover Preview Panel ─── */
 
 const HOVER_PANEL_WIDTH = 320; // matches the w-80 class below
@@ -577,14 +577,25 @@ function CellEditor({ column, value, onChange, employeeNames }) {
     );
   }
 
-  if (column.type === "venue") {
-    return (
-      <select value={editableValue || ""} onChange={(event) => onChange(event.target.value)} className={baseClass}>
-        <option value="">{isNotAvailable ? "N/A — select venue" : "Select venue"}</option>
-        {VENUE_OPTIONS.map((option) => <option key={option}>{option}</option>)}
-      </select>
-    );
-  }
+if (
+  column.type ===
+  "venue"
+) {
+  return (
+    <VenueCellEditor
+      value={value}
+      isNotAvailable={
+        isNotAvailable
+      }
+      onChange={
+        onChange
+      }
+      baseClass={
+        baseClass
+      }
+    />
+  );
+}
 
   if (column.type === "shift") {
     return (
@@ -675,7 +686,181 @@ function CellEditor({ column, value, onChange, employeeNames }) {
     />
   );
 }
+function VenueCellEditor({
+  value,
+  isNotAvailable,
+  onChange,
+  baseClass,
+}) {
+  const currentValue =
+    isNotAvailable
+      ? ""
+      : String(value ?? "");
 
+  /*
+  |--------------------------------------------------------------------------
+  | Existing custom venue
+  |--------------------------------------------------------------------------
+  |
+  | If the database contains:
+  |
+  | International Convention City Bashundhara
+  |
+  | and that value is not one of VENUE_OPTIONS, the editor automatically
+  | opens in Other mode and displays the saved custom venue.
+  |
+  */
+  const isExistingCustomVenue =
+    Boolean(currentValue) &&
+    !VENUE_OPTIONS.includes(
+      currentValue,
+    );
+
+  const [
+    isOtherSelected,
+    setIsOtherSelected,
+  ] = useState(
+    isExistingCustomVenue,
+  );
+
+  /*
+  |--------------------------------------------------------------------------
+  | Which option should the select display?
+  |--------------------------------------------------------------------------
+  */
+  const selectValue =
+    isOtherSelected ||
+    isExistingCustomVenue
+      ? OTHER_VENUE_VALUE
+      : currentValue;
+
+  /*
+  |--------------------------------------------------------------------------
+  | Custom text shown in manual input
+  |--------------------------------------------------------------------------
+  */
+  const customVenueValue =
+    (
+      isOtherSelected ||
+      isExistingCustomVenue
+    ) &&
+    !VENUE_OPTIONS.includes(
+      currentValue,
+    )
+      ? currentValue
+      : "";
+
+  function handleVenueTypeChange(
+    event,
+  ) {
+    const nextValue =
+      event.target.value;
+
+    /*
+    |--------------------------------------------------------------------------
+    | Other selected
+    |--------------------------------------------------------------------------
+    |
+    | Keep the actual stored cell blank until employee types a real venue.
+    |
+    */
+    if (
+      nextValue ===
+      OTHER_VENUE_VALUE
+    ) {
+      setIsOtherSelected(
+        true,
+      );
+
+      /*
+        If employee was previously on a predefined venue, clear it because
+        they have now chosen to manually enter another venue.
+      */
+      if (
+        VENUE_OPTIONS.includes(
+          currentValue,
+        )
+      ) {
+        onChange("");
+      }
+
+      return;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Predefined venue / blank selected
+    |--------------------------------------------------------------------------
+    */
+    setIsOtherSelected(
+      false,
+    );
+
+    onChange(
+      nextValue,
+    );
+  }
+
+  return (
+    <div className="flex h-full min-h-11 flex-col">
+      <select
+        value={selectValue}
+        onChange={
+          handleVenueTypeChange
+        }
+        className={baseClass}
+      >
+        <option value="">
+          {isNotAvailable
+            ? "N/A — select venue"
+            : "Select venue"}
+        </option>
+
+        {VENUE_OPTIONS.map(
+          (option) => (
+            <option
+              key={option}
+              value={option}
+            >
+              {option}
+            </option>
+          ),
+        )}
+
+        <option
+          value={
+            OTHER_VENUE_VALUE
+          }
+        >
+          Other
+        </option>
+      </select>
+
+      {isOtherSelected ||
+      isExistingCustomVenue ? (
+        <input
+          type="text"
+          value={
+            customVenueValue
+          }
+          onChange={(
+            event,
+          ) =>
+            onChange(
+              event.target.value,
+            )
+          }
+          placeholder="Enter venue name"
+          autoFocus={
+            isOtherSelected &&
+            !customVenueValue
+          }
+          className="mx-2 mb-2 rounded-lg border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none transition-all duration-200 placeholder:text-black/30 focus:border-black/40 focus:ring-2 focus:ring-black/10"
+        />
+      ) : null}
+    </div>
+  );
+}
 /* ─── Empty State ─── */
 
 function EmptyState({ onAddRow, onUpload }) {
@@ -806,7 +991,83 @@ export default function ManagementPage() {
     if (employee?.fullName && !names.includes(employee.fullName)) names.push(employee.fullName);
     return names.sort((a, b) => a.localeCompare(b));
   }, [employee, employeeDirectory]);
+const venueFilterOptions = useMemo(() => {
+  /*
+  |--------------------------------------------------------------------------
+  | Find the Venue column
+  |--------------------------------------------------------------------------
+  */
+  const venueColumn =
+    workspace.columns.find(
+      (column) =>
+        column.type === "venue",
+    );
 
+  /*
+    If for some reason there is no Venue column,
+    fall back to the normal fixed venue list.
+  */
+  if (!venueColumn) {
+    return VENUE_OPTIONS;
+  }
+
+  /*
+  |--------------------------------------------------------------------------
+  | Read every custom venue already saved in Management rows
+  |--------------------------------------------------------------------------
+  |
+  | Example:
+  |
+  | Radisson Blu Dhaka
+  | ICC Bashundhara
+  | InterContinental Dhaka
+  |
+  | These values are stored directly in row.values[venueColumn.id].
+  |
+  */
+  const customVenues = [
+    ...new Set(
+      workspace.rows
+        .map((row) =>
+          String(
+            row.values?.[
+              venueColumn.id
+            ] ?? "",
+          ).trim(),
+        )
+
+        /*
+          Do not add:
+          - blank values
+          - N/A
+          - venues already present in VENUE_OPTIONS
+        */
+        .filter(
+          (venue) =>
+            venue &&
+            venue !== "N/A" &&
+            !VENUE_OPTIONS.includes(
+              venue,
+            ),
+        ),
+    ),
+  ].sort((a, b) =>
+    a.localeCompare(b),
+  );
+
+  /*
+  |--------------------------------------------------------------------------
+  | Fixed venues first, custom venues afterward
+  |--------------------------------------------------------------------------
+  */
+  return [
+    ...VENUE_OPTIONS,
+    ...customVenues,
+  ];
+}, [
+  workspace.columns,
+  workspace.rows,
+]);
   useEffect(() => {
     workspaceRef.current = workspace;
   }, [workspace]);
@@ -1772,7 +2033,7 @@ export default function ManagementPage() {
                           <div className="animate-[fadeIn_0.15s_ease-out]">
                             <p className="mb-3 text-[10px] font-black uppercase tracking-[0.18em] text-[#333333]">Venue</p>
                             <div className="grid grid-cols-2 gap-1">
-                              {VENUE_OPTIONS.map((opt) => (
+                              {venueFilterOptions.map((opt) => (
                                 <label key={opt} className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2 transition-colors duration-150 hover:bg-[#f4f4f4]/30">
                                   <input type="checkbox" checked={filters.venues.has(opt)} onChange={() => toggleFilter("venues", opt)} className="h-4 w-4 accent-black" />
                                   <span className="text-sm font-bold text-black">{opt}</span>

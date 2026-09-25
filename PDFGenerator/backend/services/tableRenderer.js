@@ -1,4 +1,5 @@
 import { rgb } from "pdf-lib";
+
 import {
   TABLE_CELL_PADDING_X,
   TABLE_CELL_PADDING_Y,
@@ -6,218 +7,1443 @@ import {
   TABLE_TITLE_FONT_SIZE,
   TABLE_TITLE_ROW_HEIGHT,
 } from "../config/pdfLayout.js";
-import { drawLines, measureLinesHeight, wrapText } from "./textRenderer.js";
+
+import {
+  drawLines,
+  measureLinesHeight,
+  wrapText,
+} from "./textRenderer.js";
 
 const BLACK = rgb(0, 0, 0);
-const OPTIONAL_ORDER = ["size", "sqft", "tsqft", "unit", "price"];
-const META = {
-  sl: { label: "SL", weight: 4 },
-  item: { label: "Item", weight: 11 },
-  description: { label: "Description", weight: 20 },
-  qty: { label: "QTY", weight: 5 },
-  size: { label: "Size", weight: 8 },
-  sqft: { label: "SQFT", weight: 6 },
-  tsqft: { label: "TSqft", weight: 6 },
-  unit: { label: "Unit", weight: 6 },
-  price: { label: "Price", weight: 8 },
+
+const OPTIONAL_ORDER = [
+  "size",
+  "sqft",
+  "tsqft",
+  "unit",
+  "price",
+];
+
+/*
+|--------------------------------------------------------------------------
+| Normal Client Meeting table columns
+|--------------------------------------------------------------------------
+*/
+const MEETING_META = {
+  sl: {
+    label: "SL",
+    weight: 4,
+  },
+
+  item: {
+    label: "Item",
+    weight: 11,
+  },
+
+  description: {
+    label: "Description",
+    weight: 20,
+  },
+
+  qty: {
+    label: "QTY",
+    weight: 5,
+  },
+
+  size: {
+    label: "Size",
+    weight: 8,
+  },
+
+  sqft: {
+    label: "SQFT",
+    weight: 6,
+  },
+
+  tsqft: {
+    label: "TSqft",
+    weight: 6,
+  },
+
+  unit: {
+    label: "Unit",
+    weight: 6,
+  },
+
+  price: {
+    label: "Price",
+    weight: 8,
+  },
 };
 
-// Images are intentionally NOT part of the summary table. They remain attached
-// to each PDF item and are rendered later in the detail/reference section.
-export function getColumnOrder(selectedColumns = []) {
-  const optional = OPTIONAL_ORDER.filter((key) => selectedColumns.includes(key));
-  return ["sl", "item", "description", "qty", ...optional];
+/*
+|--------------------------------------------------------------------------
+| Normalize Excel column label
+|--------------------------------------------------------------------------
+*/
+function normalizeLabel(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase();
 }
 
-export function tableFontSizes(columnCount) {
-  if (columnCount >= 9) return { header: 6.8, body: 6.9 };
-  if (columnCount >= 7) return { header: 7.4, body: 7.6 };
-  if (columnCount >= 6) return { header: 8, body: 8.2 };
-  return { header: 8.8, body: 9 };
+/*
+|--------------------------------------------------------------------------
+| Dynamic Excel column width weight
+|--------------------------------------------------------------------------
+|
+| Excel columns are not predefined.
+|
+| We only use the label/role to give sensible proportions.
+|
+| Example:
+|
+| Items        -> wider
+| Details      -> widest
+| Qty          -> narrow
+| Price        -> narrow
+| Material     -> medium
+| Color        -> medium
+|
+*/
+function excelWeight(column) {
+  if (
+    column.role ===
+    "description"
+  ) {
+    return 22;
+  }
+
+  if (
+    column.role ===
+    "item"
+  ) {
+    return 13;
+  }
+
+  const label =
+    normalizeLabel(
+      column.label,
+    );
+
+  if (
+    label.includes(
+      "description",
+    ) ||
+    label.includes(
+      "detail",
+    )
+  ) {
+    return 22;
+  }
+
+  if (
+    label.includes(
+      "item",
+    )
+  ) {
+    return 13;
+  }
+
+  if (
+    label.includes(
+      "size",
+    ) ||
+    label.includes(
+      "dimension",
+    )
+  ) {
+    return 10;
+  }
+
+  if (
+    label.includes(
+      "qty",
+    ) ||
+    label.includes(
+      "quantity",
+    ) ||
+    label.includes(
+      "sqft",
+    ) ||
+    label.includes(
+      "unit",
+    ) ||
+    label.includes(
+      "price",
+    ) ||
+    label.includes(
+      "amount",
+    ) ||
+    label.includes(
+      "rate",
+    ) ||
+    label.includes(
+      "cost",
+    )
+  ) {
+    return 7;
+  }
+
+  /*
+    Any unknown Excel column gets medium width.
+  */
+  return 9;
 }
 
-export function computeColumnWidths(tableWidth, selectedColumns = []) {
-  const order = getColumnOrder(selectedColumns);
-  const totalWeight = order.reduce((sum, key) => sum + META[key].weight, 0);
+/*
+|--------------------------------------------------------------------------
+| Sanitize dynamic Excel columns
+|--------------------------------------------------------------------------
+|
+| Expected structure:
+|
+| [
+|   {
+|     key: "col_0",
+|     label: "Items",
+|     role: "item"
+|   },
+|   {
+|     key: "col_1",
+|     label: "Details",
+|     role: "description"
+|   },
+|   {
+|     key: "col_2",
+|     label: "Material",
+|     role: null
+|   }
+| ]
+|
+*/
+function sanitizeExcelColumns(
+  excelColumns = [],
+) {
+  if (
+    !Array.isArray(
+      excelColumns,
+    )
+  ) {
+    return [];
+  }
+
+  return excelColumns
+    .filter(
+      (column) =>
+        column &&
+        typeof column ===
+          "object" &&
+        String(
+          column.key || "",
+        ).trim(),
+    )
+    .map(
+      (column) => ({
+        key: String(
+          column.key,
+        ),
+
+        label: String(
+          column.label ?? "",
+        ),
+
+        role: [
+          "item",
+          "description",
+          "quantity",
+        ].includes(
+          column.role,
+        )
+          ? column.role
+          : null,
+
+        weight:
+          excelWeight(
+            column,
+          ),
+      }),
+    );
+}
+
+/*
+|--------------------------------------------------------------------------
+| Get actual PDF summary table columns
+|--------------------------------------------------------------------------
+|
+| Client Meeting mode:
+|
+| SL | Item | Description | QTY | Optional...
+|
+| Excel mode:
+|
+| EXACT Excel columns/order
+|
+| Example:
+|
+| Items | Details | Size | SQFT | Qty | TSqft | Unit | Price
+|
+*/
+export function getTableColumns({
+  sourceMode = "meeting",
+  selectedColumns = [],
+  excelColumns = [],
+} = {}) {
+  /*
+  |--------------------------------------------------------------------------
+  | Excel mode
+  |--------------------------------------------------------------------------
+  */
+  if (
+    sourceMode ===
+    "excel"
+  ) {
+    return sanitizeExcelColumns(
+      excelColumns,
+    );
+  }
+
+  /*
+  |--------------------------------------------------------------------------
+  | Client Meeting mode
+  |--------------------------------------------------------------------------
+  */
+  const optional =
+    OPTIONAL_ORDER.filter(
+      (key) =>
+        selectedColumns.includes(
+          key,
+        ),
+    );
+
+  return [
+    "sl",
+    "item",
+    "description",
+    "qty",
+    ...optional,
+  ].map(
+    (key) => ({
+      key,
+
+      ...MEETING_META[
+        key
+      ],
+    }),
+  );
+}
+
+/*
+|--------------------------------------------------------------------------
+| Dynamic font sizing
+|--------------------------------------------------------------------------
+|
+| More columns = smaller font.
+|
+| This is important because Excel can contain arbitrary numbers of columns,
+| but everything still needs to fit inside the fixed letterhead width.
+|
+*/
+export function tableFontSizes(
+  columnCount,
+) {
+  if (
+    columnCount >= 14
+  ) {
+    return {
+      header: 4.8,
+      body: 5.0,
+    };
+  }
+
+  if (
+    columnCount >= 12
+  ) {
+    return {
+      header: 5.2,
+      body: 5.4,
+    };
+  }
+
+  if (
+    columnCount >= 10
+  ) {
+    return {
+      header: 5.8,
+      body: 6.0,
+    };
+  }
+
+  if (
+    columnCount >= 9
+  ) {
+    return {
+      header: 6.4,
+      body: 6.6,
+    };
+  }
+
+  if (
+    columnCount >= 7
+  ) {
+    return {
+      header: 7.1,
+      body: 7.3,
+    };
+  }
+
+  if (
+    columnCount >= 6
+  ) {
+    return {
+      header: 7.7,
+      body: 7.9,
+    };
+  }
+
+  return {
+    header: 8.6,
+    body: 8.8,
+  };
+}
+
+/*
+|--------------------------------------------------------------------------
+| Calculate column widths
+|--------------------------------------------------------------------------
+|
+| Widths are calculated proportionally from column weights.
+|
+| This means:
+|
+| Description gets more room.
+| Item gets more room.
+| Qty/Price gets less room.
+|
+| But the complete table always stays inside `tableWidth`.
+|
+*/
+export function computeColumnWidths(
+  tableWidth,
+  options = {},
+) {
+  const columns =
+    getTableColumns(
+      options,
+    );
+
+  const totalWeight =
+    columns.reduce(
+      (
+        sum,
+        column,
+      ) =>
+        sum +
+        column.weight,
+      0,
+    ) || 1;
+
   const widths = {};
-  for (const key of order) widths[key] = (tableWidth * META[key].weight) / totalWeight;
+
+  for (
+    const column of
+      columns
+  ) {
+    widths[column.key] =
+      (
+        tableWidth *
+        column.weight
+      ) /
+      totalWeight;
+  }
+
   return widths;
 }
 
-function totalWidth(columnWidths, order) {
-  return order.reduce((sum, key) => sum + columnWidths[key], 0);
+/*
+|--------------------------------------------------------------------------
+| Total table width
+|--------------------------------------------------------------------------
+*/
+function totalWidth(
+  columnWidths,
+  columns,
+) {
+  return columns.reduce(
+    (
+      sum,
+      column,
+    ) =>
+      sum +
+      (
+        columnWidths[
+          column.key
+        ] || 0
+      ),
+    0,
+  );
 }
 
-function textValue(item, key, index) {
-  if (key === "sl") return String(index + 1);
-  if (key === "item") return item.itemName || "";
-  if (key === "description") return item.description || "";
-  if (key === "qty") return item.quantity || "";
-  return item[key] == null ? "" : String(item[key]);
-}
+/*
+|--------------------------------------------------------------------------
+| Resolve displayed cell value
+|--------------------------------------------------------------------------
+*/
+function textValue(
+  item,
+  column,
+  index,
+  sourceMode,
+) {
+  /*
+  |--------------------------------------------------------------------------
+  | Excel mode
+  |--------------------------------------------------------------------------
+  |
+  | Do NOT use predefined item.description / item.quantity / etc.
+  |
+  | Read the exact uploaded Excel cell from excelRowData.
+  |
+  */
+  if (
+    sourceMode ===
+    "excel"
+  ) {
+    return String(
+      item.excelRowData?.[
+        column.key
+      ] ?? "",
+    );
+  }
 
-export function measureRows(items, columnWidths, fonts, selectedColumns = []) {
-  const order = getColumnOrder(selectedColumns);
-  const { body } = tableFontSizes(order.length);
+  /*
+  |--------------------------------------------------------------------------
+  | Client Meeting mode
+  |--------------------------------------------------------------------------
+  */
+  if (
+    column.key ===
+    "sl"
+  ) {
+    return String(
+      index + 1,
+    );
+  }
 
-  return items.map((item, index) => {
-    const wrapped = {};
-    let textHeight = 0;
+  if (
+    column.key ===
+    "item"
+  ) {
+    return (
+      item.itemName ||
+      ""
+    );
+  }
 
-    for (const key of order) {
-      const maxWidth = Math.max(4, columnWidths[key] - TABLE_CELL_PADDING_X * 2);
-      wrapped[key] = wrapText(textValue(item, key, index), fonts.regular, body, maxWidth);
-      textHeight = Math.max(
-        textHeight,
-        measureLinesHeight(wrapped[key].length, body, TABLE_LINE_HEIGHT_FACTOR) + TABLE_CELL_PADDING_Y * 2,
+  if (
+    column.key ===
+    "description"
+  ) {
+    return (
+      item.description ||
+      ""
+    );
+  }
+
+  if (
+    column.key ===
+    "qty"
+  ) {
+    return (
+      item.quantity ||
+      ""
+    );
+  }
+
+  return item[
+    column.key
+  ] == null
+    ? ""
+    : String(
+        item[
+          column.key
+        ],
       );
-    }
-
-    return {
-      item,
-      wrapped,
-      height: Math.max(textHeight, body + TABLE_CELL_PADDING_Y * 2),
-    };
-  });
 }
 
-// Extremely tall rows are split across continuation pages. Since images are
-// not part of the table anymore, only wrapped text needs to be segmented.
-export function splitMeasuredRow(row, maxHeight, columnWidths, selectedColumns = []) {
-  if (row.height <= maxHeight) return [row];
+/*
+|--------------------------------------------------------------------------
+| Measure every table row
+|--------------------------------------------------------------------------
+|
+| Determines how high each row needs to be after wrapping text.
+|
+*/
+export function measureRows(
+  items,
+  columnWidths,
+  fonts,
+  options = {},
+) {
+  const columns =
+    getTableColumns(
+      options,
+    );
 
-  const order = getColumnOrder(selectedColumns);
-  const { body } = tableFontSizes(order.length);
-  const lineHeight = body * TABLE_LINE_HEIGHT_FACTOR;
-  const maxTextLines = Math.max(1, Math.floor((maxHeight - TABLE_CELL_PADDING_Y * 2) / lineHeight));
-  const offsets = Object.fromEntries(order.map((key) => [key, 0]));
+  const {
+    body,
+  } =
+    tableFontSizes(
+      columns.length,
+    );
+
+  return items.map(
+    (
+      item,
+      index,
+    ) => {
+      const wrapped =
+        {};
+
+      let textHeight =
+        0;
+
+      for (
+        const column of
+          columns
+      ) {
+        const maxWidth =
+          Math.max(
+            4,
+
+            columnWidths[
+              column.key
+            ] -
+              TABLE_CELL_PADDING_X *
+                2,
+          );
+
+        wrapped[
+          column.key
+        ] = wrapText(
+          textValue(
+            item,
+            column,
+            index,
+            options.sourceMode,
+          ),
+
+          fonts.regular,
+
+          body,
+
+          maxWidth,
+        );
+
+        textHeight =
+          Math.max(
+            textHeight,
+
+            measureLinesHeight(
+              wrapped[
+                column.key
+              ].length,
+
+              body,
+
+              TABLE_LINE_HEIGHT_FACTOR,
+            ) +
+              TABLE_CELL_PADDING_Y *
+                2,
+          );
+      }
+
+      return {
+        item,
+
+        wrapped,
+
+        height:
+          Math.max(
+            textHeight,
+
+            body +
+              TABLE_CELL_PADDING_Y *
+                2,
+          ),
+      };
+    },
+  );
+}
+
+/*
+|--------------------------------------------------------------------------
+| Split one very tall row across pages
+|--------------------------------------------------------------------------
+|
+| Example:
+|
+| If Description/Details is very large, a single row may not fit on the
+| remaining page.
+|
+| This breaks that logical row into visual segments while preserving columns.
+|
+*/
+export function splitMeasuredRow(
+  row,
+  maxHeight,
+  columnWidths,
+  options = {},
+) {
+  if (
+    row.height <=
+    maxHeight
+  ) {
+    return [row];
+  }
+
+  const columns =
+    getTableColumns(
+      options,
+    );
+
+  const {
+    body,
+  } =
+    tableFontSizes(
+      columns.length,
+    );
+
+  const lineHeight =
+    body *
+    TABLE_LINE_HEIGHT_FACTOR;
+
+  const maxTextLines =
+    Math.max(
+      1,
+
+      Math.floor(
+        (
+          maxHeight -
+          TABLE_CELL_PADDING_Y *
+            2
+        ) /
+          lineHeight,
+      ),
+    );
+
+  const offsets =
+    Object.fromEntries(
+      columns.map(
+        (column) => [
+          column.key,
+          0,
+        ],
+      ),
+    );
+
   const segments = [];
 
   function hasRemaining() {
-    return order.some((key) => offsets[key] < (row.wrapped[key] || []).length);
+    return columns.some(
+      (column) =>
+        offsets[
+          column.key
+        ] <
+        (
+          row.wrapped[
+            column.key
+          ] || []
+        ).length,
+    );
   }
 
-  while (hasRemaining()) {
-    const wrapped = {};
-    let textHeight = 0;
+  while (
+    hasRemaining()
+  ) {
+    const wrapped =
+      {};
 
-    for (const key of order) {
-      const lines = row.wrapped[key] || [];
-      const start = offsets[key];
-      const chunk = lines.slice(start, start + maxTextLines);
-      offsets[key] = start + chunk.length;
-      wrapped[key] = chunk;
+    let textHeight =
+      0;
 
-      if (chunk.length) {
-        textHeight = Math.max(
-          textHeight,
-          measureLinesHeight(chunk.length, body, TABLE_LINE_HEIGHT_FACTOR) + TABLE_CELL_PADDING_Y * 2,
+    for (
+      const column of
+        columns
+    ) {
+      const lines =
+        row.wrapped[
+          column.key
+        ] || [];
+
+      const start =
+        offsets[
+          column.key
+        ];
+
+      const chunk =
+        lines.slice(
+          start,
+          start +
+            maxTextLines,
         );
+
+      offsets[
+        column.key
+      ] =
+        start +
+        chunk.length;
+
+      wrapped[
+        column.key
+      ] =
+        chunk;
+
+      if (
+        chunk.length
+      ) {
+        textHeight =
+          Math.max(
+            textHeight,
+
+            measureLinesHeight(
+              chunk.length,
+
+              body,
+
+              TABLE_LINE_HEIGHT_FACTOR,
+            ) +
+              TABLE_CELL_PADDING_Y *
+                2,
+          );
       }
     }
 
     segments.push({
-      item: row.item,
+      item:
+        row.item,
+
       wrapped,
-      height: Math.min(maxHeight, Math.max(textHeight, body + TABLE_CELL_PADDING_Y * 2)),
+
+      height:
+        Math.min(
+          maxHeight,
+
+          Math.max(
+            textHeight,
+
+            body +
+              TABLE_CELL_PADDING_Y *
+                2,
+          ),
+        ),
     });
   }
 
   return segments;
 }
 
-export function measureHeaderHeight(selectedColumns = []) {
-  const count = getColumnOrder(selectedColumns).length;
-  const { header } = tableFontSizes(count);
-  return measureLinesHeight(1, header, TABLE_LINE_HEIGHT_FACTOR) + TABLE_CELL_PADDING_Y * 2;
-}
+/*
+|--------------------------------------------------------------------------
+| Measure header row
+|--------------------------------------------------------------------------
+*/
+export function measureHeaderHeight(
+  columnWidths,
+  font,
+  options = {},
+) {
+  const columns =
+    getTableColumns(
+      options,
+    );
 
-function drawColumnBorders(page, x, columnWidths, order, topY, bottomY) {
-  let cursor = x;
-  page.drawLine({ start: { x: cursor, y: topY }, end: { x: cursor, y: bottomY }, thickness: 0.7, color: BLACK });
-  for (const key of order) {
-    cursor += columnWidths[key];
-    page.drawLine({ start: { x: cursor, y: topY }, end: { x: cursor, y: bottomY }, thickness: 0.7, color: BLACK });
+  const {
+    header,
+  } =
+    tableFontSizes(
+      columns.length,
+    );
+
+  let maxLines = 1;
+
+  for (
+    const column of
+      columns
+  ) {
+    const maxWidth =
+      Math.max(
+        4,
+
+        columnWidths[
+          column.key
+        ] -
+          TABLE_CELL_PADDING_X *
+            2,
+      );
+
+    const lines =
+      wrapText(
+        column.label,
+
+        font,
+
+        header,
+
+        maxWidth,
+      );
+
+    maxLines =
+      Math.max(
+        maxLines,
+
+        lines.length ||
+          1,
+      );
   }
+
+  return (
+    measureLinesHeight(
+      maxLines,
+
+      header,
+
+      TABLE_LINE_HEIGHT_FACTOR,
+    ) +
+    TABLE_CELL_PADDING_Y *
+      2
+  );
 }
 
-export function drawTableTitle(page, { x, y, width, title, font }) {
-  const height = TABLE_TITLE_ROW_HEIGHT;
-  const bottomY = y - height;
-  page.drawRectangle({ x, y: bottomY, width, height, borderWidth: 0.7, borderColor: BLACK });
+/*
+|--------------------------------------------------------------------------
+| Draw table vertical borders
+|--------------------------------------------------------------------------
+*/
+function drawColumnBorders(
+  page,
+  x,
+  columnWidths,
+  columns,
+  topY,
+  bottomY,
+) {
+  let cursor = x;
 
-  const safeTitle = String(title || "");
-  const textWidth = font.widthOfTextAtSize(safeTitle, TABLE_TITLE_FONT_SIZE);
-  const fittedSize = textWidth > width - 12
-    ? Math.max(8, (TABLE_TITLE_FONT_SIZE * (width - 12)) / textWidth)
-    : TABLE_TITLE_FONT_SIZE;
-  const fittedWidth = font.widthOfTextAtSize(safeTitle, fittedSize);
+  page.drawLine({
+    start: {
+      x: cursor,
+      y: topY,
+    },
 
-  page.drawText(safeTitle, {
-    x: x + (width - fittedWidth) / 2,
-    y: bottomY + (height - fittedSize) / 2 + 1,
-    size: fittedSize,
-    font,
+    end: {
+      x: cursor,
+      y: bottomY,
+    },
+
+    thickness: 0.7,
+
     color: BLACK,
   });
+
+  for (
+    const column of
+      columns
+  ) {
+    cursor +=
+      columnWidths[
+        column.key
+      ];
+
+    page.drawLine({
+      start: {
+        x: cursor,
+        y: topY,
+      },
+
+      end: {
+        x: cursor,
+        y: bottomY,
+      },
+
+      thickness: 0.7,
+
+      color: BLACK,
+    });
+  }
+}
+
+/*
+|--------------------------------------------------------------------------
+| Draw table title
+|--------------------------------------------------------------------------
+|
+| Example:
+|
+| Wedding Reception
+|
+*/
+export function drawTableTitle(
+  page,
+  {
+    x,
+    y,
+    width,
+    title,
+    font,
+  },
+) {
+  const height =
+    TABLE_TITLE_ROW_HEIGHT;
+
+  const bottomY =
+    y - height;
+
+  page.drawRectangle({
+    x,
+
+    y: bottomY,
+
+    width,
+
+    height,
+
+    borderWidth: 0.7,
+
+    borderColor:
+      BLACK,
+  });
+
+  const safeTitle =
+    String(
+      title || "",
+    );
+
+  const textWidth =
+    font.widthOfTextAtSize(
+      safeTitle,
+
+      TABLE_TITLE_FONT_SIZE,
+    );
+
+  /*
+    Shrink very long titles so they stay within table width.
+  */
+  const fittedSize =
+    textWidth >
+    width - 12
+      ? Math.max(
+          8,
+
+          (
+            TABLE_TITLE_FONT_SIZE *
+            (
+              width -
+              12
+            )
+          ) /
+            textWidth,
+        )
+      : TABLE_TITLE_FONT_SIZE;
+
+  const fittedWidth =
+    font.widthOfTextAtSize(
+      safeTitle,
+
+      fittedSize,
+    );
+
+  page.drawText(
+    safeTitle,
+    {
+      x:
+        x +
+        (
+          width -
+          fittedWidth
+        ) /
+          2,
+
+      y:
+        bottomY +
+        (
+          height -
+          fittedSize
+        ) /
+          2 +
+        1,
+
+      size:
+        fittedSize,
+
+      font,
+
+      color:
+        BLACK,
+    },
+  );
+
   return bottomY;
 }
 
-export function drawTableHeader(page, { x, y, columnWidths, font, selectedColumns = [] }) {
-  const order = getColumnOrder(selectedColumns);
-  const { header } = tableFontSizes(order.length);
-  const height = measureHeaderHeight(selectedColumns);
-  const bottomY = y - height;
-  const width = totalWidth(columnWidths, order);
+/*
+|--------------------------------------------------------------------------
+| Draw table header row
+|--------------------------------------------------------------------------
+*/
+export function drawTableHeader(
+  page,
+  {
+    x,
+    y,
+    columnWidths,
+    font,
+    options = {},
+  },
+) {
+  const columns =
+    getTableColumns(
+      options,
+    );
 
-  drawColumnBorders(page, x, columnWidths, order, y, bottomY);
-  page.drawLine({ start: { x, y }, end: { x: x + width, y }, thickness: 0.7, color: BLACK });
-  page.drawLine({ start: { x, y: bottomY }, end: { x: x + width, y: bottomY }, thickness: 0.7, color: BLACK });
+  const {
+    header,
+  } =
+    tableFontSizes(
+      columns.length,
+    );
+
+  const height =
+    measureHeaderHeight(
+      columnWidths,
+      font,
+      options,
+    );
+
+  const bottomY =
+    y - height;
+
+  const width =
+    totalWidth(
+      columnWidths,
+      columns,
+    );
+
+  /*
+    Vertical borders.
+  */
+  drawColumnBorders(
+    page,
+    x,
+    columnWidths,
+    columns,
+    y,
+    bottomY,
+  );
+
+  /*
+    Top horizontal border.
+  */
+  page.drawLine({
+    start: {
+      x,
+      y,
+    },
+
+    end: {
+      x:
+        x + width,
+      y,
+    },
+
+    thickness: 0.7,
+
+    color: BLACK,
+  });
+
+  /*
+    Bottom horizontal border.
+  */
+  page.drawLine({
+    start: {
+      x,
+      y: bottomY,
+    },
+
+    end: {
+      x:
+        x + width,
+      y: bottomY,
+    },
+
+    thickness: 0.7,
+
+    color: BLACK,
+  });
 
   let cursor = x;
-  for (const key of order) {
-    const label = META[key].label;
-    const labelWidth = font.widthOfTextAtSize(label, header);
-    page.drawText(label, {
-      x: cursor + Math.max(1, (columnWidths[key] - labelWidth) / 2),
-      y: bottomY + (height - header) / 2 + 1,
-      size: header,
-      font,
-      color: BLACK,
-    });
-    cursor += columnWidths[key];
+
+  for (
+    const column of
+      columns
+  ) {
+    const cellWidth =
+      columnWidths[
+        column.key
+      ];
+
+    const lines =
+      wrapText(
+        column.label,
+
+        font,
+
+        header,
+
+        Math.max(
+          4,
+
+          cellWidth -
+            TABLE_CELL_PADDING_X *
+              2,
+        ),
+      );
+
+    const linesHeight =
+      measureLinesHeight(
+        lines.length ||
+          1,
+
+        header,
+
+        TABLE_LINE_HEIGHT_FACTOR,
+      );
+
+    const topInset =
+      Math.max(
+        (
+          height -
+          linesHeight
+        ) /
+          2,
+
+        TABLE_CELL_PADDING_Y,
+      );
+
+    drawLines(
+      page,
+
+      lines.length
+        ? lines
+        : [""],
+
+      {
+        x:
+          cursor +
+          TABLE_CELL_PADDING_X,
+
+        topY:
+          y -
+          topInset,
+
+        width:
+          Math.max(
+            4,
+
+            cellWidth -
+              TABLE_CELL_PADDING_X *
+                2,
+          ),
+
+        font,
+
+        fontSize:
+          header,
+
+        color:
+          BLACK,
+
+        align:
+          "center",
+
+        lineHeightFactor:
+          TABLE_LINE_HEIGHT_FACTOR,
+      },
+    );
+
+    cursor +=
+      cellWidth;
   }
 
   return bottomY;
 }
 
-export function drawTableRow(page, { x, y, columnWidths, row, font, selectedColumns = [] }) {
-  const order = getColumnOrder(selectedColumns);
-  const { body } = tableFontSizes(order.length);
-  const bottomY = y - row.height;
-  const width = totalWidth(columnWidths, order);
+/*
+|--------------------------------------------------------------------------
+| Draw one table row
+|--------------------------------------------------------------------------
+*/
+export function drawTableRow(
+  page,
+  {
+    x,
+    y,
+    columnWidths,
+    row,
+    font,
+    options = {},
+  },
+) {
+  const columns =
+    getTableColumns(
+      options,
+    );
 
-  drawColumnBorders(page, x, columnWidths, order, y, bottomY);
-  page.drawLine({ start: { x, y: bottomY }, end: { x: x + width, y: bottomY }, thickness: 0.7, color: BLACK });
+  const {
+    body,
+  } =
+    tableFontSizes(
+      columns.length,
+    );
+
+  const bottomY =
+    y -
+    row.height;
+
+  const width =
+    totalWidth(
+      columnWidths,
+      columns,
+    );
+
+  /*
+    Vertical borders.
+  */
+  drawColumnBorders(
+    page,
+    x,
+    columnWidths,
+    columns,
+    y,
+    bottomY,
+  );
+
+  /*
+    Bottom horizontal border.
+  */
+  page.drawLine({
+    start: {
+      x,
+      y: bottomY,
+    },
+
+    end: {
+      x:
+        x + width,
+      y: bottomY,
+    },
+
+    thickness: 0.7,
+
+    color: BLACK,
+  });
 
   let cursor = x;
-  for (const key of order) {
-    const lines = row.wrapped[key] || [""];
-    const linesHeight = measureLinesHeight(lines.length, body, TABLE_LINE_HEIGHT_FACTOR);
-    const topInset = Math.max((row.height - linesHeight) / 2, TABLE_CELL_PADDING_Y);
 
-    drawLines(page, lines, {
-      x: cursor + TABLE_CELL_PADDING_X,
-      topY: y - topInset,
-      width: Math.max(4, columnWidths[key] - TABLE_CELL_PADDING_X * 2),
-      font,
-      fontSize: body,
-      color: BLACK,
-      align: "center",
-      lineHeightFactor: TABLE_LINE_HEIGHT_FACTOR,
-    });
+  for (
+    const column of
+      columns
+  ) {
+    const lines =
+      row.wrapped[
+        column.key
+      ] || [""];
 
-    cursor += columnWidths[key];
+    const linesHeight =
+      measureLinesHeight(
+        lines.length,
+
+        body,
+
+        TABLE_LINE_HEIGHT_FACTOR,
+      );
+
+    const topInset =
+      Math.max(
+        (
+          row.height -
+          linesHeight
+        ) /
+          2,
+
+        TABLE_CELL_PADDING_Y,
+      );
+
+    /*
+      Description/Details should be left aligned.
+
+      Everything else is centered.
+    */
+    const align =
+      column.role ===
+        "description" ||
+      normalizeLabel(
+        column.label,
+      ).includes(
+        "description",
+      ) ||
+      normalizeLabel(
+        column.label,
+      ).includes(
+        "detail",
+      )
+        ? "left"
+        : "center";
+
+    drawLines(
+      page,
+
+      lines,
+
+      {
+        x:
+          cursor +
+          TABLE_CELL_PADDING_X,
+
+        topY:
+          y -
+          topInset,
+
+        width:
+          Math.max(
+            4,
+
+            columnWidths[
+              column.key
+            ] -
+              TABLE_CELL_PADDING_X *
+                2,
+          ),
+
+        font,
+
+        fontSize:
+          body,
+
+        color:
+          BLACK,
+
+        align,
+
+        lineHeightFactor:
+          TABLE_LINE_HEIGHT_FACTOR,
+      },
+    );
+
+    cursor +=
+      columnWidths[
+        column.key
+      ];
   }
 
   return bottomY;

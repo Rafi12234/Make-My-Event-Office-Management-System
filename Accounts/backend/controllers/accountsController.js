@@ -18,11 +18,27 @@ const require = createRequire(import.meta.url);
 
 const backendSrcDirectory = process.env.BACKEND_SRC_DIR
   ? path.resolve(process.env.BACKEND_SRC_DIR)
-  : path.resolve(__dirname, "../../../backend/mme_node_express_backend/src");
+  : path.resolve(
+      __dirname,
+      "../../../backend/mme_node_express_backend/src",
+    );
 
-const { prisma } = require(path.join(backendSrcDirectory, "config/prisma.js"));
-const { formatDateOnly, formatDateTime, parseDateOnly } = require(
-  path.join(backendSrcDirectory, "utils/dbDates.js"),
+const { prisma } = require(
+  path.join(
+    backendSrcDirectory,
+    "config/prisma.js",
+  ),
+);
+
+const {
+  formatDateOnly,
+  formatDateTime,
+  parseDateOnly,
+} = require(
+  path.join(
+    backendSrcDirectory,
+    "utils/dbDates.js",
+  ),
 );
 
 import {
@@ -42,13 +58,24 @@ import {
 | folder, never touched by the frontend build/deploy step.
 */
 
-export const uploadsRootDirectory = path.resolve(__dirname, "../uploads");
-export const receiptsDirectory = path.join(
-  uploadsRootDirectory,
-  "expense-receipts",
-);
+export const uploadsRootDirectory =
+  path.resolve(
+    __dirname,
+    "../uploads",
+  );
 
-mkdirSync(receiptsDirectory, { recursive: true });
+export const receiptsDirectory =
+  path.join(
+    uploadsRootDirectory,
+    "expense-receipts",
+  );
+
+mkdirSync(
+  receiptsDirectory,
+  {
+    recursive: true,
+  },
+);
 
 const ALLOWED_IMAGE_TYPES = {
   "image/jpeg": ".jpg",
@@ -57,29 +84,69 @@ const ALLOWED_IMAGE_TYPES = {
   "image/webp": ".webp",
 };
 
-const storage = multer.diskStorage({
-  destination(req, file, callback) {
-    callback(null, receiptsDirectory);
-  },
-  filename(req, file, callback) {
-    const extension = ALLOWED_IMAGE_TYPES[file.mimetype] || "";
-    callback(null, `${crypto.randomUUID()}${extension}`);
-  },
-});
+const storage =
+  multer.diskStorage({
+    destination(
+      req,
+      file,
+      callback,
+    ) {
+      callback(
+        null,
+        receiptsDirectory,
+      );
+    },
+
+    filename(
+      req,
+      file,
+      callback,
+    ) {
+      const extension =
+        ALLOWED_IMAGE_TYPES[
+          file.mimetype
+        ] || "";
+
+      callback(
+        null,
+        `${crypto.randomUUID()}${extension}`,
+      );
+    },
+  });
 
 const upload = multer({
   storage,
+
   limits: {
-    fileSize: 8 * 1024 * 1024, // 8MB per receipt image
+    fileSize:
+      8 *
+      1024 *
+      1024,
+
     files: 30,
   },
-  fileFilter(req, file, callback) {
-    if (!ALLOWED_IMAGE_TYPES[file.mimetype]) {
+
+  fileFilter(
+    req,
+    file,
+    callback,
+  ) {
+    if (
+      !ALLOWED_IMAGE_TYPES[
+        file.mimetype
+      ]
+    ) {
       return callback(
-        new Error("Only JPG, PNG, GIF, or WEBP images are allowed."),
+        new Error(
+          "Only JPG, PNG, GIF, or WEBP images are allowed.",
+        ),
       );
     }
-    callback(null, true);
+
+    callback(
+      null,
+      true,
+    );
   },
 });
 
@@ -88,73 +155,217 @@ const upload = multer({
 // optional, independent receipt upload — upload.any() accepts them all in
 // one request regardless of field name, matched back to their item by
 // index in the controller below.
-export function uploadReceiptsMiddleware(req, res, next) {
-  upload.any()(req, res, (error) => {
-    if (error) {
-      return res.status(422).json({
-        message: error.message || "Receipt upload failed.",
-      });
-    }
-    next();
-  });
+export function uploadReceiptsMiddleware(
+  req,
+  res,
+  next,
+) {
+  upload.any()(
+    req,
+    res,
+    (error) => {
+      if (error) {
+        return res
+          .status(422)
+          .json({
+            message:
+              error.message ||
+              "Receipt upload failed.",
+          });
+      }
+
+      next();
+    },
+  );
 }
 
-function removeUploadedFiles(files) {
-  for (const file of files || []) {
-    unlink(file.path, () => {});
+function removeUploadedFiles(
+  files,
+) {
+  for (
+    const file of
+      files || []
+  ) {
+    unlink(
+      file.path,
+      () => {},
+    );
   }
 }
 
-function isValidRowKey(rowKey) {
-  return /^[0-9a-fA-F-]{36}$/.test(String(rowKey || ""));
+function isValidRowKey(
+  rowKey,
+) {
+  return /^[0-9a-fA-F-]{36}$/.test(
+    String(
+      rowKey || "",
+    ),
+  );
 }
+
+/*
+|--------------------------------------------------------------------------
+| Event Based Cost -> Other
+|--------------------------------------------------------------------------
+|
+| IMPORTANT:
+|
+| "__other__" exists only between the frontend and API.
+|
+| It is NEVER:
+|
+| - stored as vendor_id
+| - inserted into vendors table
+| - treated as a vendor
+| - added to vendor balance
+|
+| When selected:
+|
+| vendor_id      = NULL
+| payment_status = NULL
+|
+| Therefore it works as a direct event cost.
+|
+*/
+const EVENT_OTHER_VENDOR_SENTINEL =
+  "__other__";
 
 // ─── Helpers ────────────────────────────────────────────────────
 
 async function getDefaultSheetId() {
-  const sheet = await prisma.managementSheet.findFirst({
-    where: { isDefault: true, isActive: true },
-    orderBy: { id: "asc" },
-    select: { id: true },
-  });
-  return sheet?.id || null;
+  const sheet =
+    await prisma.managementSheet.findFirst(
+      {
+        where: {
+          isDefault:
+            true,
+
+          isActive:
+            true,
+        },
+
+        orderBy: {
+          id: "asc",
+        },
+
+        select: {
+          id: true,
+        },
+      },
+    );
+
+  return (
+    sheet?.id ||
+    null
+  );
 }
 
 // Confirmed events are sourced from ClientFinalization (the same
 // Confirm & Finalize source of truth used elsewhere in the app), NOT the
 // sheet's "already booked" or "booked from MME" display flags — those are
 // derived UI badges, not the authoritative confirmation record.
-async function getConfirmedEventSnapshot(rowKey) {
-  const finalization = await prisma.clientFinalization.findUnique({
-    where: { linkedRowKey: rowKey },
-    select: { linkedRowKey: true },
-  });
-  if (!finalization) return null;
+async function getConfirmedEventSnapshot(
+  rowKey,
+) {
+  const finalization =
+    await prisma.clientFinalization.findUnique(
+      {
+        where: {
+          linkedRowKey:
+            rowKey,
+        },
 
-  const sheetId = await getDefaultSheetId();
-  if (!sheetId) return null;
-
-  const row = await prisma.sheetRow.findFirst({
-    where: { sheetId, rowKey },
-    select: {
-      cells: {
-        where: { column: { columnName: { in: ["Client Name", "Event Date"] } } },
         select: {
-          valueText: true,
-          displayValue: true,
-          valueDate: true,
-          column: { select: { columnName: true } },
+          linkedRowKey:
+            true,
         },
       },
-    },
-  });
+    );
 
-  const clientNameCell = row?.cells.find((cell) => cell.column.columnName === "Client Name");
-  const eventDateCell = row?.cells.find((cell) => cell.column.columnName === "Event Date");
+  if (
+    !finalization
+  ) {
+    return null;
+  }
+
+  const sheetId =
+    await getDefaultSheetId();
+
+  if (!sheetId) {
+    return null;
+  }
+
+  const row =
+    await prisma.sheetRow.findFirst(
+      {
+        where: {
+          sheetId,
+          rowKey,
+        },
+
+        select: {
+          cells: {
+            where: {
+              column: {
+                columnName: {
+                  in: [
+                    "Client Name",
+                    "Event Date",
+                  ],
+                },
+              },
+            },
+
+            select: {
+              valueText:
+                true,
+
+              displayValue:
+                true,
+
+              valueDate:
+                true,
+
+              column: {
+                select: {
+                  columnName:
+                    true,
+                },
+              },
+            },
+          },
+        },
+      },
+    );
+
+  const clientNameCell =
+    row?.cells.find(
+      (cell) =>
+        cell.column
+          .columnName ===
+        "Client Name",
+    );
+
+  const eventDateCell =
+    row?.cells.find(
+      (cell) =>
+        cell.column
+          .columnName ===
+        "Event Date",
+    );
 
   return {
-    clientName: clientNameCell?.valueText || clientNameCell?.displayValue || "",
-    eventDate: eventDateCell?.valueDate || null,
+    clientName:
+      clientNameCell
+        ?.valueText ||
+      clientNameCell
+        ?.displayValue ||
+      "",
+
+    eventDate:
+      eventDateCell
+        ?.valueDate ||
+      null,
   };
 }
 
@@ -162,62 +373,208 @@ async function getConfirmedEventSnapshot(rowKey) {
 // but still has no way to edit it. Money-received rows have no status/void
 // columns anymore, so record.status is undefined for them — only expenses
 // can actually be "void".
-function adminTouchFields(record) {
-  const created = new Date(record.createdAt).getTime();
-  const updated = record.updatedAt ? new Date(record.updatedAt).getTime() : created;
-  const isVoided = record.status === "void";
+function adminTouchFields(
+  record,
+) {
+  const created =
+    new Date(
+      record.createdAt,
+    ).getTime();
+
+  const updated =
+    record.updatedAt
+      ? new Date(
+          record.updatedAt,
+        ).getTime()
+      : created;
+
+  const isVoided =
+    record.status ===
+    "void";
+
   return {
-    status: record.status || "active",
-    correctedByAdmin: !isVoided && updated - created > 1000,
-    correctedAt: updated - created > 1000 ? formatDateTime(record.updatedAt) : null,
-    voidReason: record.voidReason || null,
-    voidedAt: record.voidedAt ? formatDateTime(record.voidedAt) : null,
+    status:
+      record.status ||
+      "active",
+
+    correctedByAdmin:
+      !isVoided &&
+      updated -
+        created >
+        1000,
+
+    correctedAt:
+      updated -
+        created >
+      1000
+        ? formatDateTime(
+            record.updatedAt,
+          )
+        : null,
+
+    voidReason:
+      record.voidReason ||
+      null,
+
+    voidedAt:
+      record.voidedAt
+        ? formatDateTime(
+            record.voidedAt,
+          )
+        : null,
   };
 }
 
-function serializeMoneyReceived(entry) {
+function serializeMoneyReceived(
+  entry,
+) {
   return {
     id: entry.id,
-    amount: Number(entry.amount),
-    receivedDate: formatDateOnly(entry.receivedDate),
-    note: entry.note || "",
+
+    amount:
+      Number(
+        entry.amount,
+      ),
+
+    receivedDate:
+      formatDateOnly(
+        entry.receivedDate,
+      ),
+
+    note:
+      entry.note ||
+      "",
+
     // "admin" means the boss/Admin entered this on the employee's behalf.
-    source: entry.source || "employee",
-    addedByAdminName: entry.createdByAdmin?.fullName || null,
-    createdAt: formatDateTime(entry.createdAt),
-    ...adminTouchFields(entry),
+    source:
+      entry.source ||
+      "employee",
+
+    addedByAdminName:
+      entry
+        .createdByAdmin
+        ?.fullName ||
+      null,
+
+    createdAt:
+      formatDateTime(
+        entry.createdAt,
+      ),
+
+    ...adminTouchFields(
+      entry,
+    ),
   };
 }
 
-function serializeExpenseItem(item) {
+function serializeExpenseItem(
+  item,
+) {
   return {
-    id: item.id,
-    purpose: item.purpose,
-    updatedTime: formatDateTime(item.createdAt),
-    costDate: formatDateOnly(item.costDate),
-    quantity: Number(item.quantity),
-    perQtyAmount: Number(item.perQtyAmount),
-    totalAmount: Number(item.totalAmount),
-    receiptUrl: item.receiptFileUrl || null,
-    receiptOriginalFileName: item.receiptOriginalFileName || null,
-    vendorId: item.vendorId ? String(item.vendorId) : null,
-    vendorName: item.vendor?.name || null,
-    paymentStatus: item.paymentStatus || null,
+    id:
+      item.id,
+
+    purpose:
+      item.purpose,
+
+    updatedTime:
+      formatDateTime(
+        item.createdAt,
+      ),
+
+    costDate:
+      formatDateOnly(
+        item.costDate,
+      ),
+
+    quantity:
+      Number(
+        item.quantity,
+      ),
+
+    perQtyAmount:
+      Number(
+        item.perQtyAmount,
+      ),
+
+    totalAmount:
+      Number(
+        item.totalAmount,
+      ),
+
+    receiptUrl:
+      item.receiptFileUrl ||
+      null,
+
+    receiptOriginalFileName:
+      item
+        .receiptOriginalFileName ||
+      null,
+
+    vendorId:
+      item.vendorId
+        ? String(
+            item.vendorId,
+          )
+        : null,
+
+    vendorName:
+      item.vendor
+        ?.name ||
+      null,
+
+    paymentStatus:
+      item.paymentStatus ||
+      null,
   };
 }
 
-function serializeVendor(vendor, stillOwedBy) {
-  const stillOwed = stillOwedBy ? roundMoney(stillOwedBy.get(String(vendor.id)) || 0) : null;
+function serializeVendor(
+  vendor,
+  stillOwedBy,
+) {
+  const stillOwed =
+    stillOwedBy
+      ? roundMoney(
+          stillOwedBy.get(
+            String(
+              vendor.id,
+            ),
+          ) || 0,
+        )
+      : null;
+
   return {
-    id: String(vendor.id),
-    name: vendor.name,
-    category: vendor.category || null,
-    isActive: Boolean(vendor.isActive),
+    id:
+      String(
+        vendor.id,
+      ),
+
+    name:
+      vendor.name,
+
+    category:
+      vendor.category ||
+      null,
+
+    isActive:
+      Boolean(
+        vendor.isActive,
+      ),
+
     // Corrected, event-scoped "still owed" figure (see computeVendorStillOwed)
     // — replaces the raw vendorBalance.currentBalance, which wrongly let an
     // unrelated regular-cost payment net against a specific event's debt.
     currentBalance:
-      stillOwed !== null ? -stillOwed : vendor.balance ? Number(vendor.balance.currentBalance) : 0,
+      stillOwed !==
+      null
+        ? -stillOwed
+        : vendor.balance
+          ? Number(
+              vendor.balance
+                .currentBalance,
+            )
+          : 0,
   };
 }
 
@@ -229,102 +586,352 @@ function serializeVendor(vendor, stillOwedBy) {
 // An expense also doesn't count as a finalized company expense until an
 // admin has reviewed and approved it (see AccountExpense.approved) — until
 // then it's still sitting in the admin Bills queue.
-function serializeExpenseForHistory(expense) {
-  if (!expense.approved) return null;
+function serializeExpenseForHistory(
+  expense,
+) {
+  if (
+    !expense.approved
+  ) {
+    return null;
+  }
 
-  const paidItems = (expense.items || []).filter(
-    (item) => !(item.vendorId && item.paymentStatus === "to_pay"),
-  );
-  if (paidItems.length === 0) return null;
+  const paidItems =
+    (
+      expense.items ||
+      []
+    ).filter(
+      (item) =>
+        !(
+          item.vendorId &&
+          item.paymentStatus ===
+            "to_pay"
+        ),
+    );
 
-  const recordedTotalAmount = Number(expense.totalAmount);
-  const walletDeductionAmount = Number(expense.walletDeductionAmount);
+  if (
+    paidItems.length ===
+    0
+  ) {
+    return null;
+  }
+
+  const recordedTotalAmount =
+    Number(
+      expense.totalAmount,
+    );
+
+  const walletDeductionAmount =
+    Number(
+      expense
+        .walletDeductionAmount,
+    );
 
   return {
-    id: expense.id,
-    costType: expense.costType,
-    linkedRowKey: expense.linkedRowKey,
-    eventClientName: expense.eventClientNameSnapshot || null,
-    eventDate: formatDateOnly(expense.eventDateSnapshot),
-    totalAmount: roundMoney(paidItems.reduce((sum, item) => sum + Number(item.totalAmount), 0)),
+    id:
+      expense.id,
+
+    costType:
+      expense.costType,
+
+    linkedRowKey:
+      expense.linkedRowKey,
+
+    eventClientName:
+      expense
+        .eventClientNameSnapshot ||
+      null,
+
+    eventDate:
+      formatDateOnly(
+        expense
+          .eventDateSnapshot,
+      ),
+
+    totalAmount:
+      roundMoney(
+        paidItems.reduce(
+          (
+            sum,
+            item,
+          ) =>
+            sum +
+            Number(
+              item.totalAmount,
+            ),
+          0,
+        ),
+      ),
+
     // Unambiguous audit fields for future reporting: recordedTotalAmount is
     // the full submitted cost, walletDeductionAmount is what actually left
     // the wallet, vendorPayableAmount is what's still owed to vendors.
     recordedTotalAmount,
+
     walletDeductionAmount,
-    vendorPayableAmount: roundMoney(recordedTotalAmount - walletDeductionAmount),
-    createdAt: formatDateTime(expense.createdAt),
-    ...adminTouchFields(expense),
-    items: paidItems.map(serializeExpenseItem),
+
+    vendorPayableAmount:
+      roundMoney(
+        recordedTotalAmount -
+          walletDeductionAmount,
+      ),
+
+    createdAt:
+      formatDateTime(
+        expense.createdAt,
+      ),
+
+    ...adminTouchFields(
+      expense,
+    ),
+
+    items:
+      paidItems.map(
+        serializeExpenseItem,
+      ),
   };
 }
 
 // One row per vendor-linked item (both "to_pay" and "paid") for the History
 // page's dedicated Vendor Payment tab — this is the only place a "to_pay"
 // item is ever shown to the employee.
-function serializeVendorPaymentEntry(item, expense) {
+function serializeVendorPaymentEntry(
+  item,
+  expense,
+) {
   return {
-    id: item.id,
-    purpose: item.purpose,
-    costType: expense.costType,
-    linkedRowKey: expense.linkedRowKey || null,
-    eventClientName: expense.eventClientNameSnapshot || null,
-    costDate: formatDateOnly(item.costDate),
-    totalAmount: Number(item.totalAmount),
-    paymentStatus: item.paymentStatus,
-    vendorId: item.vendorId ? String(item.vendorId) : null,
-    vendorName: item.vendor?.name || null,
-    settlesItemId: item.settlesItemId ? String(item.settlesItemId) : null,
-    settlesAllOwed: Boolean(item.settlesAllOwed),
-    createdAt: formatDateTime(item.createdAt),
+    id:
+      item.id,
+
+    purpose:
+      item.purpose,
+
+    costType:
+      expense.costType,
+
+    linkedRowKey:
+      expense.linkedRowKey ||
+      null,
+
+    eventClientName:
+      expense
+        .eventClientNameSnapshot ||
+      null,
+
+    costDate:
+      formatDateOnly(
+        item.costDate,
+      ),
+
+    totalAmount:
+      Number(
+        item.totalAmount,
+      ),
+
+    paymentStatus:
+      item.paymentStatus,
+
+    vendorId:
+      item.vendorId
+        ? String(
+            item.vendorId,
+          )
+        : null,
+
+    vendorName:
+      item.vendor
+        ?.name ||
+      null,
+
+    settlesItemId:
+      item.settlesItemId
+        ? String(
+            item.settlesItemId,
+          )
+        : null,
+
+    settlesAllOwed:
+      Boolean(
+        item.settlesAllOwed,
+      ),
+
+    createdAt:
+      formatDateTime(
+        item.createdAt,
+      ),
   };
 }
 
-function roundMoney(value) {
-  return Math.round(value * 100) / 100;
+function roundMoney(
+  value,
+) {
+  return (
+    Math.round(
+      value * 100,
+    ) / 100
+  );
 }
 
 // ─── GET /api/accounts/summary ─────────────────────────────────
 
-export async function getSummary(req, res, next) {
+export async function getSummary(
+  req,
+  res,
+  next,
+) {
   try {
-    const employeeId = BigInt(req.employee.id);
+    const employeeId =
+      BigInt(
+        req.employee.id,
+      );
 
-    const [wallet, moneyReceived, expenses] = await Promise.all([
-      prisma.accountWallet.findUnique({ where: { employeeId } }),
-      prisma.accountMoneyReceived.findMany({
-        where: { employeeId },
-        include: { createdByAdmin: { select: { fullName: true } } },
-        orderBy: { id: "desc" },
-      }),
-      prisma.accountExpense.findMany({
-        where: { employeeId },
-        include: { items: { include: { vendor: true }, orderBy: { id: "asc" } } },
-        orderBy: { id: "desc" },
-      }),
-    ]);
+    const [
+      wallet,
+      moneyReceived,
+      expenses,
+    ] =
+      await Promise.all([
+        prisma.accountWallet.findUnique(
+          {
+            where: {
+              employeeId,
+            },
+          },
+        ),
+
+        prisma.accountMoneyReceived.findMany(
+          {
+            where: {
+              employeeId,
+            },
+
+            include: {
+              createdByAdmin: {
+                select: {
+                  fullName:
+                    true,
+                },
+              },
+            },
+
+            orderBy: {
+              id: "desc",
+            },
+          },
+        ),
+
+        prisma.accountExpense.findMany(
+          {
+            where: {
+              employeeId,
+            },
+
+            include: {
+              items: {
+                include: {
+                  vendor:
+                    true,
+                },
+
+                orderBy: {
+                  id: "asc",
+                },
+              },
+            },
+
+            orderBy: {
+              id: "desc",
+            },
+          },
+        ),
+      ]);
 
     // Money that WILL leave the wallet once an admin approves it — the
     // actual wallet balance above stays untouched until that happens.
-    const pendingDeduction = roundMoney(
-      expenses
-        .filter((expense) => expense.status !== "void" && !expense.approved)
-        .reduce((sum, expense) => sum + Number(expense.walletDeductionAmount), 0),
-    );
+    const pendingDeduction =
+      roundMoney(
+        expenses
+          .filter(
+            (
+              expense,
+            ) =>
+              expense.status !==
+                "void" &&
+              !expense.approved,
+          )
+          .reduce(
+            (
+              sum,
+              expense,
+            ) =>
+              sum +
+              Number(
+                expense
+                  .walletDeductionAmount,
+              ),
+            0,
+          ),
+      );
 
     res.json({
       data: {
-        currentBalance: wallet ? Number(wallet.currentBalance) : 0,
+        currentBalance:
+          wallet
+            ? Number(
+                wallet.currentBalance,
+              )
+            : 0,
+
         pendingDeduction,
-        moneyReceived: moneyReceived.map(serializeMoneyReceived),
-        expenses: expenses.map(serializeExpenseForHistory).filter(Boolean),
-        vendorPayments: expenses
-          .flatMap((expense) =>
-            expense.items
-              .filter((item) => item.vendorId)
-              .map((item) => serializeVendorPaymentEntry(item, expense)),
-          )
-          .sort((a, b) => Number(b.id) - Number(a.id)),
+
+        moneyReceived:
+          moneyReceived.map(
+            serializeMoneyReceived,
+          ),
+
+        expenses:
+          expenses
+            .map(
+              serializeExpenseForHistory,
+            )
+            .filter(
+              Boolean,
+            ),
+
+        vendorPayments:
+          expenses
+            .flatMap(
+              (
+                expense,
+              ) =>
+                expense.items
+                  .filter(
+                    (
+                      item,
+                    ) =>
+                      item.vendorId,
+                  )
+                  .map(
+                    (
+                      item,
+                    ) =>
+                      serializeVendorPaymentEntry(
+                        item,
+                        expense,
+                      ),
+                  ),
+            )
+            .sort(
+              (
+                a,
+                b,
+              ) =>
+                Number(
+                  b.id,
+                ) -
+                Number(
+                  a.id,
+                ),
+            ),
       },
     });
   } catch (error) {
@@ -334,72 +941,220 @@ export async function getSummary(req, res, next) {
 
 // ─── GET /api/accounts/booked-events ───────────────────────────
 
-export async function listBookedEvents(req, res, next) {
+export async function listBookedEvents(
+  req,
+  res,
+  next,
+) {
   try {
-    const finalizations = await prisma.clientFinalization.findMany({
-      select: { linkedRowKey: true },
-      orderBy: { finalizedAt: "desc" },
-    });
-
-    if (!finalizations.length) {
-      return res.json({ data: [] });
-    }
-
-    const sheetId = await getDefaultSheetId();
-    if (!sheetId) {
-      return res.json({ data: [] });
-    }
-
-    const rowKeys = finalizations.map((entry) => entry.linkedRowKey);
-    const rows = await prisma.sheetRow.findMany({
-      where: { sheetId, rowKey: { in: rowKeys } },
-      select: {
-        rowKey: true,
-        cells: {
-          where: { column: { columnName: { in: ["Client Name", "Event Date"] } } },
+    const finalizations =
+      await prisma.clientFinalization.findMany(
+        {
           select: {
-            valueText: true,
-            displayValue: true,
-            valueDate: true,
-            // Both flags live on the "Event Date" cell only.
-            alreadyBooked: true,
-            bookedFromMme: true,
-            column: { select: { columnName: true } },
+            linkedRowKey:
+              true,
+          },
+
+          orderBy: {
+            finalizedAt:
+              "desc",
           },
         },
-      },
+      );
+
+    if (
+      !finalizations.length
+    ) {
+      return res.json({
+        data: [],
+      });
+    }
+
+    const sheetId =
+      await getDefaultSheetId();
+
+    if (!sheetId) {
+      return res.json({
+        data: [],
+      });
+    }
+
+    const rowKeys =
+      finalizations.map(
+        (entry) =>
+          entry.linkedRowKey,
+      );
+
+    const rows =
+      await prisma.sheetRow.findMany(
+        {
+          where: {
+            sheetId,
+
+            rowKey: {
+              in: rowKeys,
+            },
+          },
+
+          select: {
+            rowKey:
+              true,
+
+            cells: {
+              where: {
+                column: {
+                  columnName: {
+                    in: [
+                      "Client Name",
+                      "Event Date",
+                    ],
+                  },
+                },
+              },
+
+              select: {
+                valueText:
+                  true,
+
+                displayValue:
+                  true,
+
+                valueDate:
+                  true,
+
+                // Both flags live on the "Event Date" cell only.
+                alreadyBooked:
+                  true,
+
+                bookedFromMme:
+                  true,
+
+                column: {
+                  select: {
+                    columnName:
+                      true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      );
+
+    const rowByKey =
+      new Map(
+        rows.map(
+          (row) => [
+            row.rowKey,
+            row,
+          ],
+        ),
+      );
+
+    const events =
+      rowKeys
+        .map(
+          (rowKey) => {
+            const row =
+              rowByKey.get(
+                rowKey,
+              );
+
+            if (!row) {
+              return null;
+            }
+
+            const clientNameCell =
+              row.cells.find(
+                (cell) =>
+                  cell.column
+                    .columnName ===
+                  "Client Name",
+              );
+
+            const eventDateCell =
+              row.cells.find(
+                (cell) =>
+                  cell.column
+                    .columnName ===
+                  "Event Date",
+              );
+
+            return {
+              rowKey,
+
+              clientName:
+                clientNameCell
+                  ?.valueText ||
+                clientNameCell
+                  ?.displayValue ||
+                "",
+
+              eventDate:
+                formatDateOnly(
+                  eventDateCell
+                    ?.valueDate,
+                ),
+
+              bookedFromMme:
+                Boolean(
+                  eventDateCell
+                    ?.bookedFromMme,
+                ),
+
+              alreadyBooked:
+                Boolean(
+                  eventDateCell
+                    ?.alreadyBooked,
+                ),
+            };
+          },
+        )
+        .filter(
+          Boolean,
+        )
+
+        // Booked through us only: ClientFinalization already means "confirmed
+        // & finalized with us" (which is what flips bookedFromMme), so rows
+        // flagged as booked with another company are excluded.
+        .filter(
+          (event) =>
+            event.bookedFromMme &&
+            !event.alreadyBooked,
+        )
+
+        // Every confirmed event, not just upcoming ones — vendor bills for an
+        // event are typically created AFTER it has already happened. Newest
+        // event date first, since that's the one most likely being billed.
+        .sort(
+          (
+            a,
+            b,
+          ) =>
+            (
+              b.eventDate ||
+              ""
+            ).localeCompare(
+              a.eventDate ||
+                "",
+            ),
+        )
+
+        .map(
+          ({
+            rowKey,
+            clientName,
+            eventDate,
+          }) => ({
+            rowKey,
+            clientName,
+            eventDate,
+          }),
+        );
+
+    res.json({
+      data: events,
     });
-
-    const rowByKey = new Map(rows.map((row) => [row.rowKey, row]));
-
-    const events = rowKeys
-      .map((rowKey) => {
-        const row = rowByKey.get(rowKey);
-        if (!row) return null;
-
-        const clientNameCell = row.cells.find((cell) => cell.column.columnName === "Client Name");
-        const eventDateCell = row.cells.find((cell) => cell.column.columnName === "Event Date");
-
-        return {
-          rowKey,
-          clientName: clientNameCell?.valueText || clientNameCell?.displayValue || "",
-          eventDate: formatDateOnly(eventDateCell?.valueDate),
-          bookedFromMme: Boolean(eventDateCell?.bookedFromMme),
-          alreadyBooked: Boolean(eventDateCell?.alreadyBooked),
-        };
-      })
-      .filter(Boolean)
-      // Booked through us only: ClientFinalization already means "confirmed
-      // & finalized with us" (which is what flips bookedFromMme), so rows
-      // flagged as booked with another company are excluded.
-      .filter((event) => event.bookedFromMme && !event.alreadyBooked)
-      // Every confirmed event, not just upcoming ones — vendor bills for an
-      // event are typically created AFTER it has already happened. Newest
-      // event date first, since that's the one most likely being billed.
-      .sort((a, b) => (b.eventDate || "").localeCompare(a.eventDate || ""))
-      .map(({ rowKey, clientName, eventDate }) => ({ rowKey, clientName, eventDate }));
-
-    res.json({ data: events });
   } catch (error) {
     next(error);
   }
@@ -410,39 +1165,106 @@ export async function listBookedEvents(req, res, next) {
 // Every employee can view + transact against vendors (per the module's
 // design) — only Admin can create/deactivate them, so this list is
 // read-only here regardless of who calls it.
-export async function listVendors(req, res, next) {
+export async function listVendors(
+  req,
+  res,
+  next,
+) {
   try {
-    const [vendors, items] = await Promise.all([
-      prisma.vendor.findMany({
-        where: { isActive: true },
-        include: { balance: true },
-        orderBy: { name: "asc" },
-      }),
-      prisma.accountExpenseItem.findMany({
-        where: { vendorId: { not: null }, expense: { status: "active" } },
-        select: {
-          id: true,
-          vendorId: true,
-          paymentStatus: true,
-          totalAmount: true,
-          settlesItemId: true,
-          settlesAllOwed: true,
-        },
-      }),
-    ]);
+    const [
+      vendors,
+      items,
+    ] =
+      await Promise.all([
+        prisma.vendor.findMany(
+          {
+            where: {
+              isActive:
+                true,
+            },
 
-    const stillOwedBy = computeVendorStillOwed(
-      items.map((item) => ({
-        id: item.id,
-        vendorId: item.vendorId,
-        paymentStatus: item.paymentStatus,
-        totalAmount: item.totalAmount,
-        settlesItemId: item.settlesItemId,
-        settlesAllOwed: item.settlesAllOwed,
-      })),
-    );
+            include: {
+              balance:
+                true,
+            },
 
-    res.json({ data: vendors.map((vendor) => serializeVendor(vendor, stillOwedBy)) });
+            orderBy: {
+              name: "asc",
+            },
+          },
+        ),
+
+        prisma.accountExpenseItem.findMany(
+          {
+            where: {
+              vendorId: {
+                not: null,
+              },
+
+              expense: {
+                status:
+                  "active",
+              },
+            },
+
+            select: {
+              id:
+                true,
+
+              vendorId:
+                true,
+
+              paymentStatus:
+                true,
+
+              totalAmount:
+                true,
+
+              settlesItemId:
+                true,
+
+              settlesAllOwed:
+                true,
+            },
+          },
+        ),
+      ]);
+
+    const stillOwedBy =
+      computeVendorStillOwed(
+        items.map(
+          (item) => ({
+            id:
+              item.id,
+
+            vendorId:
+              item.vendorId,
+
+            paymentStatus:
+              item.paymentStatus,
+
+            totalAmount:
+              item.totalAmount,
+
+            settlesItemId:
+              item.settlesItemId,
+
+            settlesAllOwed:
+              item.settlesAllOwed,
+          }),
+        ),
+      );
+
+    res.json({
+      data:
+        vendors.map(
+          (vendor) =>
+            serializeVendor(
+              vendor,
+              stillOwedBy,
+            ),
+        ),
+    });
   } catch (error) {
     next(error);
   }
@@ -453,65 +1275,177 @@ export async function listVendors(req, res, next) {
 // Vendor profile: current shared balance + full transaction history
 // (every AccountExpenseItem ever booked against this vendor, across all
 // employees — the balance is company-wide, not per-employee).
-export async function getVendorProfile(req, res, next) {
+export async function getVendorProfile(
+  req,
+  res,
+  next,
+) {
   try {
-    const vendorId = BigInt(req.params.id);
+    const vendorId =
+      BigInt(
+        req.params.id,
+      );
 
-    const vendor = await prisma.vendor.findUnique({
-      where: { id: vendorId },
-      include: { balance: true },
-    });
-    if (!vendor) {
-      return res.status(404).json({ message: "Vendor not found." });
-    }
+    const vendor =
+      await prisma.vendor.findUnique(
+        {
+          where: {
+            id:
+              vendorId,
+          },
 
-    const items = await prisma.accountExpenseItem.findMany({
-      where: { vendorId },
-      include: {
-        expense: {
-          select: {
-            costType: true,
-            status: true,
-            linkedRowKey: true,
-            eventClientNameSnapshot: true,
-            eventDateSnapshot: true,
-            employee: { select: { fullName: true } },
+          include: {
+            balance:
+              true,
           },
         },
-      },
-      orderBy: { id: "desc" },
-    });
+      );
 
-    const stillOwedBy = computeVendorStillOwed(
-      items
-        .filter((item) => item.expense.status === "active")
-        .map((item) => ({
-          id: item.id,
-          vendorId,
-          paymentStatus: item.paymentStatus,
-          totalAmount: item.totalAmount,
-          settlesItemId: item.settlesItemId,
-          settlesAllOwed: item.settlesAllOwed,
-        })),
-    );
+    if (!vendor) {
+      return res
+        .status(404)
+        .json({
+          message:
+            "Vendor not found.",
+        });
+    }
 
-    const transactions = items.map((item) => ({
-      id: item.id,
-      purpose: item.purpose,
-      costDate: formatDateOnly(item.costDate),
-      totalAmount: Number(item.totalAmount),
-      paymentStatus: item.paymentStatus,
-      costType: item.expense.costType,
-      settlesItemId: item.settlesItemId ? String(item.settlesItemId) : null,
-      settlesAllOwed: Boolean(item.settlesAllOwed),
-      eventClientName: item.expense.eventClientNameSnapshot || null,
-      employeeName: item.expense.employee?.fullName || "—",
-      createdAt: formatDateTime(item.createdAt),
-    }));
+    const items =
+      await prisma.accountExpenseItem.findMany(
+        {
+          where: {
+            vendorId,
+          },
+
+          include: {
+            expense: {
+              select: {
+                costType:
+                  true,
+
+                status:
+                  true,
+
+                linkedRowKey:
+                  true,
+
+                eventClientNameSnapshot:
+                  true,
+
+                eventDateSnapshot:
+                  true,
+
+                employee: {
+                  select: {
+                    fullName:
+                      true,
+                  },
+                },
+              },
+            },
+          },
+
+          orderBy: {
+            id: "desc",
+          },
+        },
+      );
+
+    const stillOwedBy =
+      computeVendorStillOwed(
+        items
+          .filter(
+            (item) =>
+              item.expense
+                .status ===
+              "active",
+          )
+          .map(
+            (item) => ({
+              id:
+                item.id,
+
+              vendorId,
+
+              paymentStatus:
+                item.paymentStatus,
+
+              totalAmount:
+                item.totalAmount,
+
+              settlesItemId:
+                item.settlesItemId,
+
+              settlesAllOwed:
+                item.settlesAllOwed,
+            }),
+          ),
+      );
+
+    const transactions =
+      items.map(
+        (item) => ({
+          id:
+            item.id,
+
+          purpose:
+            item.purpose,
+
+          costDate:
+            formatDateOnly(
+              item.costDate,
+            ),
+
+          totalAmount:
+            Number(
+              item.totalAmount,
+            ),
+
+          paymentStatus:
+            item.paymentStatus,
+
+          costType:
+            item.expense
+              .costType,
+
+          settlesItemId:
+            item.settlesItemId
+              ? String(
+                  item.settlesItemId,
+                )
+              : null,
+
+          settlesAllOwed:
+            Boolean(
+              item.settlesAllOwed,
+            ),
+
+          eventClientName:
+            item.expense
+              .eventClientNameSnapshot ||
+            null,
+
+          employeeName:
+            item.expense
+              .employee
+              ?.fullName ||
+            "—",
+
+          createdAt:
+            formatDateTime(
+              item.createdAt,
+            ),
+        }),
+      );
 
     res.json({
       data: {
-        vendor: serializeVendor(vendor, stillOwedBy),
+        vendor:
+          serializeVendor(
+            vendor,
+            stillOwedBy,
+          ),
+
         transactions,
       },
     });
@@ -526,14 +1460,47 @@ export async function getVendorProfile(req, res, next) {
 // is this settling?" picker shown whenever an employee marks a vendor
 // item "Paid", so an unrelated instant buy never gets silently netted
 // against a different bill just for sharing the same vendor/event.
-export async function getVendorOutstandingItems(req, res, next) {
+export async function getVendorOutstandingItems(
+  req,
+  res,
+  next,
+) {
   try {
-    const vendorId = BigInt(req.params.id);
-    const vendor = await prisma.vendor.findUnique({ where: { id: vendorId }, select: { id: true } });
+    const vendorId =
+      BigInt(
+        req.params.id,
+      );
+
+    const vendor =
+      await prisma.vendor.findUnique(
+        {
+          where: {
+            id:
+              vendorId,
+          },
+
+          select: {
+            id:
+              true,
+          },
+        },
+      );
+
     if (!vendor) {
-      return res.status(404).json({ message: "Vendor not found." });
+      return res
+        .status(404)
+        .json({
+          message:
+            "Vendor not found.",
+        });
     }
-    res.json({ data: await listVendorOutstandingBills(vendorId) });
+
+    res.json({
+      data:
+        await listVendorOutstandingBills(
+          vendorId,
+        ),
+    });
   } catch (error) {
     next(error);
   }
@@ -547,73 +1514,226 @@ export async function getVendorOutstandingItems(req, res, next) {
 // vendor-balance-credit rules as logging a paid cost, without the full
 // item form. Shows up in both the Expenses history and the Vendor
 // Payments tab, same as any other paid vendor item would.
-export async function payVendor(req, res, next) {
+export async function payVendor(
+  req,
+  res,
+  next,
+) {
   try {
-    const employeeId = BigInt(req.employee.id);
-    const vendorId = BigInt(req.params.id);
-    const amount = roundMoney(Number(req.body.amount));
-    const paidOn = parseDateOnly(req.body.paidOn) || new Date();
-    const note = String(req.body.note || "").trim().slice(0, 190);
+    const employeeId =
+      BigInt(
+        req.employee.id,
+      );
 
-    if (!Number.isFinite(amount) || amount <= 0) {
-      return res.status(422).json({ message: "Enter a valid amount greater than 0." });
+    const vendorId =
+      BigInt(
+        req.params.id,
+      );
+
+    const amount =
+      roundMoney(
+        Number(
+          req.body.amount,
+        ),
+      );
+
+    const paidOn =
+      parseDateOnly(
+        req.body.paidOn,
+      ) ||
+      new Date();
+
+    const note =
+      String(
+        req.body.note ||
+          "",
+      )
+        .trim()
+        .slice(
+          0,
+          190,
+        );
+
+    if (
+      !Number.isFinite(
+        amount,
+      ) ||
+      amount <=
+        0
+    ) {
+      return res
+        .status(422)
+        .json({
+          message:
+            "Enter a valid amount greater than 0.",
+        });
     }
 
-    const vendor = await prisma.vendor.findUnique({ where: { id: vendorId } });
-    if (!vendor || !vendor.isActive) {
-      return res.status(404).json({ message: "Vendor not found." });
-    }
-
-    const settlement = await resolveSettlementTarget(vendorId, req.body.settlesItemId);
-    if (settlement.error) {
-      return res.status(422).json({ message: settlement.error });
-    }
-
-    await prisma.$transaction(async (tx) => {
-      await tx.accountExpense.create({
-        data: {
-          employeeId,
-          costType: "regular",
-          totalAmount: amount,
-          walletDeductionAmount: amount,
-          items: {
-            create: [
-              {
-                purpose: note || `Payment to ${vendor.name}`,
-                costDate: paidOn,
-                quantity: 1,
-                perQtyAmount: amount,
-                totalAmount: amount,
-                vendorId,
-                paymentStatus: "paid",
-                settlesItemId: settlement.settlesItemId,
-                settlesAllOwed: settlement.settlesAllOwed,
-              },
-            ],
+    const vendor =
+      await prisma.vendor.findUnique(
+        {
+          where: {
+            id:
+              vendorId,
           },
         },
-      });
+      );
 
-      // The wallet isn't touched yet — this is only actually deducted once
-      // an admin approves it (see approveExpense).
-      await tx.vendorBalance.upsert({
-        where: { vendorId },
-        create: { vendorId, currentBalance: amount },
-        update: { currentBalance: { increment: amount } },
-      });
-    });
+    if (
+      !vendor ||
+      !vendor.isActive
+    ) {
+      return res
+        .status(404)
+        .json({
+          message:
+            "Vendor not found.",
+        });
+    }
 
-    const [updatedVendor, wallet] = await Promise.all([
-      prisma.vendor.findUnique({ where: { id: vendorId }, include: { balance: true } }),
-      prisma.accountWallet.findUnique({ where: { employeeId } }),
-    ]);
+    const settlement =
+      await resolveSettlementTarget(
+        vendorId,
+        req.body
+          .settlesItemId,
+      );
 
-    res.status(201).json({
-      data: {
-        vendor: serializeVendor(updatedVendor),
-        currentBalance: wallet ? Number(wallet.currentBalance) : 0,
+    if (
+      settlement.error
+    ) {
+      return res
+        .status(422)
+        .json({
+          message:
+            settlement.error,
+        });
+    }
+
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.accountExpense.create(
+          {
+            data: {
+              employeeId,
+
+              costType:
+                "regular",
+
+              totalAmount:
+                amount,
+
+              walletDeductionAmount:
+                amount,
+
+              items: {
+                create: [
+                  {
+                    purpose:
+                      note ||
+                      `Payment to ${vendor.name}`,
+
+                    costDate:
+                      paidOn,
+
+                    quantity:
+                      1,
+
+                    perQtyAmount:
+                      amount,
+
+                    totalAmount:
+                      amount,
+
+                    vendorId,
+
+                    paymentStatus:
+                      "paid",
+
+                    settlesItemId:
+                      settlement
+                        .settlesItemId,
+
+                    settlesAllOwed:
+                      settlement
+                        .settlesAllOwed,
+                  },
+                ],
+              },
+            },
+          },
+        );
+
+        // The wallet isn't touched yet — this is only actually deducted once
+        // an admin approves it (see approveExpense).
+        await tx.vendorBalance.upsert(
+          {
+            where: {
+              vendorId,
+            },
+
+            create: {
+              vendorId,
+
+              currentBalance:
+                amount,
+            },
+
+            update: {
+              currentBalance: {
+                increment:
+                  amount,
+              },
+            },
+          },
+        );
       },
-    });
+    );
+
+    const [
+      updatedVendor,
+      wallet,
+    ] =
+      await Promise.all([
+        prisma.vendor.findUnique(
+          {
+            where: {
+              id:
+                vendorId,
+            },
+
+            include: {
+              balance:
+                true,
+            },
+          },
+        ),
+
+        prisma.accountWallet.findUnique(
+          {
+            where: {
+              employeeId,
+            },
+          },
+        ),
+      ]);
+
+    res
+      .status(201)
+      .json({
+        data: {
+          vendor:
+            serializeVendor(
+              updatedVendor,
+            ),
+
+          currentBalance:
+            wallet
+              ? Number(
+                  wallet.currentBalance,
+                )
+              : 0,
+        },
+      });
   } catch (error) {
     next(error);
   }
@@ -621,42 +1741,135 @@ export async function payVendor(req, res, next) {
 
 // ─── POST /api/accounts/money-received ─────────────────────────
 
-export async function createMoneyReceived(req, res, next) {
+export async function createMoneyReceived(
+  req,
+  res,
+  next,
+) {
   try {
-    const employeeId = BigInt(req.employee.id);
-    const amount = roundMoney(Number(req.body.amount));
-    const receivedDate = parseDateOnly(req.body.receivedDate);
-    const note = String(req.body.note || "").trim().slice(0, 255) || null;
+    const employeeId =
+      BigInt(
+        req.employee.id,
+      );
 
-    if (!Number.isFinite(amount) || amount <= 0) {
-      return res.status(422).json({ message: "Enter a valid amount greater than 0." });
+    const amount =
+      roundMoney(
+        Number(
+          req.body.amount,
+        ),
+      );
+
+    const receivedDate =
+      parseDateOnly(
+        req.body.receivedDate,
+      );
+
+    const note =
+      String(
+        req.body.note ||
+          "",
+      )
+        .trim()
+        .slice(
+          0,
+          255,
+        ) ||
+      null;
+
+    if (
+      !Number.isFinite(
+        amount,
+      ) ||
+      amount <=
+        0
+    ) {
+      return res
+        .status(422)
+        .json({
+          message:
+            "Enter a valid amount greater than 0.",
+        });
     }
-    if (!receivedDate) {
-      return res.status(422).json({ message: "Received date is required." });
+
+    if (
+      !receivedDate
+    ) {
+      return res
+        .status(422)
+        .json({
+          message:
+            "Received date is required.",
+        });
     }
 
-    const entry = await prisma.$transaction(async (tx) => {
-      const created = await tx.accountMoneyReceived.create({
-        data: { employeeId, amount, receivedDate, note },
+    const entry =
+      await prisma.$transaction(
+        async (tx) => {
+          const created =
+            await tx.accountMoneyReceived.create(
+              {
+                data: {
+                  employeeId,
+
+                  amount,
+
+                  receivedDate,
+
+                  note,
+                },
+              },
+            );
+
+          await tx.accountWallet.upsert(
+            {
+              where: {
+                employeeId,
+              },
+
+              create: {
+                employeeId,
+
+                currentBalance:
+                  amount,
+              },
+
+              update: {
+                currentBalance: {
+                  increment:
+                    amount,
+                },
+              },
+            },
+          );
+
+          return created;
+        },
+      );
+
+    const wallet =
+      await prisma.accountWallet.findUnique(
+        {
+          where: {
+            employeeId,
+          },
+        },
+      );
+
+    res
+      .status(201)
+      .json({
+        data: {
+          entry:
+            serializeMoneyReceived(
+              entry,
+            ),
+
+          currentBalance:
+            Number(
+              wallet.currentBalance,
+            ),
+        },
       });
-
-      await tx.accountWallet.upsert({
-        where: { employeeId },
-        create: { employeeId, currentBalance: amount },
-        update: { currentBalance: { increment: amount } },
-      });
-
-      return created;
-    });
-
-    const wallet = await prisma.accountWallet.findUnique({ where: { employeeId } });
-
-    res.status(201).json({
-      data: {
-        entry: serializeMoneyReceived(entry),
-        currentBalance: Number(wallet.currentBalance),
-      },
-    });
   } catch (error) {
     next(error);
   }
@@ -664,240 +1877,995 @@ export async function createMoneyReceived(req, res, next) {
 
 // ─── POST /api/accounts/expenses ───────────────────────────────
 
-export async function createExpense(req, res, next) {
+export async function createExpense(
+  req,
+  res,
+  next,
+) {
   try {
-    const employeeId = BigInt(req.employee.id);
-    const costType = ["event", "regular"].includes(req.body.costType) ? req.body.costType : null;
+    const employeeId =
+      BigInt(
+        req.employee.id,
+      );
+
+    const costType =
+      [
+        "event",
+        "regular",
+      ].includes(
+        req.body.costType,
+      )
+        ? req.body.costType
+        : null;
 
     if (!costType) {
-      removeUploadedFiles(req.files);
-      return res.status(422).json({ message: "costType must be 'event' or 'regular'." });
+      removeUploadedFiles(
+        req.files,
+      );
+
+      return res
+        .status(422)
+        .json({
+          message:
+            "costType must be 'event' or 'regular'.",
+        });
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Parse items
+    |--------------------------------------------------------------------------
+    */
 
     let items;
+
     try {
-      items = JSON.parse(req.body.items || "[]");
+      items =
+        JSON.parse(
+          req.body.items ||
+            "[]",
+        );
     } catch {
-      items = null;
+      items =
+        null;
     }
 
-    if (!Array.isArray(items) || items.length === 0) {
-      removeUploadedFiles(req.files);
-      return res.status(422).json({ message: "At least one expense item is required." });
+    if (
+      !Array.isArray(
+        items,
+      ) ||
+      items.length ===
+        0
+    ) {
+      removeUploadedFiles(
+        req.files,
+      );
+
+      return res
+        .status(422)
+        .json({
+          message:
+            "At least one expense item is required.",
+        });
     }
 
-    let eventSnapshot = null;
-    const linkedRowKey = costType === "event" ? String(req.body.linkedRowKey || "") : null;
-    // Event Based Cost is a due-bill for ONE vendor per submission (see
-    // createExpense's item loop below) — chosen once here, not per item.
-    let eventVendor = null;
+    /*
+    |--------------------------------------------------------------------------
+    | Event Based Cost source
+    |--------------------------------------------------------------------------
+    |
+    | Event cost can now be:
+    |
+    | 1. Real Vendor
+    |
+    |    vendor_id       = vendor.id
+    |    payment_status  = to_pay
+    |    wallet deduction = 0
+    |
+    | 2. Other
+    |
+    |    vendor_id       = NULL
+    |    payment_status  = NULL
+    |    wallet deduction = direct amount
+    |
+    */
 
-    if (costType === "event") {
-      if (!isValidRowKey(linkedRowKey)) {
-        removeUploadedFiles(req.files);
-        return res.status(422).json({ message: "Select a confirmed event." });
+    let eventSnapshot =
+      null;
+
+    const linkedRowKey =
+      costType ===
+      "event"
+        ? String(
+            req.body
+              .linkedRowKey ||
+              "",
+          )
+        : null;
+
+    let eventVendor =
+      null;
+
+    let isOtherEventCost =
+      false;
+
+    if (
+      costType ===
+      "event"
+    ) {
+      /*
+      |--------------------------------------------------------------------------
+      | Validate confirmed event
+      |--------------------------------------------------------------------------
+      */
+
+      if (
+        !isValidRowKey(
+          linkedRowKey,
+        )
+      ) {
+        removeUploadedFiles(
+          req.files,
+        );
+
+        return res
+          .status(422)
+          .json({
+            message:
+              "Select a confirmed event.",
+          });
       }
 
-      eventSnapshot = await getConfirmedEventSnapshot(linkedRowKey);
-      if (!eventSnapshot) {
-        removeUploadedFiles(req.files);
-        return res.status(404).json({ message: "That event is not a confirmed booked event." });
+      eventSnapshot =
+        await getConfirmedEventSnapshot(
+          linkedRowKey,
+        );
+
+      if (
+        !eventSnapshot
+      ) {
+        removeUploadedFiles(
+          req.files,
+        );
+
+        return res
+          .status(404)
+          .json({
+            message:
+              "That event is not a confirmed booked event.",
+          });
       }
 
-      const rawEventVendorId = String(req.body.vendorId || "").trim();
-      if (!rawEventVendorId) {
-        removeUploadedFiles(req.files);
-        return res.status(422).json({ message: "Select which vendor this bill is for." });
+      /*
+      |--------------------------------------------------------------------------
+      | Vendor OR Other
+      |--------------------------------------------------------------------------
+      */
+
+      const rawEventVendorId =
+        String(
+          req.body
+            .vendorId ||
+            "",
+        ).trim();
+
+      if (
+        !rawEventVendorId
+      ) {
+        removeUploadedFiles(
+          req.files,
+        );
+
+        return res
+          .status(422)
+          .json({
+            message:
+              "Select a vendor or choose Other.",
+          });
       }
-      eventVendor = await prisma.vendor.findUnique({
-        where: { id: BigInt(rawEventVendorId) },
-      });
-      if (!eventVendor || !eventVendor.isActive) {
-        removeUploadedFiles(req.files);
-        return res.status(422).json({ message: "Select a valid, active vendor." });
+
+      /*
+      |--------------------------------------------------------------------------
+      | Other
+      |--------------------------------------------------------------------------
+      |
+      | "__other__" is not a vendor.
+      |
+      | Do not query Vendor table.
+      | Do not create Vendor.
+      | Do not affect Vendor Balance.
+      |
+      */
+
+      if (
+        rawEventVendorId ===
+        EVENT_OTHER_VENDOR_SENTINEL
+      ) {
+        isOtherEventCost =
+          true;
+      } else {
+        /*
+        |--------------------------------------------------------------------------
+        | Real Vendor
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+          !/^\d+$/.test(
+            rawEventVendorId,
+          )
+        ) {
+          removeUploadedFiles(
+            req.files,
+          );
+
+          return res
+            .status(422)
+            .json({
+              message:
+                "Select a valid vendor or choose Other.",
+            });
+        }
+
+        eventVendor =
+          await prisma.vendor.findUnique(
+            {
+              where: {
+                id:
+                  BigInt(
+                    rawEventVendorId,
+                  ),
+              },
+            },
+          );
+
+        if (
+          !eventVendor ||
+          !eventVendor.isActive
+        ) {
+          removeUploadedFiles(
+            req.files,
+          );
+
+          return res
+            .status(422)
+            .json({
+              message:
+                "Select a valid, active vendor.",
+            });
+        }
       }
     }
 
-    const filesByIndex = new Map();
-    for (const file of req.files || []) {
-      const match = /^receipt_(\d+)$/.exec(file.fieldname);
-      if (match) filesByIndex.set(Number(match[1]), file);
+    /*
+    |--------------------------------------------------------------------------
+    | Match receipt files to rows
+    |--------------------------------------------------------------------------
+    */
+
+    const filesByIndex =
+      new Map();
+
+    for (
+      const file of
+        req.files || []
+    ) {
+      const match =
+        /^receipt_(\d+)$/.exec(
+          file.fieldname,
+        );
+
+      if (match) {
+        filesByIndex.set(
+          Number(
+            match[1],
+          ),
+
+          file,
+        );
+      }
     }
 
-    // Collect every vendorId referenced by an item up front so each one can
-    // be validated (exists + still active) in a single query below, instead
-    // of one query per item. Not needed for "event" — the single vendor
-    // above already covers every item.
+    /*
+    |--------------------------------------------------------------------------
+    | Regular cost vendors
+    |--------------------------------------------------------------------------
+    |
+    | Event Based Cost uses one vendor selected above.
+    |
+    | Regular Cost can still select vendors per row.
+    |
+    */
+
     const referencedVendorIds =
-      costType === "event"
+      costType ===
+      "event"
         ? []
         : [
             ...new Set(
               items
-                .map((rawItem) => String(rawItem.vendorId || "").trim())
-                .filter((id) => /^\d+$/.test(id)),
+                .map(
+                  (
+                    rawItem,
+                  ) =>
+                    String(
+                      rawItem.vendorId ||
+                        "",
+                    ).trim(),
+                )
+                .filter(
+                  (id) =>
+                    /^\d+$/.test(
+                      id,
+                    ),
+                ),
             ),
           ];
 
-    let activeVendorsById = new Map();
-    if (referencedVendorIds.length) {
-      const vendors = await prisma.vendor.findMany({
-        where: { id: { in: referencedVendorIds.map(BigInt) }, isActive: true },
-      });
-      activeVendorsById = new Map(vendors.map((vendor) => [vendor.id.toString(), vendor]));
+    let activeVendorsById =
+      new Map();
+
+    if (
+      referencedVendorIds.length
+    ) {
+      const vendors =
+        await prisma.vendor.findMany(
+          {
+            where: {
+              id: {
+                in:
+                  referencedVendorIds.map(
+                    BigInt,
+                  ),
+              },
+
+              isActive:
+                true,
+            },
+          },
+        );
+
+      activeVendorsById =
+        new Map(
+          vendors.map(
+            (vendor) => [
+              vendor.id.toString(),
+              vendor,
+            ],
+          ),
+        );
     }
 
-    const preparedItems = [];
-    for (const [index, rawItem] of items.entries()) {
-      const purpose = String(rawItem.purpose || "").trim().slice(0, 190);
-      const costDate = parseDateOnly(rawItem.costDate);
-      const quantity = Number(rawItem.quantity);
-      const perQtyAmount = Number(rawItem.perQtyAmount);
+    /*
+    |--------------------------------------------------------------------------
+    | Prepare expense items
+    |--------------------------------------------------------------------------
+    */
+
+    const preparedItems =
+      [];
+
+    for (
+      const [
+        index,
+        rawItem,
+      ] of
+        items.entries()
+    ) {
+      const purpose =
+        String(
+          rawItem.purpose ||
+            "",
+        )
+          .trim()
+          .slice(
+            0,
+            190,
+          );
+
+      const costDate =
+        parseDateOnly(
+          rawItem.costDate,
+        );
+
+      const quantity =
+        Number(
+          rawItem.quantity,
+        );
+
+      const perQtyAmount =
+        Number(
+          rawItem.perQtyAmount,
+        );
+
+      /*
+      |--------------------------------------------------------------------------
+      | Basic item validation
+      |--------------------------------------------------------------------------
+      */
 
       if (
         !purpose ||
         !costDate ||
-        !Number.isFinite(quantity) ||
-        quantity <= 0 ||
-        !Number.isFinite(perQtyAmount) ||
-        perQtyAmount <= 0
+        !Number.isFinite(
+          quantity,
+        ) ||
+        quantity <=
+          0 ||
+        !Number.isFinite(
+          perQtyAmount,
+        ) ||
+        perQtyAmount <=
+          0
       ) {
-        removeUploadedFiles(req.files);
-        return res.status(422).json({ message: `Item ${index + 1} is missing required fields.` });
+        removeUploadedFiles(
+          req.files,
+        );
+
+        return res
+          .status(422)
+          .json({
+            message:
+              `Item ${
+                index + 1
+              } is missing required fields.`,
+          });
       }
 
-      let vendorId = null;
-      let paymentStatus = null;
-      let settlesItemId = null;
-      let settlesAllOwed = false;
+      let vendorId =
+        null;
 
-      if (costType === "event") {
-        // Every line on an event bill is owed to the ONE vendor chosen
-        // above, and is always an outstanding due — nothing here was ever
-        // "paid" by the employee, so there is nothing to settle either.
-        vendorId = eventVendor.id;
-        paymentStatus = "to_pay";
+      let paymentStatus =
+        null;
+
+      let settlesItemId =
+        null;
+
+      let settlesAllOwed =
+        false;
+
+      /*
+      |--------------------------------------------------------------------------
+      | Event Based Cost
+      |--------------------------------------------------------------------------
+      */
+
+      if (
+        costType ===
+        "event"
+      ) {
+        /*
+        |--------------------------------------------------------------------------
+        | Event -> Other
+        |--------------------------------------------------------------------------
+        |
+        | Example:
+        |
+        | Food purchase   Tk 200
+        | Helper payment  Tk 400
+        | Transport       Tk 300
+        |
+        | No Vendor.
+        |
+        | vendor_id       = NULL
+        | payment_status  = NULL
+        |
+        | These amounts will therefore be included in walletDeduction.
+        |
+        */
+
+        if (
+          isOtherEventCost
+        ) {
+          vendorId =
+            null;
+
+          paymentStatus =
+            null;
+
+          settlesItemId =
+            null;
+
+          settlesAllOwed =
+            false;
+        } else {
+          /*
+          |--------------------------------------------------------------------------
+          | Event -> Real Vendor
+          |--------------------------------------------------------------------------
+          |
+          | Every row is owed to the one selected Event vendor.
+          |
+          */
+
+          vendorId =
+            eventVendor.id;
+
+          paymentStatus =
+            "to_pay";
+        }
       } else {
-        const rawVendorId = String(rawItem.vendorId || "").trim();
-        if (rawVendorId) {
-          const vendor = activeVendorsById.get(rawVendorId);
-          if (!vendor) {
-            removeUploadedFiles(req.files);
-            return res.status(422).json({ message: `Item ${index + 1} has an invalid or inactive vendor.` });
-          }
-          if (!["to_pay", "paid"].includes(rawItem.paymentStatus)) {
-            removeUploadedFiles(req.files);
-            return res.status(422).json({ message: `Item ${index + 1} needs a payment status (To Pay or Paid).` });
-          }
-          vendorId = vendor.id;
-          paymentStatus = rawItem.paymentStatus;
+        /*
+        |--------------------------------------------------------------------------
+        | Regular Cost
+        |--------------------------------------------------------------------------
+        |
+        | Existing logic remains unchanged.
+        |
+        */
 
-          if (paymentStatus === "paid" && rawItem.settlesItemId) {
-            const settlement = await resolveSettlementTarget(vendorId, rawItem.settlesItemId);
-            if (settlement.error) {
-              removeUploadedFiles(req.files);
-              return res.status(422).json({ message: `Item ${index + 1}: ${settlement.error}` });
+        const rawVendorId =
+          String(
+            rawItem.vendorId ||
+              "",
+          ).trim();
+
+        if (
+          rawVendorId
+        ) {
+          const vendor =
+            activeVendorsById.get(
+              rawVendorId,
+            );
+
+          if (!vendor) {
+            removeUploadedFiles(
+              req.files,
+            );
+
+            return res
+              .status(422)
+              .json({
+                message:
+                  `Item ${
+                    index + 1
+                  } has an invalid or inactive vendor.`,
+              });
+          }
+
+          if (
+            ![
+              "to_pay",
+              "paid",
+            ].includes(
+              rawItem.paymentStatus,
+            )
+          ) {
+            removeUploadedFiles(
+              req.files,
+            );
+
+            return res
+              .status(422)
+              .json({
+                message:
+                  `Item ${
+                    index + 1
+                  } needs a payment status (To Pay or Paid).`,
+              });
+          }
+
+          vendorId =
+            vendor.id;
+
+          paymentStatus =
+            rawItem.paymentStatus;
+
+          /*
+          |--------------------------------------------------------------------------
+          | Vendor settlement
+          |--------------------------------------------------------------------------
+          */
+
+          if (
+            paymentStatus ===
+              "paid" &&
+            rawItem.settlesItemId
+          ) {
+            const settlement =
+              await resolveSettlementTarget(
+                vendorId,
+                rawItem
+                  .settlesItemId,
+              );
+
+            if (
+              settlement.error
+            ) {
+              removeUploadedFiles(
+                req.files,
+              );
+
+              return res
+                .status(422)
+                .json({
+                  message:
+                    `Item ${
+                      index + 1
+                    }: ${
+                      settlement.error
+                    }`,
+                });
             }
-            settlesItemId = settlement.settlesItemId;
-            settlesAllOwed = settlement.settlesAllOwed;
+
+            settlesItemId =
+              settlement
+                .settlesItemId;
+
+            settlesAllOwed =
+              settlement
+                .settlesAllOwed;
           }
         }
       }
 
-      const receiptFile = filesByIndex.get(index);
+      /*
+      |--------------------------------------------------------------------------
+      | Receipt
+      |--------------------------------------------------------------------------
+      */
+
+      const receiptFile =
+        filesByIndex.get(
+          index,
+        );
 
       preparedItems.push({
         purpose,
+
         costDate,
+
         quantity,
+
         perQtyAmount,
-        totalAmount: roundMoney(quantity * perQtyAmount),
-        receiptStoredFileName: receiptFile?.filename || null,
-        receiptOriginalFileName: receiptFile ? receiptFile.originalname.slice(0, 255) : null,
-        receiptFileUrl: receiptFile ? `/accounts-uploads/expense-receipts/${receiptFile.filename}` : null,
-        receiptFileSizeBytes: receiptFile?.size || null,
+
+        totalAmount:
+          roundMoney(
+            quantity *
+              perQtyAmount,
+          ),
+
+        receiptStoredFileName:
+          receiptFile
+            ?.filename ||
+          null,
+
+        receiptOriginalFileName:
+          receiptFile
+            ? receiptFile
+                .originalname
+                .slice(
+                  0,
+                  255,
+                )
+            : null,
+
+        receiptFileUrl:
+          receiptFile
+            ? `/accounts-uploads/expense-receipts/${receiptFile.filename}`
+            : null,
+
+        receiptFileSizeBytes:
+          receiptFile
+            ?.size ||
+          null,
+
         vendorId,
+
         paymentStatus,
+
         settlesItemId,
+
         settlesAllOwed,
       });
     }
 
-    const grandTotal = roundMoney(preparedItems.reduce((sum, item) => sum + item.totalAmount, 0));
+    /*
+    |--------------------------------------------------------------------------
+    | Grand total
+    |--------------------------------------------------------------------------
+    */
 
-    // "To Pay" vendor items are a liability only — no cash has left the
-    // wallet yet, so they're excluded from the wallet deduction. Every
-    // other item (no vendor, or vendor+"paid") deducts as before.
-    const walletDeduction = roundMoney(
-      preparedItems.reduce((sum, item) => {
-        if (item.vendorId && item.paymentStatus === "to_pay") return sum;
-        return sum + item.totalAmount;
-      }, 0),
-    );
+    const grandTotal =
+      roundMoney(
+        preparedItems.reduce(
+          (
+            sum,
+            item,
+          ) =>
+            sum +
+            item.totalAmount,
+          0,
+        ),
+      );
 
-    // Per-vendor ledger deltas: "to_pay" increases what we owe (balance
-    // goes down), "paid" settles/advances against that vendor (balance
-    // goes up) — a "paid" item can legitimately mean an advance payment to
-    // the vendor, so a positive vendor balance is valid business behavior.
-    // Keyed by vendorId string since BigInt can't be a Map key comparison
-    // target reliably across references.
-    const vendorBalanceDeltas = new Map();
-    for (const item of preparedItems) {
-      if (!item.vendorId) continue;
-      const key = item.vendorId.toString();
-      const delta = item.paymentStatus === "paid" ? item.totalAmount : -item.totalAmount;
-      vendorBalanceDeltas.set(key, roundMoney((vendorBalanceDeltas.get(key) || 0) + delta));
-    }
+    /*
+    |--------------------------------------------------------------------------
+    | Wallet deduction
+    |--------------------------------------------------------------------------
+    |
+    | Real Vendor Event Bill:
+    |
+    | vendorId exists
+    | paymentStatus = to_pay
+    |
+    | therefore:
+    |
+    | walletDeduction = 0
+    |
+    |
+    | Event -> Other:
+    |
+    | vendorId = null
+    | paymentStatus = null
+    |
+    | therefore:
+    |
+    | amount IS included in walletDeduction.
+    |
+    |
+    | IMPORTANT:
+    |
+    | This does NOT immediately deduct wallet.
+    | Admin approval performs the real wallet deduction.
+    |
+    */
 
-    const expense = await prisma.$transaction(async (tx) => {
-      const created = await tx.accountExpense.create({
-        data: {
-          employeeId,
-          costType,
-          linkedRowKey,
-          eventClientNameSnapshot: eventSnapshot?.clientName || null,
-          eventDateSnapshot: eventSnapshot?.eventDate || null,
-          totalAmount: grandTotal,
-          walletDeductionAmount: walletDeduction,
-          items: { create: preparedItems },
-        },
-        include: { items: { include: { vendor: true }, orderBy: { id: "asc" } } },
-      });
+    const walletDeduction =
+      roundMoney(
+        preparedItems.reduce(
+          (
+            sum,
+            item,
+          ) => {
+            if (
+              item.vendorId &&
+              item.paymentStatus ===
+                "to_pay"
+            ) {
+              return sum;
+            }
 
-      // The wallet isn't touched yet — this is only actually deducted once
-      // an admin approves it (see approveExpense). walletDeductionAmount is
-      // still stored on the expense now so approval knows how much to take.
-      for (const [vendorIdKey, delta] of vendorBalanceDeltas) {
-        await tx.vendorBalance.upsert({
-          where: { vendorId: BigInt(vendorIdKey) },
-          create: { vendorId: BigInt(vendorIdKey), currentBalance: delta },
-          update: { currentBalance: { increment: delta } },
-        });
+            return (
+              sum +
+              item.totalAmount
+            );
+          },
+          0,
+        ),
+      );
+
+    /*
+    |--------------------------------------------------------------------------
+    | Vendor balance changes
+    |--------------------------------------------------------------------------
+    |
+    | Other rows are automatically ignored because:
+    |
+    | vendorId = null
+    |
+    */
+
+    const vendorBalanceDeltas =
+      new Map();
+
+    for (
+      const item of
+        preparedItems
+    ) {
+      /*
+        This is why Other never affects Vendor Balance.
+      */
+      if (
+        !item.vendorId
+      ) {
+        continue;
       }
 
-      return created;
-    });
+      const key =
+        item.vendorId.toString();
 
-    const wallet = await prisma.accountWallet.findUnique({ where: { employeeId } });
+      const delta =
+        item.paymentStatus ===
+        "paid"
+          ? item.totalAmount
+          : -item.totalAmount;
 
-    res.status(201).json({
-      data: {
-        // A submission that's entirely "to pay" has no paid portion yet, so
-        // there's nothing to add to the Expenses tab or its running total.
-        expense: serializeExpenseForHistory(expense),
-        vendorPayments: expense.items
-          .filter((item) => item.vendorId)
-          .map((item) => serializeVendorPaymentEntry(item, expense)),
-        // Wallet deduction happens only on admin approval (see
-        // approveExpense) — an employee who has never had money received or
-        // an approved expense yet has NO account_wallets row at all, so
-        // `wallet` can genuinely be null here. Defaults to 0, same as every
-        // other wallet read in this file.
-        currentBalance: wallet ? Number(wallet.currentBalance) : 0,
-      },
-    });
+      vendorBalanceDeltas.set(
+        key,
+
+        roundMoney(
+          (
+            vendorBalanceDeltas.get(
+              key,
+            ) ||
+            0
+          ) +
+            delta,
+        ),
+      );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Create expense
+    |--------------------------------------------------------------------------
+    */
+
+    const expense =
+      await prisma.$transaction(
+        async (tx) => {
+          const created =
+            await tx.accountExpense.create(
+              {
+                data: {
+                  employeeId,
+
+                  costType,
+
+                  linkedRowKey,
+
+                  eventClientNameSnapshot:
+                    eventSnapshot
+                      ?.clientName ||
+                    null,
+
+                  eventDateSnapshot:
+                    eventSnapshot
+                      ?.eventDate ||
+                    null,
+
+                  totalAmount:
+                    grandTotal,
+
+                  walletDeductionAmount:
+                    walletDeduction,
+
+                  items: {
+                    create:
+                      preparedItems,
+                  },
+                },
+
+                include: {
+                  items: {
+                    include: {
+                      vendor:
+                        true,
+                    },
+
+                    orderBy: {
+                      id: "asc",
+                    },
+                  },
+                },
+              },
+            );
+
+          /*
+          |--------------------------------------------------------------------------
+          | Vendor ledger
+          |--------------------------------------------------------------------------
+          |
+          | Real vendors only.
+          |
+          | Other does not exist in vendorBalanceDeltas.
+          |
+          */
+
+          for (
+            const [
+              vendorIdKey,
+              delta,
+            ] of
+              vendorBalanceDeltas
+          ) {
+            await tx.vendorBalance.upsert(
+              {
+                where: {
+                  vendorId:
+                    BigInt(
+                      vendorIdKey,
+                    ),
+                },
+
+                create: {
+                  vendorId:
+                    BigInt(
+                      vendorIdKey,
+                    ),
+
+                  currentBalance:
+                    delta,
+                },
+
+                update: {
+                  currentBalance: {
+                    increment:
+                      delta,
+                  },
+                },
+              },
+            );
+          }
+
+          return created;
+        },
+      );
+
+    /*
+    |--------------------------------------------------------------------------
+    | Current wallet
+    |--------------------------------------------------------------------------
+    |
+    | Expense submission itself does NOT deduct wallet.
+    |
+    | Admin approval handles the actual deduction.
+    |
+    */
+
+    const wallet =
+      await prisma.accountWallet.findUnique(
+        {
+          where: {
+            employeeId,
+          },
+        },
+      );
+
+    res
+      .status(201)
+      .json({
+        data: {
+          /*
+            A submission that's entirely "to pay" has no paid portion yet,
+            so there's nothing to add to Expenses history.
+
+            Event -> Other is not "to_pay", therefore after Admin approval
+            it correctly appears in Expenses history.
+          */
+          expense:
+            serializeExpenseForHistory(
+              expense,
+            ),
+
+          /*
+            Only actual vendor-linked rows appear here.
+
+            Event -> Other has vendorId = null, so it does NOT appear under
+            Vendor Payments.
+          */
+          vendorPayments:
+            expense.items
+              .filter(
+                (item) =>
+                  item.vendorId,
+              )
+              .map(
+                (item) =>
+                  serializeVendorPaymentEntry(
+                    item,
+                    expense,
+                  ),
+              ),
+
+          /*
+            Wallet hasn't changed yet.
+            Admin approval performs the actual deduction.
+          */
+          currentBalance:
+            wallet
+              ? Number(
+                  wallet.currentBalance,
+                )
+              : 0,
+        },
+      });
   } catch (error) {
-    removeUploadedFiles(req.files);
+    removeUploadedFiles(
+      req.files,
+    );
+
     next(error);
   }
 }
