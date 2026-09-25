@@ -858,6 +858,7 @@ model PdfDocument {
   eventDate         DateTime              @map("event_date") @db.Date
   eventTitle        String                @map("event_title") @db.VarChar(255)
   selectedColumns   Json                  @map("selected_columns")
+  excelColumns      Json?                 @map("excel_columns")
   nbPoints          Json                  @map("nb_points")
   createdById       BigInt                @map("created_by") @db.UnsignedBigInt
   updatedById       BigInt?               @map("updated_by") @db.UnsignedBigInt
@@ -899,6 +900,7 @@ model PdfDocumentItem {
   unit                String?  @db.VarChar(80)
   price               Decimal? @db.Decimal(14, 2)
   customCaption       String?  @map("custom_caption") @db.VarChar(1000)
+  excelRowData        Json?    @map("excel_row_data")
   createdAt           DateTime @default(now()) @map("created_at") @db.DateTime(0)
   updatedAt           DateTime @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
 

@@ -80,198 +80,287 @@ function formatDisplay(dbDatetime) {
   });
 }
 
-// Same column-value formatting as CalendarPage.jsx, so the admin hover card
-// shows worksheet detail fields (venue, shift, phone, floor, etc.) exactly
-// the way the employee calendar's hover card does.
-function formatColValue(type, value) {
-  if (value === null || value === undefined || value === "") return null;
-  const s = String(value);
-  if (!s.trim()) return null;
-  if (type === "datetime" || type === "last_meeting_time" || type === "next_meeting_time") {
-    const clean = s.replace("T", " ");
-    const [datePart, timePart] = clean.split(" ");
-    if (timePart) {
-      const [h, m] = timePart.split(":").map(Number);
-      return `${datePart} \u00b7 ${to12h(`${pad(h)}:${pad(m)}`)}`;
-    }
-    return datePart || s;
-  }
-  if (type === "date") return s.slice(0, 10);
-  if (type === "time") return to12h(s.slice(0, 5));
-  if (type === "boolean") return value ? "Yes" : "No";
-  return s;
-}
 
-// "Last/Next Meeting Time" worksheet columns are excluded here entirely —
-// the card already shows a purpose-built "Next meeting/call: ..." line
-// (with assignee + early/late tag), so repeating the same schedule as a
-// generic detail field is redundant clutter, not useful information.
-function buildDetailFields(worksheetColumns, clientRowData) {
-  const fields = [];
-  for (const col of worksheetColumns || []) {
-    if (col.name === "Client Name" || col.type === "meeting_manager") continue;
-    if (col.type === "last_meeting_time" || col.type === "next_meeting_time") continue;
-
-    fields.push({ ...col, value: clientRowData[col.key] });
-  }
-
-  return fields.filter((col) => col.value != null && String(col.value).trim() !== "");
-}
-
-// Same positioning strategy as CalendarPage.jsx's ClientHoverCard, so the
-// admin calendar's hover behavior matches the existing employee calendar —
-// including the "wide" mode (spreads into two columns instead of growing
-// tall) so the card never needs an inner scrollbar.
-function computeTooltipStyle(rect, { wide = false } = {}) {
+// Compact hover preview: only the latest five activities for one employee/day.
+// The old hover showed every client detail + every worksheet field, which could
+// become taller/wider than the viewport on busy days.
+function computeTooltipStyle(rect) {
   const margin = 12;
-  const width  = wide ? 640 : 360;
-  const style  = { width: `${width}px` };
+  const gap = 8;
+  const width = Math.min(780, Math.max(320, window.innerWidth - margin * 2));
+  const estimatedHeight = Math.min(360, window.innerHeight - margin * 2);
+
+  let left = rect.left;
+  if (left + width > window.innerWidth - margin) {
+    left = window.innerWidth - width - margin;
+  }
+  if (left < margin) left = margin;
 
   const spaceBelow = window.innerHeight - rect.bottom - margin;
   const spaceAbove = rect.top - margin;
-  const spaceRight = window.innerWidth - rect.right - margin;
-  const spaceLeft  = rect.left - margin;
 
-  const bestVertical   = Math.max(spaceBelow, spaceAbove);
-  const bestHorizontal = Math.max(spaceRight, spaceLeft);
-
-  if (bestVertical >= 220 || bestVertical >= bestHorizontal) {
-    if (spaceBelow >= spaceAbove) style.top = `${rect.bottom + 8}px`;
-    else style.bottom = `${window.innerHeight - rect.top + 8}px`;
-
-    let left = rect.left;
-    if (left + width > window.innerWidth - margin) left = window.innerWidth - width - margin;
-    if (left < margin) left = margin;
-    style.left = `${left}px`;
+  let top;
+  if (spaceBelow >= estimatedHeight || spaceBelow >= spaceAbove) {
+    top = rect.bottom + gap;
   } else {
-    if (spaceRight >= spaceLeft) style.left = `${rect.right + 8}px`;
-    else style.left = `${Math.max(margin, rect.left - width - 8)}px`;
-
-    let top = rect.top;
-    if (top < margin) top = margin;
-    style.top = `${top}px`;
+    top = Math.max(margin, rect.top - estimatedHeight - gap);
   }
 
-  return style;
-}
-
-// Every meeting/call time shown in the hover card is paired with its date —
-// never a bare time — matching how the "Last/Next Meeting Time" detail
-// fields already render via formatColValue.
-function formatEventDateTime(date, time) {
-  if (!date) return time ? to12h(time) : "";
-  const d = new Date(`${date}T${time || "00:00"}:00`);
-  if (Number.isNaN(d.getTime())) return date;
-  const datePart = d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-  return time ? `${datePart} \u00b7 ${to12h(time)}` : datePart;
-}
-
-// ─── Hover card: one employee's activity for one day ────────────────────────
-// Grouped per-client (like CalendarPage.jsx's ClientHoverCard): worksheet
-// detail fields shown once per client, then each event (meeting/call/next)
-// underneath with its own notes/requirements/next-schedule. Uses the same
-// "wide" two-column spread as ClientHoverCard instead of an inner scrollbar.
-function EmployeeDayHoverCard({ employeeName, employeeColor, dayEvents, rowData, worksheetColumns, rect, onMouseEnter, onMouseLeave }) {
-  const byClient = new Map();
-  for (const ev of dayEvents) {
-    const key = ev.rowKey || ev.id;
-    if (!byClient.has(key)) byClient.set(key, { clientName: ev.clientName, rowKey: ev.rowKey, events: [] });
-    byClient.get(key).events.push(ev);
+  if (top + estimatedHeight > window.innerHeight - margin) {
+    top = Math.max(margin, window.innerHeight - estimatedHeight - margin);
   }
-  const clients = [...byClient.values()];
 
-  const totalDetailFields = clients.reduce((sum, client) => {
-    const clientRowData = rowData?.[client.rowKey] || {};
-    return sum + buildDetailFields(worksheetColumns, clientRowData).length;
-  }, 0);
-  const wide = totalDetailFields + dayEvents.length > 6;
-  const style = computeTooltipStyle(rect, { wide });
+  return {
+    width: `${width}px`,
+    left: `${left}px`,
+    top: `${top}px`,
+    maxHeight: `calc(100vh - ${margin * 2}px)`,
+  };
+}
+
+function latestFiveEvents(dayEvents) {
+  return [...(dayEvents || [])]
+    .sort((a, b) => {
+      const aKey = `${a.date || ""} ${a.time || ""}`;
+      const bKey = `${b.date || ""} ${b.time || ""}`;
+      return bKey.localeCompare(aKey);
+    })
+    .slice(0, 5);
+}
+
+function statusBadge(ev) {
+  if (ev.missed) {
+    return (
+      <span className="inline-flex rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-black text-red-600">
+        Missed
+      </span>
+    );
+  }
+
+  if (ev.completionTag) {
+    return (
+      <span
+        title={
+          ev.completionTag.expectedLabel
+            ? `Originally due ${formatDisplay(ev.completionTag.expectedLabel)}`
+            : undefined
+        }
+        className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-black ${
+          TAG_STYLES[ev.completionTag.status] || TAG_STYLES.on_time
+        }`}
+      >
+        {ev.completionTag.label}
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-black ${
+        ev.done
+          ? "bg-emerald-100 text-emerald-700"
+          : "bg-mme-blush text-mme-purple"
+      }`}
+    >
+      {ev.done ? "Completed" : "Due"}
+    </span>
+  );
+}
+
+function compactUpdateText(ev) {
+  if (ev.notes && String(ev.notes).trim()) {
+    return String(ev.notes).trim();
+  }
+
+  if (ev.source === "meeting" && ev.requirements?.length) {
+    return ev.requirements
+      .slice(0, 2)
+      .map((req) => `${req.label}: ${req.details}`)
+      .join(" · ");
+  }
+
+  if (ev.source === "next_meeting") return "Scheduled next meeting";
+  if (ev.source === "next_call") return "Scheduled next call";
+
+  return "—";
+}
+
+function followUpText(ev) {
+  if (ev.source === "meeting" && ev.nextMeetingDatetime) {
+    return {
+      label: formatDisplay(ev.nextMeetingDatetime),
+      tag: ev.nextMeetingTag,
+    };
+  }
+
+  if (ev.source === "call" && ev.nextCallDatetime) {
+    return {
+      label: formatDisplay(ev.nextCallDatetime),
+      tag: ev.nextCallTag,
+    };
+  }
+
+  return null;
+}
+
+// One employee's activity for one day.
+// Only the latest five activities are rendered, in a compact table.
+function EmployeeDayHoverCard({
+  employeeName,
+  employeeColor,
+  dayEvents,
+  rect,
+  onMouseEnter,
+  onMouseLeave,
+}) {
+  const latestEvents = latestFiveEvents(dayEvents);
+  const missedCount = (dayEvents || []).filter((ev) => ev.missed).length;
+  const style = computeTooltipStyle(rect);
 
   return (
     <div
       style={style}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      className="fixed z-100 rounded-2xl border border-mme-pink/60 bg-white p-4 shadow-2xl"
+      className="fixed z-100 overflow-auto rounded-2xl border border-mme-pink/60 bg-white shadow-2xl"
     >
-      <div className="flex items-center gap-2">
-        <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: employeeColor }} />
-        <p className="text-sm font-black text-mme-purple">{employeeName || "Unassigned"}</p>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-mme-pink/35 bg-[#fff8fb] px-4 py-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <span
+            className="h-3 w-3 shrink-0 rounded-full"
+            style={{ backgroundColor: employeeColor }}
+          />
+          <p className="truncate text-sm font-black text-mme-purple">
+            {employeeName || "Unassigned"}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="rounded-full bg-mme-blush px-2 py-0.5 text-[10px] font-black text-mme-purple">
+            Latest {latestEvents.length} of {dayEvents.length}
+          </span>
+
+          <span
+            className={`rounded-full px-2 py-0.5 text-[10px] font-black ${
+              missedCount > 0
+                ? "bg-red-100 text-red-600"
+                : "bg-slate-100 text-slate-500"
+            }`}
+          >
+            {missedCount} missed
+          </span>
+        </div>
       </div>
 
-      <div className={wide ? "mt-3 columns-2 gap-x-6" : "mt-3 space-y-3"}>
-        {clients.map((client) => {
-          const clientRowData = rowData?.[client.rowKey] || {};
-          const detailFields = buildDetailFields(worksheetColumns, clientRowData);
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px] table-fixed border-collapse text-left">
+          <colgroup>
+            <col style={{ width: "12%" }} />
+            <col style={{ width: "25%" }} />
+            <col style={{ width: "16%" }} />
+            <col style={{ width: "17%" }} />
+            <col style={{ width: "30%" }} />
+          </colgroup>
 
-          return (
-            <div key={client.rowKey || client.clientName} className="break-inside-avoid-column border-b border-mme-pink/30 pb-3 last:border-0 last:pb-0">
-              <p className="text-xs font-black text-mme-purple">{client.clientName || "Unnamed client"}</p>
+          <thead className="bg-white">
+            <tr className="border-b border-mme-pink/35">
+              <th className="px-3 py-2 text-[9px] font-black uppercase tracking-[0.14em] text-mme-purple/45">
+                Time
+              </th>
+              <th className="px-3 py-2 text-[9px] font-black uppercase tracking-[0.14em] text-mme-purple/45">
+                Client
+              </th>
+              <th className="px-3 py-2 text-[9px] font-black uppercase tracking-[0.14em] text-mme-purple/45">
+                Activity
+              </th>
+              <th className="px-3 py-2 text-[9px] font-black uppercase tracking-[0.14em] text-mme-purple/45">
+                Status
+              </th>
+              <th className="px-3 py-2 text-[9px] font-black uppercase tracking-[0.14em] text-mme-purple/45">
+                Latest Update / Follow-up
+              </th>
+            </tr>
+          </thead>
 
-              {detailFields.length > 0 && (
-                <div className="mt-1.5 space-y-1 border-b border-mme-pink/20 pb-2">
-                  {detailFields.map((col) => (
-                    <div key={col.key} className="flex items-baseline gap-2">
-                      <span className="w-24 shrink-0 text-[10px] font-black uppercase tracking-wide text-mme-purple/45">{col.name}</span>
-                      <span className="wrap-break-word text-xs font-semibold text-mme-purple/80">{formatColValue(col.type, col.value)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+          <tbody>
+            {latestEvents.map((ev) => {
+              const followUp = followUpText(ev);
+              const updateText = compactUpdateText(ev);
 
-              <div className="mt-2 space-y-1.5">
-                {client.events.map((ev) => (
-                  <div key={ev.id} className={`break-inside-avoid-column rounded-lg border p-2.5 ${ev.missed ? "border-red-200 bg-red-50" : "border-mme-pink/40"}`}>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-black text-mme-purple">
-                        {EVENT_LABELS[ev.source] || ev.source}{ev.date ? ` \u00b7 ${formatEventDateTime(ev.date, ev.time)}` : ""}
-                      </span>
-                      {ev.missed && (
-                        <span className="rounded px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide bg-red-500 text-white">
-                          Missed
+              return (
+                <tr
+                  key={ev.id}
+                  className={`border-b border-mme-pink/20 align-top last:border-b-0 ${
+                    ev.missed ? "bg-red-50/70" : "bg-white"
+                  }`}
+                >
+                  <td className="px-3 py-2.5 text-[11px] font-black text-mme-purple/70">
+                    {ev.time ? to12h(ev.time) : "—"}
+                  </td>
+
+                  <td className="px-3 py-2.5">
+                    <p
+                      title={ev.clientName || ""}
+                      className="truncate text-[11px] font-black text-mme-purple"
+                    >
+                      {ev.clientName || "Unnamed client"}
+                    </p>
+                  </td>
+
+                  <td className="px-3 py-2.5 text-[11px] font-bold text-mme-purple/75">
+                    {EVENT_LABELS[ev.source] || ev.source}
+                  </td>
+
+                  <td className="px-3 py-2.5">
+                    {statusBadge(ev)}
+                  </td>
+
+                  <td className="px-3 py-2.5">
+                    <p
+                      title={updateText !== "—" ? updateText : undefined}
+                      className="line-clamp-2 text-[11px] font-semibold leading-4 text-mme-purple/65"
+                    >
+                      {updateText}
+                    </p>
+
+                    {followUp && (
+                      <div className="mt-1 flex flex-wrap items-center gap-1">
+                        <span className="text-[10px] font-bold text-mme-purple/50">
+                          Next: {followUp.label}
                         </span>
-                      )}
-                    </div>
 
-                    {ev.source === "meeting" && ev.requirements?.length > 0 && (
-                      <ul className="mt-1.5 space-y-1">
-                        {ev.requirements.map((req, i) => (
-                          <li key={req.key || i} className="text-[11px] leading-5 text-mme-purple/65">
-                            <span className="font-bold text-mme-purple/80">{req.label}: </span>{req.details}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-
-                    {ev.notes && <p className="mt-1.5 text-[11px] leading-5 text-mme-purple/70">{ev.notes}</p>}
-
-                    {ev.source === "meeting" && ev.nextMeetingDatetime && (
-                      <p className="mt-1.5 text-[11px] font-bold text-mme-purple/70">
-                        Next meeting: {formatDisplay(ev.nextMeetingDatetime)}
-                        {ev.nextMeetingTag && (
-                          <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-black ${TAG_STYLES[ev.nextMeetingTag.status] || TAG_STYLES.on_time}`}>
-                            {ev.nextMeetingTag.label}
+                        {followUp.tag && (
+                          <span
+                            title={
+                              followUp.tag.expectedLabel
+                                ? `Originally due ${formatDisplay(
+                                    followUp.tag.expectedLabel,
+                                  )}`
+                                : undefined
+                            }
+                            className={`rounded-full px-1.5 py-0.5 text-[9px] font-black ${
+                              TAG_STYLES[followUp.tag.status] ||
+                              TAG_STYLES.on_time
+                            }`}
+                          >
+                            {followUp.tag.label}
                           </span>
                         )}
-                      </p>
+                      </div>
                     )}
-                    {ev.source === "call" && ev.nextCallDatetime && (
-                      <p className="mt-1.5 text-[11px] font-bold text-mme-purple/70">
-                        Next call: {formatDisplay(ev.nextCallDatetime)}
-                        {ev.nextCallTag && (
-                          <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-black ${TAG_STYLES[ev.nextCallTag.status] || TAG_STYLES.on_time}`}>
-                            {ev.nextCallTag.label}
-                          </span>
-                        )}
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          );
-        })}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
+
+      {dayEvents.length > 5 && (
+        <div className="border-t border-mme-pink/30 bg-[#fffafd] px-4 py-2 text-right text-[10px] font-bold text-mme-purple/45">
+          Showing only the latest 5 updates. Click the date for the full day view.
+        </div>
+      )}
     </div>
   );
 }
@@ -285,8 +374,6 @@ export default function AdminCalendarPage() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [events, setEvents] = useState([]);
   const [employees, setEmployees] = useState([]);
-  const [rowData, setRowData] = useState({});
-  const [worksheetColumns, setWorksheetColumns] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [notice, setNotice] = useState(null);
   const [hoverInfo, setHoverInfo] = useState(null); // { date, employeeId, rect }
@@ -307,8 +394,6 @@ export default function AdminCalendarPage() {
       const data = await fetchAdminCalendarMonth(year, month);
       setEvents(data.events || []);
       setEmployees(data.employees || []);
-      setRowData(data.rowData || {});
-      setWorksheetColumns(data.worksheetColumns || []);
     } catch (err) {
       setNotice({ type: "error", message: err.message });
     } finally {
@@ -492,23 +577,51 @@ export default function AdminCalendarPage() {
                     </div>
 
                     <div className="mt-1 space-y-0.5">
-                      {visible.map(([key, group]) => (
-                        <div
-                          key={key}
-                          className="hidden rounded-md border px-1.5 py-1 sm:block"
-                          style={{ borderColor: `${group.employeeColor}55`, backgroundColor: `${group.employeeColor}15` }}
-                          onMouseEnter={(event) => { event.stopPropagation(); showHoverCard(event, info.date, key); }}
-                          onMouseLeave={scheduleHideHoverCard}
-                        >
-                          <div className="flex items-center gap-1">
-                            <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: group.employeeColor }} />
-                            <span className="truncate text-[11px] font-bold leading-none text-mme-purple">{group.employeeName}</span>
+                      {visible.map(([key, group]) => {
+                        const missedCount = group.events.filter((ev) => ev.missed).length;
+
+                        return (
+                          <div
+                            key={key}
+                            className="hidden rounded-md border px-1.5 py-1 sm:block"
+                            style={{
+                              borderColor: `${group.employeeColor}55`,
+                              backgroundColor: `${group.employeeColor}15`,
+                            }}
+                            onMouseEnter={(event) => {
+                              event.stopPropagation();
+                              showHoverCard(event, info.date, key);
+                            }}
+                            onMouseLeave={scheduleHideHoverCard}
+                          >
+                            <div className="flex items-center gap-1">
+                              <span
+                                className="h-1.5 w-1.5 shrink-0 rounded-full"
+                                style={{ backgroundColor: group.employeeColor }}
+                              />
+                              <span className="truncate text-[11px] font-bold leading-none text-mme-purple">
+                                {group.employeeName}
+                              </span>
+                            </div>
+
+                            <div className="mt-0.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide">
+                              <span className="text-mme-purple/55">
+                                {group.events.length} item{group.events.length !== 1 ? "s" : ""}
+                              </span>
+
+                              <span
+                                className={
+                                  missedCount > 0
+                                    ? "font-black text-red-600"
+                                    : "text-mme-purple/35"
+                                }
+                              >
+                                · {missedCount} missed
+                              </span>
+                            </div>
                           </div>
-                          <p className="mt-0.5 truncate text-[10px] font-bold uppercase tracking-wide text-mme-purple/55">
-                            {group.events.length} item{group.events.length !== 1 ? "s" : ""}
-                          </p>
-                        </div>
-                      ))}
+                        );
+                      })}
 
                       {groups.length > 0 && (
                         <div className="flex gap-0.5 sm:hidden">
@@ -544,8 +657,6 @@ export default function AdminCalendarPage() {
           employeeName={hoverGroup.employeeName}
           employeeColor={hoverGroup.employeeColor}
           dayEvents={hoverGroup.events}
-          rowData={rowData}
-          worksheetColumns={worksheetColumns}
           rect={hoverInfo.rect}
           onMouseEnter={cancelHoverHide}
           onMouseLeave={scheduleHideHoverCard}

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   CalendarClock,
+  FileSpreadsheet,
   ImageUp,
   Info,
   Layers,
@@ -149,10 +150,14 @@ export default function ExpenseItemsTable({
   vendors = [],
   invalidIndex = -1,
   billMode = false,
+  directEventMode = false,
+  onExcelUpload,
+  isImportingExcel = false,
 }) {
-  const columns = billMode ? BILL_COLUMNS : FULL_COLUMNS;
-  const storageKey = billMode ? BILL_COL_WEIGHTS_STORAGE_KEY : COL_WEIGHTS_STORAGE_KEY;
-  const defaultWeights = billMode ? DEFAULT_BILL_COL_WEIGHTS : DEFAULT_COL_WEIGHTS;
+  const compactMode = billMode || directEventMode;
+  const columns = compactMode ? BILL_COLUMNS : FULL_COLUMNS;
+  const storageKey = compactMode ? BILL_COL_WEIGHTS_STORAGE_KEY : COL_WEIGHTS_STORAGE_KEY;
+  const defaultWeights = compactMode ? DEFAULT_BILL_COL_WEIGHTS : DEFAULT_COL_WEIGHTS;
   const [colWeights, setColWeights] = useState(() => loadStoredColWeights(storageKey, defaultWeights));
   const [outstandingByVendor, setOutstandingByVendor] = useState({});
   const tableRef = useRef(null);
@@ -234,7 +239,9 @@ export default function ExpenseItemsTable({
     (acc, item) => {
       const total = (Number(item.quantity) || 0) * (Number(item.perQtyAmount) || 0);
       acc.grand += total;
-      if (billMode || (item.vendorId && item.paymentStatus === "to_pay")) acc.pending += total;
+      if (billMode) acc.pending += total;
+      else if (directEventMode) acc.wallet += total;
+      else if (item.vendorId && item.paymentStatus === "to_pay") acc.pending += total;
       else acc.wallet += total;
       return acc;
     },
@@ -244,14 +251,53 @@ export default function ExpenseItemsTable({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.16em] text-black/55">
-          <Layers size={13} /> Cost Items ({items.length})
+        <div>
+          <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.16em] text-black/55">
+            <Layers size={13} /> Cost Items ({items.length})
+          </div>
+          <p className="mt-1 text-[10px] font-semibold text-black/40">
+            Excel columns: Purpose / Description / Details, Date, Quantity, Amount / Qty. Extra rows and columns are ignored.
+          </p>
         </div>
-        {eventDate ? (
-          <span className="inline-flex items-center gap-1.5 rounded-lg bg-[#0B0B0F] px-3 py-1.5 text-[11px] font-black text-white">
-            <CalendarClock size={12} /> Event {formatDisplayDate(eventDate)}
-          </span>
-        ) : null}
+
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {onExcelUpload ? (
+            <label
+              className={`inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-[11px] font-black text-emerald-700 transition-all duration-300 ${
+                isImportingExcel
+                  ? "cursor-wait opacity-60"
+                  : "cursor-pointer hover:-translate-y-0.5 hover:border-emerald-500 hover:bg-emerald-100"
+              }`}
+              title="Import cost rows from Excel. Existing form rows will be replaced after confirmation."
+            >
+              {isImportingExcel ? (
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-emerald-300 border-t-emerald-700" />
+              ) : (
+                <FileSpreadsheet size={13} />
+              )}
+              {isImportingExcel ? "Reading Excel…" : "Upload Excel"}
+              <input
+                type="file"
+                accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                disabled={isImportingExcel}
+                className="hidden"
+                onChange={async (event) => {
+                  const file = event.target.files?.[0] || null;
+                  event.target.value = "";
+                  if (file) {
+                    await onExcelUpload(file);
+                  }
+                }}
+              />
+            </label>
+          ) : null}
+
+          {eventDate ? (
+            <span className="inline-flex items-center gap-1.5 rounded-lg bg-[#0B0B0F] px-3 py-1.5 text-[11px] font-black text-white">
+              <CalendarClock size={12} /> Event {formatDisplayDate(eventDate)}
+            </span>
+          ) : null}
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-black/8 bg-white">
@@ -287,13 +333,16 @@ export default function ExpenseItemsTable({
           <tbody>
             {items.map((item, index) => {
               const total = (Number(item.quantity) || 0) * (Number(item.perQtyAmount) || 0);
-              const isPending = billMode || (Boolean(item.vendorId) && item.paymentStatus === "to_pay");
+              const isPending =
+                billMode || (!directEventMode && Boolean(item.vendorId) && item.paymentStatus === "to_pay");
               const isInvalid = index === invalidIndex;
-              const impactNote = !item.vendorId
-                ? "No vendor — comes straight out of your wallet."
-                : isPending
-                  ? "Order placed only. Recorded as money owed to this vendor."
-                  : "Paying this vendor now — deducted from your wallet.";
+              const impactNote = directEventMode
+                ? "Other event cost — no vendor ledger. Deducted from your wallet after Admin approval."
+                : !item.vendorId
+                  ? "No vendor — comes straight out of your wallet."
+                  : isPending
+                    ? "Order placed only. Recorded as money owed to this vendor."
+                    : "Paying this vendor now — deducted from your wallet.";
 
               return (
                 <tr
@@ -378,7 +427,7 @@ export default function ExpenseItemsTable({
                     </div>
                   </td>
 
-                  {!billMode ? (
+                  {!compactMode ? (
                     <>
                       <td className="px-2 py-2">
                         <select
@@ -515,7 +564,7 @@ export default function ExpenseItemsTable({
         </button>
       </div>
 
-      <div className={`grid gap-3 ${billMode ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>
+      <div className={`grid gap-3 ${compactMode ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>
         <div className="rounded-2xl border border-black/8 bg-white p-4">
           <p className="text-[9px] font-black uppercase tracking-[0.16em] text-black/55">Grand Total</p>
           <p className="mt-1.5 text-xl font-black tracking-tight text-black">{formatTaka(totals.grand)}</p>
@@ -523,31 +572,33 @@ export default function ExpenseItemsTable({
         {!billMode ? (
           <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
             <p className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.16em] text-rose-500">
-              <Wallet size={11} /> Leaves Wallet
+              <Wallet size={11} /> {directEventMode ? "Direct Event Cost" : "Leaves Wallet"}
             </p>
             <p className="mt-1.5 text-xl font-black tracking-tight text-rose-600">{formatTaka(totals.wallet)}</p>
           </div>
         ) : null}
-        <div
-          className={`rounded-2xl border p-4 transition-colors duration-300 ${
-            totals.pending > 0 ? "border-amber-200 bg-amber-50" : "border-black/8 bg-white"
-          }`}
-        >
-          <p
-            className={`flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.16em] ${
-              totals.pending > 0 ? "text-amber-600" : "text-black/55"
+        {!directEventMode ? (
+          <div
+            className={`rounded-2xl border p-4 transition-colors duration-300 ${
+              totals.pending > 0 ? "border-amber-200 bg-amber-50" : "border-black/8 bg-white"
             }`}
           >
-            <Store size={11} /> {billMode ? "Bill Amount (Owed to Vendor)" : "Owed To Vendors"}
-          </p>
-          <p
-            className={`mt-1.5 text-xl font-black tracking-tight ${
-              totals.pending > 0 ? "text-amber-700" : "text-black/45"
-            }`}
-          >
-            {formatTaka(totals.pending)}
-          </p>
-        </div>
+            <p
+              className={`flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.16em] ${
+                totals.pending > 0 ? "text-amber-600" : "text-black/55"
+              }`}
+            >
+              <Store size={11} /> {billMode ? "Bill Amount (Owed to Vendor)" : "Owed To Vendors"}
+            </p>
+            <p
+              className={`mt-1.5 text-xl font-black tracking-tight ${
+                totals.pending > 0 ? "text-amber-700" : "text-black/45"
+              }`}
+            >
+              {formatTaka(totals.pending)}
+            </p>
+          </div>
+        ) : null}
       </div>
     </div>
   );
