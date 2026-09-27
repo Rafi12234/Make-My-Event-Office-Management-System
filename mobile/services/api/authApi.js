@@ -27,3 +27,8 @@ export async function mobileLogin({ email, password }) {
 export function getCurrentEmployee() {
   return apiRequest("/employees/me");
 }
+
+console.log(
+  "LOGIN URL >>>",
+  `${API_URL}/mobile/auth/login`,
+);

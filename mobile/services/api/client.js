@@ -1,8 +1,18 @@
-import { API_URL } from "../../constants/config";
-import { getAccessToken, removeAccessToken } from "../storage/authStorage";
+import { API_URL }
+  from "../../constants/config";
+
+import {
+  getAccessToken,
+  removeAccessToken,
+} from "../storage/authStorage";
 
 export class ApiError extends Error {
-  constructor(message, status, code = null, data = null) {
+  constructor(
+    message,
+    status,
+    code = null,
+    data = null,
+  ) {
     super(message);
 
     this.name = "ApiError";
@@ -13,39 +23,87 @@ export class ApiError extends Error {
 }
 
 /**
- * Shared JSON request helper for every backend call — attaches the mobile
- * Bearer token automatically and normalizes error/response shapes so
- * feature API files never duplicate this plumbing.
+ * Raw authenticated request.
+ *
+ * Used by:
+ * - normal API requests
+ * - PDF preview
+ * - PDF download
  */
-export async function apiRequest(path, options = {}) {
-  const token = await getAccessToken();
+export async function apiFetch(
+  path,
+  options = {},
+) {
+  const token =
+    await getAccessToken();
+
+  const isFormData =
+    options.body instanceof FormData;
 
   const headers = {
     Accept: "application/json",
-    ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+
+    ...(options.body &&
+    !isFormData
+      ? {
+          "Content-Type":
+            "application/json",
+        }
+      : {}),
+
+    ...(token
+      ? {
+          Authorization:
+            `Bearer ${token}`,
+        }
+      : {}),
+
     ...(options.headers || {}),
   };
 
-  const response = await fetch(`${API_URL}${path}`, {
-    ...options,
-    headers,
-  });
-
-  const payload = await response.json().catch(() => ({}));
+  const response = await fetch(
+    `${API_URL}${path}`,
+    {
+      ...options,
+      headers,
+    },
+  );
 
   if (response.status === 401) {
-    // Stale/expired session — drop the token so the auth layer can route
-    // back to login instead of retrying with a token that will never work.
     await removeAccessToken();
   }
 
+  return response;
+}
+
+/**
+ * Normal JSON API helper.
+ */
+export async function apiRequest(
+  path,
+  options = {},
+) {
+  const response =
+    await apiFetch(
+      path,
+      options,
+    );
+
+  const payload =
+    await response
+      .json()
+      .catch(() => ({}));
+
   if (!response.ok) {
     throw new ApiError(
-      payload.message || `Request failed (${response.status}).`,
+      payload.message ||
+        `Request failed (${response.status}).`,
+
       response.status,
+
       payload.code || null,
-      payload
+
+      payload,
     );
   }
 
