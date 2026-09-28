@@ -12,14 +12,17 @@ import {
   History,
 } from "lucide-react";
 
-import PDFGeneratorShell from "../components/PDFGeneratorShell";
-import PDFHistoryTable from "../components/PDFHistoryTable";
+import PDFGeneratorShell
+  from "../components/PDFGeneratorShell";
+
+import PDFHistoryTable
+  from "../components/PDFHistoryTable";
 
 import {
   archivePdfDocument,
   downloadPdfDocument,
   listPdfDocuments,
-  saveBlobAs,
+  startPdfDocumentDownload,
 } from "../services/pdfGeneratorService";
 
 export default function PDFHistoryPage() {
@@ -53,28 +56,9 @@ export default function PDFHistoryPage() {
   ] =
     useState("");
 
-  /*
-  |--------------------------------------------------------------------------
-  | Busy action
-  |--------------------------------------------------------------------------
-  |
-  | Instead of only storing the document ID, also store which action is
-  | running.
-  |
-  | Example:
-  |
-  | {
-  |   id: "10",
-  |   type: "download"
-  | }
-  |
-  | This allows the table to show the spinner on the exact button that was
-  | clicked.
-  |
-  */
   const [
-    busyAction,
-    setBusyAction,
+    busyDocumentId,
+    setBusyDocumentId,
   ] =
     useState(null);
 
@@ -82,6 +66,12 @@ export default function PDFHistoryPage() {
     location.state
       ?.backTo ||
     "/management";
+
+  /*
+  |--------------------------------------------------------------------------
+  | Load history
+  |--------------------------------------------------------------------------
+  */
 
   async function refresh() {
     setIsLoading(
@@ -112,6 +102,12 @@ export default function PDFHistoryPage() {
   useEffect(() => {
     refresh();
   }, []);
+
+  /*
+  |--------------------------------------------------------------------------
+  | Success toast passed from generator
+  |--------------------------------------------------------------------------
+  */
 
   useEffect(() => {
     if (
@@ -144,42 +140,43 @@ export default function PDFHistoryPage() {
     backTo,
   ]);
 
+  /*
+  |--------------------------------------------------------------------------
+  | Auto-hide toast
+  |--------------------------------------------------------------------------
+  */
+
   useEffect(() => {
     if (!toast) {
       return undefined;
     }
 
     const timer =
-      setTimeout(
-        () =>
+      window.setTimeout(
+        () => {
           setToast(
             "",
-          ),
+          );
+        },
         3500,
       );
 
     return () =>
-      clearTimeout(
+      window.clearTimeout(
         timer,
       );
   }, [toast]);
-
-  function filenameFor(
-    doc,
-  ) {
-    return `${(
-      doc.documentNo ||
-      `document-${doc.id}`
-    ).replace(
-      /\//g,
-      "-",
-    )}.pdf`;
-  }
 
   /*
   |--------------------------------------------------------------------------
   | Preview
   |--------------------------------------------------------------------------
+  |
+  | Keep Preview working the same way as before.
+  |
+  | Preview requires the PDF bytes as a Blob because it creates an object URL
+  | and opens the PDF inside a browser tab.
+  |
   */
 
   async function handlePreview(
@@ -187,11 +184,9 @@ export default function PDFHistoryPage() {
   ) {
     setError("");
 
-    setBusyAction({
+    setBusyDocumentId(
       id,
-      type:
-        "preview",
-    });
+    );
 
     try {
       const blob =
@@ -210,11 +205,17 @@ export default function PDFHistoryPage() {
         "noopener,noreferrer",
       );
 
-      setTimeout(
-        () =>
+      /*
+      | Keep the Blob URL alive long enough for the new browser tab to finish
+      | reading it.
+      */
+
+      window.setTimeout(
+        () => {
           URL.revokeObjectURL(
             url,
-          ),
+          );
+        },
         60000,
       );
     } catch (err) {
@@ -223,7 +224,7 @@ export default function PDFHistoryPage() {
           "Unable to open this document.",
       );
     } finally {
-      setBusyAction(
+      setBusyDocumentId(
         null,
       );
     }
@@ -234,58 +235,95 @@ export default function PDFHistoryPage() {
   | Download
   |--------------------------------------------------------------------------
   |
-  | Loading begins immediately when employee clicks.
+  | IMPORTANT CHANGE:
   |
-  | It stays visible while:
+  | OLD FLOW:
   |
-  | 1. Browser requests the PDF
-  | 2. Server sends the PDF bytes
-  | 3. Browser converts response to Blob
+  | click
+  |   ↓
+  | fetch PDF
+  |   ↓
+  | wait for COMPLETE PDF
+  |   ↓
+  | response.blob()
+  |   ↓
+  | JavaScript memory
+  |   ↓
+  | saveBlobAs()
+  |   ↓
+  | browser download starts
   |
-  | Once saveBlobAs() triggers the browser download, loading disappears.
+  |
+  | NEW FLOW:
+  |
+  | click
+  |   ↓
+  | browser directly requests download endpoint
+  |   ↓
+  | Express sends existing generated PDF
+  |   ↓
+  | browser download starts immediately
+  |
+  |
+  | This is especially important for PDFs containing 30-40+ images.
   |
   */
 
-  async function handleDownload(
+  function handleDownload(
     id,
   ) {
     setError("");
 
-    setBusyAction({
+    /*
+    | Briefly mark the row busy so repeated double-clicks are prevented while
+    | the browser starts the native download.
+    */
+
+    setBusyDocumentId(
       id,
-      type:
-        "download",
-    });
+    );
 
     try {
-      const doc =
-        documents.find(
-          (item) =>
-            item.id ===
-            id,
-        );
+      /*
+      | This does NOT fetch the PDF into JavaScript.
+      |
+      | It sends the employee directly to:
+      |
+      | GET /api/pdf-generator/documents/:id/download
+      |
+      | The existing backend res.download(...) response controls the filename
+      | and browser download.
+      */
 
-      const blob =
-        await downloadPdfDocument(
-          id,
-        );
-
-      saveBlobAs(
-        blob,
-        doc
-          ? filenameFor(
-              doc,
-            )
-          : "document.pdf",
+      startPdfDocumentDownload(
+        id,
       );
     } catch (err) {
       setError(
         err.message ||
-          "Unable to download this document.",
+          "Unable to start this document download.",
       );
     } finally {
-      setBusyAction(
-        null,
+      /*
+      | JavaScript does not own the file transfer anymore.
+      |
+      | Once the browser download has been triggered, the browser download
+      | manager is responsible for showing the transfer/progress.
+      |
+      | Therefore we only keep the row disabled briefly.
+      */
+
+      window.setTimeout(
+        () => {
+          setBusyDocumentId(
+            (current) =>
+              current ===
+              id
+                ? null
+                : current,
+          );
+        },
+        900,
       );
     }
   }
@@ -301,11 +339,9 @@ export default function PDFHistoryPage() {
   ) {
     setError("");
 
-    setBusyAction({
+    setBusyDocumentId(
       id,
-      type:
-        "archive",
-    });
+    );
 
     try {
       const updated =
@@ -329,11 +365,17 @@ export default function PDFHistoryPage() {
           "Unable to archive this document.",
       );
     } finally {
-      setBusyAction(
+      setBusyDocumentId(
         null,
       );
     }
   }
+
+  /*
+  |--------------------------------------------------------------------------
+  | UI
+  |--------------------------------------------------------------------------
+  */
 
   return (
     <PDFGeneratorShell
@@ -371,8 +413,8 @@ export default function PDFHistoryPage() {
           onArchive={
             handleArchive
           }
-          busyAction={
-            busyAction
+          busyDocumentId={
+            busyDocumentId
           }
         />
       )}
