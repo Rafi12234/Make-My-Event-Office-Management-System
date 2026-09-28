@@ -23,6 +23,7 @@ function serializeAttendance(row) {
     signInLongitude: row.signInLongitude !== null ? Number(row.signInLongitude) : null,
     signInAccuracy: row.signInAccuracy !== null ? Number(row.signInAccuracy) : null,
     signOutAt: formatDateTime(row.signOutAt), 
+    signOutAt: formatDateTime(row.signOutAt),
     signOutLatitude: row.signOutLatitude !== null ? Number(row.signOutLatitude) : null,
     signOutLongitude: row.signOutLongitude !== null ? Number(row.signOutLongitude) : null,
     signOutAccuracy: row.signOutAccuracy !== null ? Number(row.signOutAccuracy) : null,

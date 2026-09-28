@@ -151,6 +151,25 @@ const { default: moneyReceiptRoutes } = require(
 
 /*
 |--------------------------------------------------------------------------
+| Resolve the Attendance module
+|--------------------------------------------------------------------------
+|
+| Same idea as the Accounts module above, but nested one level deeper
+| (mobile/Attendance/backend instead of a repo-root sibling) since this
+| module is dedicated to the mobile app. ATTENDANCE_BACKEND_DIR overrides
+| the resolved path for deployment, same as ACCOUNTS_BACKEND_DIR.
+*/
+
+const attendanceBackendDirectory = process.env.ATTENDANCE_BACKEND_DIR
+  ? path.resolve(process.env.ATTENDANCE_BACKEND_DIR)
+  : path.resolve(__dirname, "../../../mobile/Attendance/backend");
+
+const { default: attendanceRoutes } = require(
+  path.join(attendanceBackendDirectory, "routes/attendance.js"),
+);
+
+/*
+|--------------------------------------------------------------------------
 | Global middleware
 |--------------------------------------------------------------------------
 */
