@@ -14,12 +14,9 @@ PAGE_CONTENT.width = PAGE_CONTENT.right - PAGE_CONTENT.x;
 PAGE_CONTENT.height = PAGE_CONTENT.top - PAGE_CONTENT.bottom;
 
 export const DATE_FIELD = {
-  x: 460,
-  y: 590,
-  maskWidth: 102,
-  maskHeight: 48,
+  x: 455,
+  y: 565,
   fontSize: 10,
-  textOffsetY: 28,
 };
 
 export async function createTemplatedPage(outputPdf, templatePdf) {
