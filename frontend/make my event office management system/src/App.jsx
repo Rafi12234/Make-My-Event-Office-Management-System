@@ -15,7 +15,6 @@ import VendorsPage from "../../../Accounts/frontend/pages/VendorsPage";
 import VendorProfilePage from "../../../Accounts/frontend/pages/VendorProfilePage";
 import PDFGeneratorPage from "../../../PDFGenerator/frontend/pages/PDFGeneratorPage";
 import PDFPreviewPage from "../../../PDFGenerator/frontend/pages/PDFPreviewPage";
-import PDFHistoryPage from "../../../PDFGenerator/frontend/pages/PDFHistoryPage";
 import MoneyReceiptGeneratorPage from "../../../MoneyReceiptGenerator/frontend/pages/MoneyReceiptGeneratorPage";
 import MoneyReceiptPreviewPage from "../../../MoneyReceiptGenerator/frontend/pages/MoneyReceiptPreviewPage";
 import MoneyReceiptHistoryPage from "../../../MoneyReceiptGenerator/frontend/pages/MoneyReceiptHistoryPage";
@@ -91,7 +90,6 @@ function App() {
         <Route path="/management/meetings/:rowKey/:meetingId/pdf" element={<RequirePasswordChange><PDFGeneratorPage /></RequirePasswordChange>} />
         <Route path="/pdf-generator" element={<Navigate to="/management" replace />} />
         <Route path="/pdf-generator/preview" element={<RequirePasswordChange><PDFPreviewPage /></RequirePasswordChange>} />
-        <Route path="/pdf-generator/history" element={<RequirePasswordChange><PDFHistoryPage /></RequirePasswordChange>} />
         <Route path="/admin" element={<Navigate to="/admin-dashboard" replace />} />
         <Route path="/admin-dashboard" element={<BlockIfEmployeeSession><AdminDashboardPage /></BlockIfEmployeeSession>} />
         <Route path="/admin-dashboard/clients/:rowKey" element={<BlockIfEmployeeSession><AdminClientDetailPage /></BlockIfEmployeeSession>} />
