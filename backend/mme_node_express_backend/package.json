@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-"postinstall": "(prisma generate || echo \"prisma generate failed - CI-uploaded client will be used in production, this only matters for local dev\") && node -e \"const fs=require('fs');const {spawnSync}=require('child_process');const files=['scripts/ensureAccountsNodeModulesLink.js','scripts/ensureAttendanceNodeModulesLink.js','scripts/ensurePdfGeneratorNodeModulesLink.js','scripts/ensureMoneyReceiptGeneratorNodeModulesLink.js'];for(const file of files){if(fs.existsSync(file)){const result=spawnSync(process.execPath,[file],{stdio:'inherit'});if(result.status)process.exit(result.status);}}\""  },
+    "postinstall": "(prisma generate || echo \"prisma generate failed - CI-uploaded client will be used in production, this only matters for local dev\") && node -e \"const fs=require('fs');const {spawnSync}=require('child_process');const files=['scripts/ensureAccountsNodeModulesLink.js','scripts/ensureAttendanceNodeModulesLink.js','scripts/ensurePdfGeneratorNodeModulesLink.js','scripts/ensureMoneyReceiptGeneratorNodeModulesLink.js'];for(const file of files){if(fs.existsSync(file)){const result=spawnSync(process.execPath,[file],{stdio:'inherit'});if(result.status)process.exit(result.status);}}\""
+  },
   "dependencies": {
     "@prisma/adapter-mariadb": "^7.9.1",
     "@prisma/client": "^7.9.1",
@@ -19,7 +20,6 @@
     "morgan": "^1.11.0",
     "multer": "^2.2.0",
     "pdf-lib": "^1.17.1",
-    "prisma": "^7.9.1",
-    "sharp": "^0.35.5"
+    "prisma": "^7.9.1"
   }
 }

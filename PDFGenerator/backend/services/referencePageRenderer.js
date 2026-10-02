@@ -371,99 +371,100 @@ export async function renderReferenceSection(
     | Draw images sequentially
     |--------------------------------------------------------------------------
     */
-    for (
-      const embeddedImage of images
-    ) {
-      let remaining =
-        cursorY -
-        PAGE_CONTENT.bottom;
+for (const embeddedImage of images) {
+  /*
+  |--------------------------------------------------------------------------
+  | Calculate the image size using the FULL page content area
+  |--------------------------------------------------------------------------
+  |
+  | Important:
+  | Do NOT calculate image size using the remaining space on the current page.
+  |
+  | Otherwise the second/third image gets smaller just because there is less
+  | space left after the previous image.
+  |
+  */
+  let fitted =
+    containImage(
+      embeddedImage.width,
+      embeddedImage.height,
+      DETAIL_CONTENT.width,
+      PAGE_CONTENT.height,
+      {
+        allowUpscale: true,
+      },
+    );
 
-      /*
-        If remaining area is too small,
-        move image to a new letterhead page.
-      */
-      if (
-        remaining <
-        MIN_USEFUL_IMAGE_SPACE
-      ) {
-        page =
-          await newPage(
-            outputPdf,
-            templatePdf,
-          );
+  let remaining =
+    cursorY -
+    PAGE_CONTENT.bottom;
 
-        cursorY =
-          PAGE_CONTENT.top;
-
-        remaining =
-          PAGE_CONTENT.height;
-      }
-
-      /*
-      |--------------------------------------------------------------------------
-      | Preserve original image aspect ratio
-      |--------------------------------------------------------------------------
-      |
-      | Never crop.
-      | Never stretch.
-      | Never distort.
-      |
-      | Images are now allowed to use the wider symmetrical
-      | detail/reference-page content width.
-      |
-      | allowUpscale:false means a small source image is not artificially
-      | enlarged beyond its natural dimensions.
-      |
-      */
-      const fitted =
-        containImage(
-          embeddedImage.width,
-          embeddedImage.height,
-          DETAIL_CONTENT.width,
-          remaining,
-          {
-            allowUpscale:
-              false,
-          },
-        );
-
-      /*
-      |--------------------------------------------------------------------------
-      | Draw centered image
-      |--------------------------------------------------------------------------
-      |
-      | The image is centered inside:
-      |
-      | 46pt |              IMAGE              | 46pt
-      |
-      */
-      drawImageCentered(
-        page,
-        embeddedImage,
-        {
-          contentX:
-            DETAIL_CONTENT.x,
-
-          contentWidth:
-            DETAIL_CONTENT.width,
-
-          topY:
-            cursorY,
-
-          width:
-            fitted.width,
-
-          height:
-            fitted.height,
-        },
+  /*
+  |--------------------------------------------------------------------------
+  | If the image cannot fit at its normal size, start a new page
+  |--------------------------------------------------------------------------
+  */
+  if (
+    fitted.height >
+    remaining
+  ) {
+    page =
+      await newPage(
+        outputPdf,
+        templatePdf,
       );
 
-      /*
-        Move cursor below image for the next image.
-      */
-      cursorY -=
-        fitted.height +
-        DETAIL_IMAGE_GAP;
-    }
+    cursorY =
+      PAGE_CONTENT.top;
+
+    remaining =
+      PAGE_CONTENT.height;
+
+    /*
+     * Recalculate against the full fresh page.
+     */
+    fitted =
+      containImage(
+        embeddedImage.width,
+        embeddedImage.height,
+        DETAIL_CONTENT.width,
+        PAGE_CONTENT.height,
+        {
+          allowUpscale: true,
+        },
+      );
   }
-}
+
+  /*
+  |--------------------------------------------------------------------------
+  | Draw image
+  |--------------------------------------------------------------------------
+  */
+  drawImageCentered(
+    page,
+    embeddedImage,
+    {
+      contentX:
+        DETAIL_CONTENT.x,
+
+      contentWidth:
+        DETAIL_CONTENT.width,
+
+      topY:
+        cursorY,
+
+      width:
+        fitted.width,
+
+      height:
+        fitted.height,
+    },
+  );
+
+  /*
+   * Move cursor below the image.
+   */
+  cursorY -=
+    fitted.height +
+    DETAIL_IMAGE_GAP;
+}}}
