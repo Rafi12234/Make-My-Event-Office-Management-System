@@ -8,6 +8,7 @@ import {
   DETAIL_IMAGE_GAP,
   DETAIL_LINE_HEIGHT_FACTOR,
   PAGE_CONTENT,
+  PAGE_WIDTH,
 } from "../config/pdfLayout.js";
 
 import {
@@ -21,19 +22,46 @@ import {
   wrapText,
 } from "./textRenderer.js";
 
-const BLACK = rgb(
-  0,
-  0,
-  0,
-);
+const BLACK = rgb(0, 0, 0);
+
+/*
+|--------------------------------------------------------------------------
+| Reference/detail page horizontal layout
+|--------------------------------------------------------------------------
+|
+| PAGE_CONTENT is still used for:
+| - top
+| - bottom
+| - available vertical height
+|
+| But detail/reference pages use their own equal left/right margins.
+|
+| Previous global margins:
+| Left  = 74
+| Right = 50
+|
+| New reference-page margins:
+| Left  = 46
+| Right = 46
+|
+*/
+const DETAIL_SIDE_MARGIN = 46;
+
+const DETAIL_CONTENT = {
+  x: DETAIL_SIDE_MARGIN,
+  right: PAGE_WIDTH - DETAIL_SIDE_MARGIN,
+};
+
+DETAIL_CONTENT.width =
+  DETAIL_CONTENT.right -
+  DETAIL_CONTENT.x;
 
 /*
 |--------------------------------------------------------------------------
 | Minimum remaining area worth using for an image
 |--------------------------------------------------------------------------
 */
-const MIN_USEFUL_IMAGE_SPACE =
-  95;
+const MIN_USEFUL_IMAGE_SPACE = 95;
 
 /*
 |--------------------------------------------------------------------------
@@ -122,14 +150,10 @@ export async function renderReferenceSection(
     */
     const headingLines =
       wrapText(
-        item.itemName ||
-          "Item",
-
+        item.itemName || "Item",
         fonts.bold,
-
         DETAIL_HEADING_FONT_SIZE,
-
-        PAGE_CONTENT.width,
+        DETAIL_CONTENT.width,
       );
 
     drawLines(
@@ -137,13 +161,13 @@ export async function renderReferenceSection(
       headingLines,
       {
         x:
-          PAGE_CONTENT.x,
+          DETAIL_CONTENT.x,
 
         topY:
           cursorY,
 
         width:
-          PAGE_CONTENT.width,
+          DETAIL_CONTENT.width,
 
         font:
           fonts.bold,
@@ -162,9 +186,7 @@ export async function renderReferenceSection(
     cursorY -=
       measureLinesHeight(
         headingLines.length,
-
         DETAIL_HEADING_FONT_SIZE,
-
         DETAIL_LINE_HEIGHT_FACTOR,
       );
 
@@ -193,17 +215,15 @@ export async function renderReferenceSection(
         DETAIL_HEADING_GAP;
 
       /*
-        Wrap full description once.
+        Wrap full description once using the wider,
+        symmetrical reference-page content area.
       */
       const remainingDescriptionLines =
         wrapText(
           description,
-
           fonts.regular,
-
           DETAIL_DESCRIPTION_FONT_SIZE,
-
-          PAGE_CONTENT.width,
+          DETAIL_CONTENT.width,
         );
 
       const lineHeight =
@@ -248,7 +268,6 @@ export async function renderReferenceSection(
           lineCapacity =
             Math.max(
               1,
-
               Math.floor(
                 PAGE_CONTENT.height /
                   lineHeight,
@@ -270,13 +289,13 @@ export async function renderReferenceSection(
           chunk,
           {
             x:
-              PAGE_CONTENT.x,
+              DETAIL_CONTENT.x,
 
             topY:
               cursorY,
 
             width:
-              PAGE_CONTENT.width,
+              DETAIL_CONTENT.width,
 
             font:
               fonts.regular,
@@ -295,9 +314,7 @@ export async function renderReferenceSection(
         cursorY -=
           measureLinesHeight(
             chunk.length,
-
             DETAIL_DESCRIPTION_FONT_SIZE,
-
             DETAIL_LINE_HEIGHT_FACTOR,
           );
 
@@ -355,8 +372,7 @@ export async function renderReferenceSection(
     |--------------------------------------------------------------------------
     */
     for (
-      const embeddedImage of
-        images
+      const embeddedImage of images
     ) {
       let remaining =
         cursorY -
@@ -392,6 +408,9 @@ export async function renderReferenceSection(
       | Never stretch.
       | Never distort.
       |
+      | Images are now allowed to use the wider symmetrical
+      | detail/reference-page content width.
+      |
       | allowUpscale:false means a small source image is not artificially
       | enlarged beyond its natural dimensions.
       |
@@ -399,13 +418,9 @@ export async function renderReferenceSection(
       const fitted =
         containImage(
           embeddedImage.width,
-
           embeddedImage.height,
-
-          PAGE_CONTENT.width,
-
+          DETAIL_CONTENT.width,
           remaining,
-
           {
             allowUpscale:
               false,
@@ -416,16 +431,21 @@ export async function renderReferenceSection(
       |--------------------------------------------------------------------------
       | Draw centered image
       |--------------------------------------------------------------------------
+      |
+      | The image is centered inside:
+      |
+      | 46pt |              IMAGE              | 46pt
+      |
       */
       drawImageCentered(
         page,
         embeddedImage,
         {
           contentX:
-            PAGE_CONTENT.x,
+            DETAIL_CONTENT.x,
 
           contentWidth:
-            PAGE_CONTENT.width,
+            DETAIL_CONTENT.width,
 
           topY:
             cursorY,

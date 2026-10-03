@@ -1,16 +1,13 @@
 import { Router } from "express";
 import multer from "multer";
 import {
-  archiveDocument,
   createDocumentItem,
   deleteDocumentItem,
   deleteDocumentItemImage,
-  downloadDocument,
   ensureMeetingDraft,
   generateDocument,
   getDocument,
   importExcelRows,
-  listDocuments,
   previewDocument,
   resetDraftFromMeeting,
   serveDocumentImage,
@@ -39,7 +36,6 @@ function uploadSingleImage(req, res, next) {
 const router = Router();
 
 router.post("/meeting/:rowKey/:meetingId/draft", ensureMeetingDraft);
-router.get("/documents", listDocuments);
 router.get("/documents/:id", getDocument);
 router.put("/documents/:id", updateDocument);
 router.post("/documents/:id/reset-from-meeting", resetDraftFromMeeting);
@@ -51,7 +47,5 @@ router.delete("/documents/:id/items/:itemId/images/:imageId", deleteDocumentItem
 router.get("/documents/:id/images/:imageId/file", serveDocumentImage);
 router.post("/documents/:id/preview", previewDocument);
 router.post("/documents/:id/generate", generateDocument);
-router.get("/documents/:id/download", downloadDocument);
-router.patch("/documents/:id/archive", archiveDocument);
 
 export default router;

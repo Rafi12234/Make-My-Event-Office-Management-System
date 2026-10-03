@@ -108,45 +108,50 @@ export async function previewPdfDocument(documentId) {
   return parsePdfResponse(response);
 }
 
-export async function generatePdfDocument(documentId) {
-  const response = await fetch(`${API_BASE_URL}/pdf-generator/documents/${documentId}/generate`, {
-    method: "POST",
-    credentials: "include",
-    headers: { Accept: "application/json" },
-  });
-  return parseJsonResponse(response);
-}
+export function generatePdfDocument(documentId) {
+  if (documentId == null || documentId === "") {
+    throw new Error("A document ID is required to generate the PDF.");
+  }
 
-export async function listPdfDocuments() {
-  const response = await fetch(`${API_BASE_URL}/pdf-generator/documents`, { credentials: "include" });
-  return parseJsonResponse(response);
+  /*
+  |--------------------------------------------------------------------------
+  | Native browser download
+  |--------------------------------------------------------------------------
+  |
+  | Do not fetch the final PDF as response.blob(). For very large PDFs that
+  | would make JavaScript wait for and hold the whole file in memory before
+  | the browser download begins.
+  |
+  | A hidden iframe + POST form lets the browser handle the attachment response
+  | directly while the employee remains on the PDF Builder page.
+  |
+  */
+  const frameId = "mme-pdf-generate-download-frame";
+  let frame = document.getElementById(frameId);
+
+  if (!frame) {
+    frame = document.createElement("iframe");
+    frame.id = frameId;
+    frame.name = frameId;
+    frame.title = "PDF download";
+    frame.style.display = "none";
+    document.body.appendChild(frame);
+  }
+
+  const form = document.createElement("form");
+  form.method = "POST";
+  form.action = `${API_BASE_URL}/pdf-generator/documents/${encodeURIComponent(
+    String(documentId),
+  )}/generate`;
+  form.target = frameId;
+  form.style.display = "none";
+
+  document.body.appendChild(form);
+  form.submit();
+  form.remove();
 }
 
 export async function getPdfDocument(id) {
   const response = await fetch(`${API_BASE_URL}/pdf-generator/documents/${id}`, { credentials: "include" });
   return parseJsonResponse(response);
-}
-
-export async function downloadPdfDocument(id) {
-  const response = await fetch(`${API_BASE_URL}/pdf-generator/documents/${id}/download`, { credentials: "include" });
-  return parsePdfResponse(response);
-}
-
-export async function archivePdfDocument(id) {
-  const response = await fetch(`${API_BASE_URL}/pdf-generator/documents/${id}/archive`, {
-    method: "PATCH",
-    credentials: "include",
-  });
-  return parseJsonResponse(response);
-}
-
-export function saveBlobAs(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
 }
