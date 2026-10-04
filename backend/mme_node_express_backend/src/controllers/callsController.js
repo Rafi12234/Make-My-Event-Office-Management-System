@@ -1,16 +1,33 @@
 import { prisma } from "../config/prisma.js";
-import { formatDateTime, formatDateOnly, parseDateTimeLocal, todayMinValue, nowInBusinessTimezone } from "../utils/dbDates.js";
+import {
+  formatDateTime,
+  formatDateOnly,
+  parseDateTimeLocal,
+  todayMinValue,
+  nowInBusinessTimezone,
+} from "../utils/dbDates.js";
+
 
 // ─── Helpers ────────────────────────────────────────────────────
 
+
 async function getDefaultSheetId() {
   const sheet = await prisma.managementSheet.findFirst({
-    where: { isDefault: true, isActive: true },
-    orderBy: { id: "asc" },
-    select: { id: true },
+    where: {
+      isDefault: true,
+      isActive: true,
+    },
+    orderBy: {
+      id: "asc",
+    },
+    select: {
+      id: true,
+    },
   });
+
   return sheet?.id || null;
 }
+
 
 async function getClientName(sheetId, rowKey) {
   if (!sheetId) return "";
@@ -19,29 +36,95 @@ async function getClientName(sheetId, rowKey) {
   // since column_key is not guaranteed to be a readable slug — the same
   // approach used in controllers/calendarController.js and controllers/meetingsController.js.
   const row = await prisma.sheetRow.findFirst({
-    where: { sheetId, rowKey },
+    where: {
+      sheetId,
+      rowKey,
+    },
+
     select: {
       cells: {
-        where: { column: { columnName: { equals: "Client Name" } } },
-        select: { valueText: true, displayValue: true },
+        where: {
+          column: {
+            columnName: {
+              equals: "Client Name",
+            },
+          },
+        },
+
+        select: {
+          valueText: true,
+          displayValue: true,
+        },
+
         take: 1,
       },
     },
   });
 
   const cell = row?.cells?.[0];
+
   return cell?.valueText || cell?.displayValue || "";
 }
+
+
+async function getClientPhone(sheetId, rowKey) {
+  if (!sheetId) return "";
+
+  const row = await prisma.sheetRow.findFirst({
+    where: {
+      sheetId,
+      rowKey,
+    },
+
+    select: {
+      cells: {
+        where: {
+          column: {
+            columnName: {
+              equals: "Client Phone Number",
+            },
+          },
+        },
+
+        select: {
+          valueText: true,
+          displayValue: true,
+        },
+
+        take: 1,
+      },
+    },
+  });
+
+  const cell = row?.cells?.[0];
+
+  return cell?.valueText || cell?.displayValue || "";
+}
+
 
 async function getEventDate(sheetId, rowKey) {
   if (!sheetId) return "";
 
   const row = await prisma.sheetRow.findFirst({
-    where: { sheetId, rowKey },
+    where: {
+      sheetId,
+      rowKey,
+    },
+
     select: {
       cells: {
-        where: { column: { columnName: { equals: "Event Date" } } },
-        select: { valueDate: true },
+        where: {
+          column: {
+            columnName: {
+              equals: "Event Date",
+            },
+          },
+        },
+
+        select: {
+          valueDate: true,
+        },
+
         take: 1,
       },
     },
@@ -50,72 +133,157 @@ async function getEventDate(sheetId, rowKey) {
   return formatDateOnly(row?.cells?.[0]?.valueDate);
 }
 
+
 function isValidRowKey(rowKey) {
   return /^[0-9a-fA-F-]{36}$/.test(String(rowKey || ""));
 }
 
+
 function isValidId(value) {
   const id = Number(value);
+
   return Number.isInteger(id) && id > 0 ? id : null;
 }
 
+
 // Only compares the date part — the next call's time of day is unrestricted.
 function isNextCallDateTooEarly(datetimeLocalValue) {
-  const value = String(datetimeLocalValue || "").trim().slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const value = String(datetimeLocalValue || "")
+    .trim()
+    .slice(0, 10);
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+
   return value < todayMinValue().slice(0, 10);
 }
 
+
 // ─── GET /api/calls/:rowKey — list calls for a client ──────────────
+
 
 export async function listCalls(req, res, next) {
   const { rowKey } = req.params;
+
   if (!isValidRowKey(rowKey)) {
-    return res.status(400).json({ message: "Invalid client reference." });
+    return res.status(400).json({
+      message: "Invalid client reference.",
+    });
   }
 
   try {
     const sheetId = await getDefaultSheetId();
-    const clientName = await getClientName(sheetId, rowKey);
-    const eventDate = await getEventDate(sheetId, rowKey);
+
+    const clientName = await getClientName(
+      sheetId,
+      rowKey
+    );
+
+    const clientPhone = await getClientPhone(
+      sheetId,
+      rowKey
+    );
+
+    const eventDate = await getEventDate(
+      sheetId,
+      rowKey
+    );
 
     const calls = await prisma.clientCall.findMany({
-      where: { linkedRowKey: rowKey },
+      where: {
+        linkedRowKey: rowKey,
+      },
+
       include: {
-        createdBy: { select: { fullName: true } },
-        updatedBy: { select: { fullName: true } },
-        assignedBy: { select: { fullName: true } },
+        createdBy: {
+          select: {
+            fullName: true,
+          },
+        },
+
+        updatedBy: {
+          select: {
+            fullName: true,
+          },
+        },
+
+        assignedBy: {
+          select: {
+            fullName: true,
+          },
+        },
+
         nextCall: {
           select: {
             nextCallDatetime: true,
             assignedEmployeeId: true,
-            assignedEmployee: { select: { fullName: true } },
+
+            assignedEmployee: {
+              select: {
+                fullName: true,
+              },
+            },
           },
         },
       },
+
       // Newest-created first so a freshly added (still unscheduled) call
       // appears at the top of the list instead of sinking to the bottom.
-      orderBy: { id: "desc" },
+      orderBy: {
+        id: "desc",
+      },
     });
 
     res.json({
       data: {
         rowKey,
+
         clientName,
+
+        clientPhone,
+
         eventDate,
+
         calls: calls.map((call) => ({
           id: call.id,
-          createdById: call.createdById ?? null,
-          callDatetime: formatDateTime(call.callDatetime),
-          callDiscussion: call.callDiscussion,
-          nextCallDatetime: formatDateTime(call.nextCall?.nextCallDatetime),
-          nextCallAssignedEmployeeId: call.nextCall?.assignedEmployeeId ?? null,
-          nextCallAssignedEmployeeName: call.nextCall?.assignedEmployee?.fullName || null,
-          assignedByEmployeeName: call.assignedBy?.fullName || null,
-          createdByName: call.createdBy?.fullName || null,
-          updatedByName: call.updatedBy?.fullName || null,
-          createdAt: formatDateTime(call.createdAt),
-          updatedAt: formatDateTime(call.updatedAt),
+
+          createdById:
+            call.createdById ?? null,
+
+          callDatetime:
+            formatDateTime(call.callDatetime),
+
+          callDiscussion:
+            call.callDiscussion,
+
+          nextCallDatetime:
+            formatDateTime(
+              call.nextCall?.nextCallDatetime
+            ),
+
+          nextCallAssignedEmployeeId:
+            call.nextCall?.assignedEmployeeId ??
+            null,
+
+          nextCallAssignedEmployeeName:
+            call.nextCall?.assignedEmployee
+              ?.fullName || null,
+
+          assignedByEmployeeName:
+            call.assignedBy?.fullName || null,
+
+          createdByName:
+            call.createdBy?.fullName || null,
+
+          updatedByName:
+            call.updatedBy?.fullName || null,
+
+          createdAt:
+            formatDateTime(call.createdAt),
+
+          updatedAt:
+            formatDateTime(call.updatedAt),
         })),
       },
     });
@@ -124,25 +292,35 @@ export async function listCalls(req, res, next) {
   }
 }
 
+
 // ─── POST /api/calls/:rowKey — create a new call ───────────────────
+
 
 export async function createCall(req, res, next) {
   const { rowKey } = req.params;
+
   if (!isValidRowKey(rowKey)) {
-    return res.status(400).json({ message: "Invalid client reference." });
+    return res.status(400).json({
+      message: "Invalid client reference.",
+    });
   }
 
   // The call time is always the server's current moment at creation — never
   // employee-editable — so a call can't be logged as having happened
   // earlier (or later) than it really did.
-  const callDatetime = nowInBusinessTimezone();
-  const callDiscussion = req.body.callDiscussion
-    ? String(req.body.callDiscussion)
-    : null;
+  const callDatetime =
+    nowInBusinessTimezone();
+
+  const callDiscussion =
+    req.body.callDiscussion
+      ? String(req.body.callDiscussion)
+      : null;
+
   // Acting employee always comes from the authenticated session (cookie or
   // mobile Bearer token), never from the request body — a client can never
   // forge who performed the action.
-  const employeeId = isValidId(req.employee.id);
+  const employeeId =
+    isValidId(req.employee.id);
 
   try {
     // If this client has a pending next-call assignment (set on a previous
@@ -150,126 +328,257 @@ export async function createCall(req, res, next) {
     // assignment so the new call card can show "Assigned by <name>", and
     // snapshot the due time onto the new call before it's wiped below, so
     // "done Xm early/late" can still be shown after the fact.
-    const pendingNextCall = await prisma.clientNextCall.findFirst({
-      where: { linkedRowKey: rowKey },
-      select: { updatedById: true, createdById: true, nextCallDatetime: true },
-    });
-    const assignedByEmployeeId = pendingNextCall?.updatedById ?? pendingNextCall?.createdById ?? null;
+    const pendingNextCall =
+      await prisma.clientNextCall.findFirst({
+        where: {
+          linkedRowKey: rowKey,
+        },
 
-    const created = await prisma.clientCall.create({
-      data: {
-        linkedRowKey: rowKey,
-        callDatetime,
-        callDiscussion,
-        createdById: employeeId,
-        updatedById: employeeId,
-        assignedByEmployeeId,
-        expectedCallDatetime: pendingNextCall?.nextCallDatetime ?? null,
-      },
-      select: { id: true },
-    });
+        select: {
+          updatedById: true,
+          createdById: true,
+          nextCallDatetime: true,
+        },
+      });
+
+    const assignedByEmployeeId =
+      pendingNextCall?.updatedById ??
+      pendingNextCall?.createdById ??
+      null;
+
+    const created =
+      await prisma.clientCall.create({
+        data: {
+          linkedRowKey: rowKey,
+
+          callDatetime,
+
+          callDiscussion,
+
+          createdById: employeeId,
+
+          updatedById: employeeId,
+
+          assignedByEmployeeId,
+
+          expectedCallDatetime:
+            pendingNextCall?.nextCallDatetime ??
+            null,
+        },
+
+        select: {
+          id: true,
+        },
+      });
 
     // Logging a new call fulfills whatever follow-up was pending from an
     // earlier call, so clear any stale next-call schedules for this client —
     // otherwise an old, already-passed date keeps winning as the "soonest".
     await prisma.clientNextCall.deleteMany({
-      where: { linkedRowKey: rowKey, callId: { not: created.id } },
+      where: {
+        linkedRowKey: rowKey,
+
+        callId: {
+          not: created.id,
+        },
+      },
     });
 
-    res.status(201).json({ data: { id: created.id } });
+    res.status(201).json({
+      data: {
+        id: created.id,
+      },
+    });
   } catch (error) {
     next(error);
   }
 }
 
+
 // ─── PUT /api/calls/:rowKey/:callId — update time/discussion ──────
+
 
 export async function updateCall(req, res, next) {
   const { rowKey, callId } = req.params;
+
   const id = isValidId(callId);
 
   if (!isValidRowKey(rowKey) || !id) {
-    return res.status(400).json({ message: "Invalid reference." });
+    return res.status(400).json({
+      message: "Invalid reference.",
+    });
   }
 
   // `callDatetime` is fixed at creation (server time) and is never accepted
   // here — only discussion notes/next-call fields are editable.
-  const callDiscussion = req.body.callDiscussion
-    ? String(req.body.callDiscussion)
-    : null;
-  const nextCallDatetime = parseDateTimeLocal(req.body.nextCallDatetime);
+  const callDiscussion =
+    req.body.callDiscussion
+      ? String(req.body.callDiscussion)
+      : null;
+
+  const nextCallDatetime =
+    parseDateTimeLocal(
+      req.body.nextCallDatetime
+    );
+
   // Acting employee always comes from the authenticated session, not the body.
-  const employeeId = isValidId(req.employee.id);
-  const nextCallAssignedEmployeeId = isValidId(req.body.nextCallAssignedEmployeeId);
+  const employeeId =
+    isValidId(req.employee.id);
+
+  const nextCallAssignedEmployeeId =
+    isValidId(
+      req.body.nextCallAssignedEmployeeId
+    );
 
   try {
     // Only re-validate fields the caller is actually changing — otherwise an
     // existing next-call date would block saving unrelated edits.
-    const existing = await prisma.clientCall.findFirst({
-      where: { id, linkedRowKey: rowKey },
-      include: { nextCall: { select: { nextCallDatetime: true } } },
-    });
+    const existing =
+      await prisma.clientCall.findFirst({
+        where: {
+          id,
+          linkedRowKey: rowKey,
+        },
+
+        include: {
+          nextCall: {
+            select: {
+              nextCallDatetime: true,
+            },
+          },
+        },
+      });
+
     if (!existing) {
-      return res.status(404).json({ message: "Call not found." });
+      return res.status(404).json({
+        message: "Call not found.",
+      });
     }
 
-    const nextCallDatetimeChanged = formatDateTime(existing.nextCall?.nextCallDatetime) !== formatDateTime(nextCallDatetime);
-    if (nextCallDatetimeChanged && req.body.nextCallDatetime && isNextCallDateTooEarly(req.body.nextCallDatetime)) {
-      return res.status(422).json({ message: "Next meeting call date cannot be before today. Any time of day is fine." });
+    const nextCallDatetimeChanged =
+      formatDateTime(
+        existing.nextCall?.nextCallDatetime
+      ) !==
+      formatDateTime(nextCallDatetime);
+
+    if (
+      nextCallDatetimeChanged &&
+      req.body.nextCallDatetime &&
+      isNextCallDateTooEarly(
+        req.body.nextCallDatetime
+      )
+    ) {
+      return res.status(422).json({
+        message:
+          "Next meeting call date cannot be before today. Any time of day is fine.",
+      });
     }
 
-    const result = await prisma.clientCall.updateMany({
-      where: { id, linkedRowKey: rowKey },
-      data: { callDiscussion, updatedById: employeeId },
-    });
+    const result =
+      await prisma.clientCall.updateMany({
+        where: {
+          id,
+          linkedRowKey: rowKey,
+        },
+
+        data: {
+          callDiscussion,
+          updatedById: employeeId,
+        },
+      });
 
     if (!result.count) {
-      return res.status(404).json({ message: "Call not found." });
+      return res.status(404).json({
+        message: "Call not found.",
+      });
     }
 
     if (nextCallDatetime) {
       await prisma.clientNextCall.upsert({
-        where: { callId: id },
+        where: {
+          callId: id,
+        },
+
         create: {
           callId: id,
+
           linkedRowKey: rowKey,
+
           nextCallDatetime,
-          assignedEmployeeId: nextCallAssignedEmployeeId,
-          createdById: employeeId,
-          updatedById: employeeId,
+
+          assignedEmployeeId:
+            nextCallAssignedEmployeeId,
+
+          createdById:
+            employeeId,
+
+          updatedById:
+            employeeId,
         },
-        update: { nextCallDatetime, assignedEmployeeId: nextCallAssignedEmployeeId, updatedById: employeeId },
+
+        update: {
+          nextCallDatetime,
+
+          assignedEmployeeId:
+            nextCallAssignedEmployeeId,
+
+          updatedById:
+            employeeId,
+        },
       });
     } else {
-      await prisma.clientNextCall.deleteMany({ where: { callId: id } });
+      await prisma.clientNextCall.deleteMany({
+        where: {
+          callId: id,
+        },
+      });
     }
 
-    res.json({ data: { id } });
+    res.json({
+      data: {
+        id,
+      },
+    });
   } catch (error) {
     next(error);
   }
 }
 
+
 // ─── DELETE /api/calls/:rowKey/:callId ─────────────────────────────
+
 
 export async function deleteCall(req, res, next) {
   const { rowKey, callId } = req.params;
+
   const id = isValidId(callId);
 
   if (!isValidRowKey(rowKey) || !id) {
-    return res.status(400).json({ message: "Invalid reference." });
+    return res.status(400).json({
+      message: "Invalid reference.",
+    });
   }
 
   try {
-    const result = await prisma.clientCall.deleteMany({
-      where: { id, linkedRowKey: rowKey },
-    });
+    const result =
+      await prisma.clientCall.deleteMany({
+        where: {
+          id,
+          linkedRowKey: rowKey,
+        },
+      });
 
     if (!result.count) {
-      return res.status(404).json({ message: "Call not found." });
+      return res.status(404).json({
+        message: "Call not found.",
+      });
     }
 
-    res.json({ data: { id } });
+    res.json({
+      data: {
+        id,
+      },
+    });
   } catch (error) {
     next(error);
   }
