@@ -88,7 +88,30 @@ async function getDefaultSheetId() {
   });
   return sheet?.id || null;
 }
+async function getClientPhone(sheetId, rowKey) {
+  if (!sheetId) return "";
 
+  const row = await prisma.sheetRow.findFirst({
+    where: { sheetId, rowKey },
+    select: {
+      cells: {
+        where: {
+          column: {
+            columnName: { equals: "Client Phone Number" },
+          },
+        },
+        select: {
+          valueText: true,
+          displayValue: true,
+        },
+        take: 1,
+      },
+    },
+  });
+
+  const cell = row?.cells?.[0];
+  return cell?.valueText || cell?.displayValue || "";
+}
 async function getClientName(sheetId, rowKey) {
   if (!sheetId) return "";
 
@@ -351,9 +374,10 @@ export async function listMeetings(req, res, next) {
   }
 
   try {
-    const sheetId = await getDefaultSheetId();
-    const clientName = await getClientName(sheetId, rowKey);
-    const eventDate = await getEventDate(sheetId, rowKey);
+const sheetId = await getDefaultSheetId();
+const clientName = await getClientName(sheetId, rowKey);
+const clientPhone = await getClientPhone(sheetId, rowKey);
+const eventDate = await getEventDate(sheetId, rowKey);
 
     const meetings = await prisma.clientMeeting.findMany({
       where: { linkedRowKey: rowKey },
@@ -388,6 +412,7 @@ export async function listMeetings(req, res, next) {
       data: {
         rowKey,
         clientName,
+        clientPhone,
         eventDate,
         finalization: finalization
           ? { finalizedAt: formatDateTime(finalization.finalizedAt), finalizedByName: finalization.finalizedBy?.fullName || null }
