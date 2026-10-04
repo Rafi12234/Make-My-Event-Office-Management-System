@@ -20,6 +20,7 @@ import {
   FileText,
   ImagePlus,
   Loader2,
+  Phone,
   Pencil,
   Save,
   Sparkles,
@@ -1716,6 +1717,7 @@ export default function ClientMeetingsPage() {
   const backTo = location.state?.from || "/management";
   const [employee] = useState(() => loadCurrentEmployee());
   const [clientName, setClientName] = useState("");
+  const [clientPhone, setClientPhone] = useState("");
   const [eventDate, setEventDate] = useState("");
   const [meetings, setMeetings] = useState([]);
   const [finalization, setFinalization] = useState(null);
@@ -1735,10 +1737,11 @@ export default function ClientMeetingsPage() {
   const refresh = useCallback(async () => {
     setError("");
     try {
-      const data = await loadClientMeetings(rowKey);
-      setClientName(data.clientName || "");
-      setEventDate(data.eventDate || "");
-      setMeetings(data.meetings || []);
+const data = await loadClientMeetings(rowKey);
+setClientName(data.clientName || "");
+setClientPhone(data.clientPhone || "");
+setEventDate(data.eventDate || "");
+setMeetings(data.meetings || []);
       setFinalization(data.finalization || null);
     } catch (err) {
       setError(err.message || "Failed to load meetings.");
@@ -1840,15 +1843,28 @@ export default function ClientMeetingsPage() {
                     Client Meetings
                   </p>
                 </div>
-                <h1 className="text-3xl font-black text-slate-900 sm:text-4xl">
-                  {clientName || "This client"}
-                </h1>
-                {eventDate && (
-                  <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-600">
-                    <CalendarClock size={13} className="text-slate-400" />
-                    Event Date: {formatEventDateDisplay(eventDate)}
-                  </p>
-                )}
+<h1 className="text-3xl font-black text-slate-900 sm:text-4xl">
+  {clientName || "This client"}
+</h1>
+
+<div className="mt-2 flex flex-wrap items-center gap-2">
+  {eventDate && (
+    <p className="inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-600">
+      <CalendarClock size={13} className="text-slate-400" />
+      Event Date: {formatEventDateDisplay(eventDate)}
+    </p>
+  )}
+
+  {clientPhone && (
+    <a
+      href={`tel:${clientPhone.replace(/[^\d+]/g, "")}`}
+      className="inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+    >
+      <Phone size={13} className="text-slate-400" />
+      Phone: {clientPhone}
+    </a>
+  )}
+</div>
                 <p className="mt-2.5 max-w-2xl text-sm leading-relaxed text-slate-500">
                   Schedule meetings, track client requirements, and upload the
                   images the client chose during each session.
