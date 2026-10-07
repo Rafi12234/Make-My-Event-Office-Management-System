@@ -1,7 +1,6 @@
 import path from "node:path";
-import crypto from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
-import { readFile, rm, unlink, writeFile } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
@@ -16,7 +15,7 @@ const backendSrcDirectory = process.env.BACKEND_SRC_DIR
   : path.resolve(__dirname, "../../../backend/mme_node_express_backend/src");
 
 const { prisma } = require(path.join(backendSrcDirectory, "config/prisma.js"));
-const { formatDateOnly, formatDateTime, parseDateOnly } = require(
+const { formatDateOnly, formatDateTime } = require(
   path.join(backendSrcDirectory, "utils/dbDates.js"),
 );
 
@@ -33,16 +32,29 @@ const templatePath = process.env.PDF_GENERATOR_TEMPLATE_PATH
 
 mkdirSync(sourceImagesDirectory, { recursive: true });
 
-const ALLOWED_OPTIONAL_COLUMNS = ["size", "sqft", "tsqft", "unit", "price"];
+const ALLOWED_OPTIONAL_COLUMNS = ["price"];
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png"]);
-const MAX_ITEMS = 250;
-const MAX_IMAGES_PER_ITEM = 20;
-const MAX_NB_POINTS = 30;
+const MAX_NB_LENGTH = 30000;
 
-// Default proposal terms shown immediately after the PDF summary table.
-// They are seeded into new meeting-linked PDF drafts, and also backfilled
-// into an existing draft when that draft currently has no N.B. points.
-const DEFAULT_PDF_NB_POINTS = [
+// Default N.B. text for every new PDF draft. It is copied into each draft,
+// so an employee can edit it for one client without changing the default used
+// by any other client or future PDF.
+const DEFAULT_PDF_NB_TEXT = `1. Payment Terms: 80% of the total agreed amount must be paid as advance for confirmation of the booking and, in any case, no later than 30 days before the event date. The remaining 20% must be paid on the event date before the commencement of the event. The advance payment is non-refundable.
+2. Confidentiality: This proposal, including its pricing, designs, concepts, and other commercial information, is strictly confidential and must not be shared, copied, reproduced, or disclosed to any third party without prior written permission from Make My Event. Make My Event reserves the right to take appropriate action in the event of unauthorized disclosure or use.
+3. Price & Scope: The quoted price is based on the requirements and specifications mentioned in this proposal. Any additional items, changes, upgrades, quantity increases, design modifications, or services requested by the Client after confirmation may result in additional charges.
+4. VAT & AIT: For this event VAT included but AIT is not included in the quoted price and, where applicable, shall be payable by the Client in addition to the stated amount if needed.
+5. Rental Materials: All décor items, furniture, structures, artificial flowers, fabrics, props, equipment, and other materials supplied by Make My Event are provided on a rental basis unless specifically stated otherwise. Make My Event retains full ownership of such materials and reserves the right to collect them after completion of the event.
+6. Pre-used / Reusable Materials: Fabrics, artificial flowers, props, decorative elements, and other materials may be sourced from Make My Event's existing inventory and may have been previously used. Therefore, these materials may not have the appearance or condition of newly purchased/brand-new materials. Make My Event will ensure that all materials are reasonably maintained and suitable for the intended event setup.
+7. Delivery & Setup: Delivery/setup is scheduled according to the agreed timeline. For this event, the scheduled delivery time is 6:30 PM on the event date. The Client acknowledges that unforeseen circumstances, including heavy fog, rain, traffic restrictions, venue access delays, or other circumstances beyond Make My Event's reasonable control, may affect the delivery or setup timeline.
+8. Client-Requested Changes: Any changes requested after final confirmation—including changes to design, color, quantity, dimensions, layout, venue, or other specifications—will be subject to availability, feasibility, and additional charges where applicable.
+9. Final Confirmation: The booking will be considered confirmed only after receipt of the required advance payment and confirmation of the agreed scope of work.
+10. Dismantling & Collection: Make My Event will dismantle and collect its rental materials after the event according to the agreed schedule. The Client/venue shall provide reasonable access for collection and dismantling.`;
+
+const DEFAULT_PDF_NB_POINTS = [DEFAULT_PDF_NB_TEXT];
+
+// Previous default used by old drafts. If a draft still contains exactly this
+// untouched default, it is safely upgraded to the new default above.
+const LEGACY_DEFAULT_PDF_NB_POINTS = [
   "80% of the total money should be paid in advance/confirmation. Advance is not refundable. The rest of the amount needs to be paid for the event date by 1 PM.",
   "Please do not show this proposal to anyone. It's highly confidential. Make MyEvent has the right to take action on the violation.",
   "Price may change depending on requirements.",
@@ -86,14 +98,36 @@ function sanitizeSelectedColumns(raw) {
   return ALLOWED_OPTIONAL_COLUMNS.filter((key) => values.includes(key));
 }
 
-function sanitizeNbPoints(raw) {
-  if (!Array.isArray(raw)) return [];
+function nbTextFromStored(raw) {
+  if (!Array.isArray(raw) || raw.length === 0) return "";
+  if (raw.length === 1) return String(raw[0] ?? "");
   return raw
-    .map((value) => String(value ?? "").trim())
-    .filter(Boolean)
-    .slice(0, MAX_NB_POINTS);
+    .map((value, index) => `${index + 1}. ${String(value ?? "").trim()}`)
+    .join("\n");
 }
 
+function hasLegacyDefaultNb(raw) {
+  return (
+    Array.isArray(raw) &&
+    raw.length === LEGACY_DEFAULT_PDF_NB_POINTS.length &&
+    raw.every((value, index) => String(value ?? "").trim() === LEGACY_DEFAULT_PDF_NB_POINTS[index])
+  );
+}
+
+function normalizeStoredNbPoints(raw) {
+  if (!Array.isArray(raw) || raw.length === 0 || hasLegacyDefaultNb(raw)) {
+    return DEFAULT_PDF_NB_POINTS;
+  }
+  return [nbTextFromStored(raw).slice(0, MAX_NB_LENGTH)];
+}
+
+function sanitizeNbPoints(raw) {
+  const text = Array.isArray(raw)
+    ? nbTextFromStored(raw)
+    : String(raw ?? "");
+  const normalized = text.replace(/\r\n?/g, "\n").slice(0, MAX_NB_LENGTH);
+  return normalized.trim() ? [normalized] : [];
+}
 function nullableDecimal(value) {
   if (value === null || value === undefined || String(value).trim() === "") return null;
   const text = String(value).replace(/,/g, "").trim();
@@ -152,7 +186,8 @@ function serializeDocument(document, { includeItems = false } = {}) {
     eventDate: formatDateOnly(document.eventDate),
     eventTitle: document.eventTitle,
     selectedColumns: sanitizeSelectedColumns(document.selectedColumns),
-    nbPoints: Array.isArray(document.nbPoints) ? document.nbPoints : [],
+    totalPrice: serializeDecimal(document.meeting?.totalPrice),
+    nbPoints: normalizeStoredNbPoints(document.nbPoints),
     status: document.status,
     pageCount: document.pageCount ?? null,
     itemCount: includeItems ? items.length : document._count?.items,
@@ -175,12 +210,15 @@ async function loadOwnedDocument(documentId, employeeId, { includeItems = true }
     where: { id, createdById: employeeId },
     include: includeItems
       ? {
+          meeting: { select: { totalPrice: true } },
           items: {
             include: { images: { orderBy: { sortOrder: "asc" } } },
             orderBy: { sortOrder: "asc" },
           },
         }
-      : undefined,
+      : {
+          meeting: { select: { totalPrice: true } },
+        },
   });
 }
 
@@ -244,7 +282,8 @@ function meetingItemsCreateData(meeting) {
     sqft: null,
     tsqft: null,
     unit: null,
-    price: null,
+    // PdfDocumentItem.price is used as the meeting's Item Price snapshot.
+    price: item.itemPrice ?? null,
     customCaption: null,
     images: {
       create: item.images.map((image, imageIndex) => ({
@@ -261,7 +300,16 @@ function meetingItemsCreateData(meeting) {
   }));
 }
 
-async function replaceDocumentWithMeetingSnapshot(document, meeting, employeeId) {
+
+function meetingSelectedColumns(meeting) {
+  return meeting.items.some(
+    (item) => item.itemPrice !== null && item.itemPrice !== undefined,
+  )
+    ? ["price"]
+    : [];
+}
+
+async function replaceDocumentWithMeetingSnapshot(document, meeting, employeeId, context = null) {
   await prisma.$transaction(async (tx) => {
     await tx.pdfDocumentItem.deleteMany({ where: { documentId: document.id } });
     for (const data of meetingItemsCreateData(meeting)) {
@@ -271,7 +319,9 @@ async function replaceDocumentWithMeetingSnapshot(document, meeting, employeeId)
       where: { id: document.id },
       data: {
         sourceMode: "meeting",
-        selectedColumns: [],
+        selectedColumns: meetingSelectedColumns(meeting),
+        ...(context?.eventDate ? { eventDate: context.eventDate } : {}),
+        ...(context?.clientName?.trim() ? { eventTitle: context.clientName.trim() } : {}),
         updatedById: employeeId,
       },
     });
@@ -332,68 +382,95 @@ async function renderOwnedDocument(document) {
     eventTitle: document.eventTitle,
     items,
     selectedColumns: sanitizeSelectedColumns(document.selectedColumns),
-    nbPoints: Array.isArray(document.nbPoints) ? document.nbPoints : [],
+    totalPrice: serializeDecimal(document.meeting?.totalPrice),
+    nbPoints: normalizeStoredNbPoints(document.nbPoints),
   });
 }
 
 export async function ensureMeetingDraft(req, res, next) {
   const { rowKey, meetingId } = req.params;
-  if (!isValidRowKey(rowKey)) return res.status(400).json({ message: "Invalid client reference." });
+  if (!isValidRowKey(rowKey)) {
+    return res.status(400).json({ message: "Invalid client reference." });
+  }
+
   const employeeId = BigInt(req.employee.id);
 
   try {
     const meeting = await getMeetingSnapshot(rowKey, meetingId);
     if (!meeting) return res.status(404).json({ message: "Meeting not found." });
-    if (!meeting.items.length) return res.status(422).json({ message: "Add at least one item to this meeting before generating a PDF." });
+    if (!meeting.items.length) {
+      return res.status(422).json({
+        message: "Add at least one item to this meeting before generating a PDF.",
+      });
+    }
+
+    const context = await getClientContext(rowKey);
+    if (!context.eventDate) {
+      return res.status(422).json({
+        message: "This client does not have an Event Date. Add one in Management before generating the PDF.",
+      });
+    }
 
     let document = await prisma.pdfDocument.findFirst({
       where: { meetingId: meeting.id, createdById: employeeId, status: "draft" },
       include: {
-        items: { include: { images: { orderBy: { sortOrder: "asc" } } }, orderBy: { sortOrder: "asc" } },
+        meeting: { select: { totalPrice: true } },
+        items: {
+          include: { images: { orderBy: { sortOrder: "asc" } } },
+          orderBy: { sortOrder: "asc" },
+        },
       },
       orderBy: { createdAt: "desc" },
     });
 
-    if (document && (!Array.isArray(document.nbPoints) || document.nbPoints.length === 0)) {
-      document = await prisma.pdfDocument.update({
-        where: { id: document.id },
-        data: { nbPoints: DEFAULT_PDF_NB_POINTS, updatedById: employeeId },
-        include: {
-          items: { include: { images: { orderBy: { sortOrder: "asc" } } }, orderBy: { sortOrder: "asc" } },
-        },
-      });
-    }
-
     if (!document) {
-      const context = await getClientContext(rowKey);
-      const eventDate = context.eventDate;
-      if (!eventDate) return res.status(422).json({ message: "This client does not have an Event Date. Add one in Management before generating the PDF." });
-
       document = await prisma.$transaction(async (tx) => {
         const created = await tx.pdfDocument.create({
           data: {
             meetingId: meeting.id,
             linkedRowKey: rowKey,
             sourceMode: "meeting",
-            eventDate,
+            eventDate: context.eventDate,
             eventTitle: context.clientName?.trim() || "Event Proposal",
-            selectedColumns: [],
+            selectedColumns: meetingSelectedColumns(meeting),
             nbPoints: DEFAULT_PDF_NB_POINTS,
             createdById: employeeId,
             updatedById: employeeId,
             status: "draft",
           },
         });
-        const documentNo = `MME/${eventDate.getUTCFullYear()}/${String(created.id).padStart(6, "0")}`;
+
+        const documentNo = `MME/${context.eventDate.getUTCFullYear()}/${String(created.id).padStart(6, "0")}`;
         await tx.pdfDocument.update({ where: { id: created.id }, data: { documentNo } });
+
         for (const data of meetingItemsCreateData(meeting)) {
           await tx.pdfDocumentItem.create({ data: { documentId: created.id, ...data } });
         }
+
         return tx.pdfDocument.findUnique({
           where: { id: created.id },
-          include: { items: { include: { images: { orderBy: { sortOrder: "asc" } } }, orderBy: { sortOrder: "asc" } } },
+          include: {
+            meeting: { select: { totalPrice: true } },
+            items: {
+              include: { images: { orderBy: { sortOrder: "asc" } } },
+              orderBy: { sortOrder: "asc" },
+            },
+          },
         });
       });
+    } else {
+      const normalizedNbPoints = normalizeStoredNbPoints(document.nbPoints);
+      if (JSON.stringify(normalizedNbPoints) !== JSON.stringify(document.nbPoints)) {
+        await prisma.pdfDocument.update({
+          where: { id: document.id },
+          data: { nbPoints: normalizedNbPoints, updatedById: employeeId },
+        });
+      }
+
+      // PDF content is always a fresh snapshot of the Client Meeting.
+      // The per-client N.B. stays untouched.
+      await replaceDocumentWithMeetingSnapshot(document, meeting, employeeId, context);
+      document = await loadOwnedDocument(document.id, employeeId);
     }
 
     return res.json({ data: serializeDocument(document, { includeItems: true }) });
@@ -404,17 +481,26 @@ export async function ensureMeetingDraft(req, res, next) {
 
 export async function resetDraftFromMeeting(req, res, next) {
   const employeeId = BigInt(req.employee.id);
+
   try {
     const document = await loadOwnedDocument(req.params.id, employeeId, { includeItems: false });
     if (!document) return res.status(404).json({ message: "Document not found." });
-    if (document.status !== "draft") return res.status(409).json({ message: "Only draft documents can be reset." });
-    if (!document.meetingId || !document.linkedRowKey) return res.status(422).json({ message: "This document is not linked to a Client Meeting." });
+    if (document.status !== "draft") {
+      return res.status(409).json({ message: "Only draft documents can be refreshed." });
+    }
+    if (!document.meetingId || !document.linkedRowKey) {
+      return res.status(422).json({ message: "This document is not linked to a Client Meeting." });
+    }
 
     const meeting = await getMeetingSnapshot(document.linkedRowKey, document.meetingId);
     if (!meeting) return res.status(404).json({ message: "The source meeting no longer exists." });
-    if (!meeting.items.length) return res.status(422).json({ message: "The source meeting has no items." });
+    if (!meeting.items.length) {
+      return res.status(422).json({ message: "The source meeting has no items." });
+    }
 
-    await replaceDocumentWithMeetingSnapshot(document, meeting, employeeId);
+    const context = await getClientContext(document.linkedRowKey);
+    await replaceDocumentWithMeetingSnapshot(document, meeting, employeeId, context);
+
     const reloaded = await loadOwnedDocument(document.id, employeeId);
     return res.json({ data: serializeDocument(reloaded, { includeItems: true }) });
   } catch (error) {
@@ -424,75 +510,21 @@ export async function resetDraftFromMeeting(req, res, next) {
 
 export async function updateDocument(req, res, next) {
   const employeeId = BigInt(req.employee.id);
-  try {
-    const document = await loadOwnedDocument(req.params.id, employeeId);
-    if (!document) return res.status(404).json({ message: "Document not found." });
-    if (document.status !== "draft") return res.status(409).json({ message: "Only draft documents can be edited." });
 
-    const eventDate = parseDateOnly(String(req.body?.eventDate || "").slice(0, 10));
-    const eventTitle = String(req.body?.eventTitle || "").trim();
-    const selectedColumns = sanitizeSelectedColumns(req.body?.selectedColumns);
+  try {
+    const document = await loadOwnedDocument(req.params.id, employeeId, { includeItems: false });
+    if (!document) return res.status(404).json({ message: "Document not found." });
+    if (document.status !== "draft") {
+      return res.status(409).json({ message: "Only draft documents can be edited." });
+    }
+
+    // The PDF table is read-only and always comes from Client Meeting.
+    // The only PDF-specific content employees can edit is the N.B. text.
     const nbPoints = sanitizeNbPoints(req.body?.nbPoints);
-    const items = Array.isArray(req.body?.items) ? req.body.items : [];
 
-    if (!eventDate) return res.status(422).json({ message: "A valid event date is required." });
-    if (!eventTitle) return res.status(422).json({ message: "Event title is required." });
-    if (!items.length || items.length > MAX_ITEMS) return res.status(422).json({ message: `A PDF must contain between 1 and ${MAX_ITEMS} items.` });
-
-    const existingIds = new Set(document.items.map((item) => String(item.id)));
-    const seenIds = new Set();
-    const normalized = [];
-
-    for (const [index, raw] of items.entries()) {
-      const id = String(raw?.id || "");
-      if (!existingIds.has(id) || seenIds.has(id)) return res.status(422).json({ message: `Invalid PDF item at row ${index + 1}.` });
-      seenIds.add(id);
-      const itemName = String(raw?.itemName || "").trim();
-      const quantity = String(raw?.quantity ?? "").trim();
-      if (!itemName || !quantity) return res.status(422).json({ message: `Item and QTY are required in row ${index + 1}.` });
-
-      const sqft = nullableDecimal(raw?.sqft);
-      const tsqft = nullableDecimal(raw?.tsqft);
-      const price = nullableDecimal(raw?.price);
-      if (sqft === undefined || tsqft === undefined || price === undefined) {
-        return res.status(422).json({ message: `SQFT, TSqft and Price must be valid numbers in row ${index + 1}.` });
-      }
-
-      normalized.push({
-        id: BigInt(id),
-        sortOrder: index,
-        itemName: itemName.slice(0, 255),
-        description: String(raw?.description || "").trim(),
-        quantity: quantity.slice(0, 100),
-        size: String(raw?.size || "").trim().slice(0, 120) || null,
-        sqft,
-        tsqft,
-        unit: String(raw?.unit || "").trim().slice(0, 80) || null,
-        price,
-      });
-    }
-
-    await prisma.$transaction(async (tx) => {
-      await tx.pdfDocument.update({
-        where: { id: document.id },
-        data: { eventDate, eventTitle, selectedColumns, nbPoints, updatedById: employeeId },
-      });
-      for (const item of normalized) {
-        await tx.pdfDocumentItem.update({
-          where: { id: item.id },
-          data: {
-            sortOrder: item.sortOrder,
-            itemName: item.itemName,
-            description: item.description,
-            quantity: item.quantity,
-            size: item.size,
-            sqft: item.sqft,
-            tsqft: item.tsqft,
-            unit: item.unit,
-            price: item.price,
-          },
-        });
-      }
+    await prisma.pdfDocument.update({
+      where: { id: document.id },
+      data: { nbPoints, updatedById: employeeId },
     });
 
     const reloaded = await loadOwnedDocument(document.id, employeeId);
@@ -502,279 +534,30 @@ export async function updateDocument(req, res, next) {
   }
 }
 
-
-export async function createDocumentItem(req, res, next) {
-  const employeeId = BigInt(req.employee.id);
-  try {
-    const document = await loadOwnedDocument(req.params.id, employeeId, { includeItems: false });
-    if (!document) return res.status(404).json({ message: "Document not found." });
-    if (document.status !== "draft") return res.status(409).json({ message: "Only draft documents can be edited." });
-
-    const itemCount = await prisma.pdfDocumentItem.count({ where: { documentId: document.id } });
-    if (itemCount >= MAX_ITEMS) {
-      return res.status(422).json({ message: `A PDF can contain at most ${MAX_ITEMS} items.` });
-    }
-
-    const itemName = String(req.body?.itemName || "").trim();
-    if (!itemName) return res.status(422).json({ message: "Choose an item before adding it." });
-
-    const lastItem = await prisma.pdfDocumentItem.findFirst({
-      where: { documentId: document.id },
-      orderBy: { sortOrder: "desc" },
-      select: { sortOrder: true },
-    });
-
-    await prisma.$transaction(async (tx) => {
-      await tx.pdfDocumentItem.create({
-        data: {
-          documentId: document.id,
-          sourceMeetingItemId: null,
-          sortOrder: (lastItem?.sortOrder ?? -1) + 1,
-          itemName: itemName.slice(0, 255),
-          description: "",
-          quantity: "1",
-          size: null,
-          sqft: null,
-          tsqft: null,
-          unit: null,
-          price: null,
-        },
-      });
-      await tx.pdfDocument.update({
-        where: { id: document.id },
-        data: { updatedById: employeeId },
-      });
-    });
-
-    const reloaded = await loadOwnedDocument(document.id, employeeId);
-    return res.status(201).json({ data: serializeDocument(reloaded, { includeItems: true }) });
-  } catch (error) {
-    return next(error);
-  }
+function pdfContentReadOnly(res) {
+  return res.status(409).json({
+    message: "PDF items and images are read-only. Make changes in Client Meeting, save the meeting, then return to PDF Generator.",
+  });
 }
 
-export async function deleteDocumentItem(req, res, next) {
-  const employeeId = BigInt(req.employee.id);
-  try {
-    const document = await loadOwnedDocument(req.params.id, employeeId, { includeItems: false });
-    if (!document) return res.status(404).json({ message: "Document not found." });
-    if (document.status !== "draft") return res.status(409).json({ message: "Only draft documents can be edited." });
-
-    const itemId = toPositiveBigInt(req.params.itemId);
-    if (!itemId) return res.status(400).json({ message: "Invalid PDF item." });
-
-    const item = await prisma.pdfDocumentItem.findFirst({
-      where: { id: itemId, documentId: document.id },
-      include: { images: true },
-    });
-    if (!item) return res.status(404).json({ message: "PDF item not found." });
-
-    const itemCount = await prisma.pdfDocumentItem.count({ where: { documentId: document.id } });
-    if (itemCount <= 1) return res.status(422).json({ message: "A PDF must contain at least one item." });
-
-    await prisma.$transaction(async (tx) => {
-      await tx.pdfDocumentItem.delete({ where: { id: item.id } });
-      const remaining = await tx.pdfDocumentItem.findMany({
-        where: { documentId: document.id },
-        orderBy: { sortOrder: "asc" },
-        select: { id: true, sortOrder: true },
-      });
-      for (const [index, row] of remaining.entries()) {
-        if (row.sortOrder !== index) {
-          await tx.pdfDocumentItem.update({ where: { id: row.id }, data: { sortOrder: index } });
-        }
-      }
-      await tx.pdfDocument.update({
-        where: { id: document.id },
-        data: { updatedById: employeeId },
-      });
-    });
-
-    for (const image of item.images || []) {
-      if (!String(image.imagePath || "").startsWith("/uploads/")) {
-        await unlink(path.join(storageRootDirectory, image.imagePath)).catch(() => {});
-      }
-    }
-
-    const reloaded = await loadOwnedDocument(document.id, employeeId);
-    return res.json({ data: serializeDocument(reloaded, { includeItems: true }) });
-  } catch (error) {
-    return next(error);
-  }
+export async function createDocumentItem(req, res) {
+  return pdfContentReadOnly(res);
 }
 
-export async function importExcelRows(req, res, next) {
-  const employeeId = BigInt(req.employee.id);
-  let importId = null;
-  try {
-    const document = await loadOwnedDocument(req.params.id, employeeId, { includeItems: false });
-    if (!document) return res.status(404).json({ message: "Document not found." });
-    if (document.status !== "draft") return res.status(409).json({ message: "Only draft documents can import Excel data." });
-
-    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
-    if (!rows.length || rows.length > MAX_ITEMS) return res.status(422).json({ message: `Excel must contain between 1 and ${MAX_ITEMS} data rows.` });
-    const originalFileName = String(req.body?.originalFileName || "").trim().slice(0, 255);
-    if (!originalFileName) return res.status(422).json({ message: "Excel file name is required." });
-
-    const selectedColumns = sanitizeSelectedColumns(req.body?.selectedColumns);
-    const normalizedRows = [];
-    for (const [index, row] of rows.entries()) {
-      const itemName = String(row?.itemName || "").trim();
-      const quantity = String(row?.quantity ?? "1").trim() || "1";
-      if (!itemName) return res.status(422).json({ message: `Excel row ${index + 2} does not contain an Item value.` });
-      const sqft = nullableDecimal(row?.sqft);
-      const tsqft = nullableDecimal(row?.tsqft);
-      const price = nullableDecimal(row?.price);
-      if (sqft === undefined || tsqft === undefined || price === undefined) {
-        return res.status(422).json({ message: `Excel row ${index + 2} contains an invalid numeric value.` });
-      }
-      normalizedRows.push({
-        sortOrder: index,
-        itemName: itemName.slice(0, 255),
-        description: String(row?.description || "").trim(),
-        quantity: quantity.slice(0, 100),
-        size: String(row?.size || "").trim().slice(0, 120) || null,
-        sqft,
-        tsqft,
-        unit: String(row?.unit || "").trim().slice(0, 80) || null,
-        price,
-      });
-    }
-
-    const imported = await prisma.$transaction(async (tx) => {
-      const log = await tx.pdfDocumentImport.create({
-        data: {
-          documentId: document.id,
-          importedById: employeeId,
-          originalFileName,
-          selectedSheetName: String(req.body?.sheetName || "").trim().slice(0, 255) || null,
-          status: "processing",
-          totalRows: normalizedRows.length,
-          detectedHeaders: Array.isArray(req.body?.detectedHeaders) ? req.body.detectedHeaders : null,
-          columnMapping: req.body?.columnMapping && typeof req.body.columnMapping === "object" ? req.body.columnMapping : null,
-        },
-      });
-      importId = log.id;
-
-      await tx.pdfDocumentItem.deleteMany({ where: { documentId: document.id } });
-      for (const row of normalizedRows) {
-        await tx.pdfDocumentItem.create({ data: { documentId: document.id, ...row } });
-      }
-      await tx.pdfDocument.update({
-        where: { id: document.id },
-        data: { sourceMode: "excel", selectedColumns, updatedById: employeeId },
-      });
-      await tx.pdfDocumentImport.update({
-        where: { id: log.id },
-        data: { status: "completed", importedRows: normalizedRows.length, failedRows: 0 },
-      });
-      return log;
-    });
-
-    await rm(path.join(sourceImagesDirectory, `document-${document.id}`), { recursive: true, force: true }).catch(() => {});
-    const reloaded = await loadOwnedDocument(document.id, employeeId);
-    return res.json({ data: serializeDocument(reloaded, { includeItems: true }), importId: String(imported.id) });
-  } catch (error) {
-    if (importId) {
-      await prisma.pdfDocumentImport.update({
-        where: { id: importId },
-        data: { status: "failed", errorMessage: String(error.message || error).slice(0, 5000) },
-      }).catch(() => {});
-    }
-    return next(error);
-  }
+export async function deleteDocumentItem(req, res) {
+  return pdfContentReadOnly(res);
 }
 
-export async function uploadDocumentItemImage(req, res, next) {
-  const employeeId = BigInt(req.employee.id);
-  try {
-    if (!req.file) return res.status(422).json({ message: "Choose a JPG or PNG image." });
-    const document = await loadOwnedDocument(req.params.id, employeeId, { includeItems: false });
-    if (!document) return res.status(404).json({ message: "Document not found." });
-    if (document.status !== "draft") return res.status(409).json({ message: "Only draft documents can be edited." });
-
-    const itemId = toPositiveBigInt(req.params.itemId);
-    if (!itemId) return res.status(400).json({ message: "Invalid PDF item." });
-    const item = await prisma.pdfDocumentItem.findFirst({
-      where: { id: itemId, documentId: document.id },
-      include: { images: { select: { sortOrder: true }, orderBy: { sortOrder: "desc" }, take: 1 } },
-    });
-    if (!item) return res.status(404).json({ message: "PDF item not found." });
-    const count = await prisma.pdfDocumentItemImage.count({ where: { documentItemId: item.id } });
-    if (count >= MAX_IMAGES_PER_ITEM) return res.status(422).json({ message: `An item can contain at most ${MAX_IMAGES_PER_ITEM} images.` });
-
-    const extension = req.file.mimetype === "image/png" ? ".png" : ".jpg";
-    const storedFileName = `${crypto.randomUUID()}${extension}`;
-    const relativePath = path.posix.join("source-images", `document-${document.id}`, storedFileName);
-    const absolutePath = path.join(storageRootDirectory, relativePath);
-    mkdirSync(path.dirname(absolutePath), { recursive: true });
-    await writeFile(absolutePath, req.file.buffer);
-
-    const created = await prisma.pdfDocumentItemImage.create({
-      data: {
-        documentItemId: item.id,
-        sortOrder: (item.images[0]?.sortOrder ?? -1) + 1,
-        imagePath: relativePath,
-        storedFileName,
-        originalName: req.file.originalname || null,
-        mimeType: req.file.mimetype,
-        fileSizeBytes: req.file.size,
-        uploadedById: employeeId,
-      },
-    });
-
-    return res.status(201).json({
-      data: {
-        id: String(created.id),
-        sourceMeetingImageId: null,
-        sortOrder: created.sortOrder,
-        originalName: created.originalName || created.storedFileName || "Image",
-        mimeType: created.mimeType,
-        fileSizeBytes: created.fileSizeBytes,
-        url: imagePublicUrl(document.id, created),
-      },
-    });
-  } catch (error) {
-    return next(error);
-  }
+export async function importExcelRows(req, res) {
+  return pdfContentReadOnly(res);
 }
 
-export async function deleteDocumentItemImage(req, res, next) {
-  const employeeId = BigInt(req.employee.id);
-  try {
-    const document = await loadOwnedDocument(req.params.id, employeeId, { includeItems: false });
-    if (!document) return res.status(404).json({ message: "Document not found." });
-    if (document.status !== "draft") return res.status(409).json({ message: "Only draft documents can be edited." });
-    const imageId = toPositiveBigInt(req.params.imageId);
-    const itemId = toPositiveBigInt(req.params.itemId);
-    if (!imageId || !itemId) return res.status(400).json({ message: "Invalid image reference." });
+export async function uploadDocumentItemImage(req, res) {
+  return pdfContentReadOnly(res);
+}
 
-    const image = await prisma.pdfDocumentItemImage.findFirst({
-      where: { id: imageId, documentItemId: itemId, documentItem: { documentId: document.id } },
-    });
-    if (!image) return res.status(404).json({ message: "Image not found." });
-
-    await prisma.$transaction(async (tx) => {
-      await tx.pdfDocumentItemImage.delete({ where: { id: image.id } });
-      const remaining = await tx.pdfDocumentItemImage.findMany({
-        where: { documentItemId: itemId },
-        orderBy: { sortOrder: "asc" },
-        select: { id: true, sortOrder: true },
-      });
-      for (const [index, row] of remaining.entries()) {
-        if (index !== row.sortOrder) {
-          await tx.pdfDocumentItemImage.update({ where: { id: row.id }, data: { sortOrder: index } });
-        }
-      }
-    });
-
-    if (!String(image.imagePath).startsWith("/uploads/")) {
-      await unlink(path.join(storageRootDirectory, image.imagePath)).catch(() => {});
-    }
-    return res.json({ data: { deleted: true } });
-  } catch (error) {
-    return next(error);
-  }
+export async function deleteDocumentItemImage(req, res) {
+  return pdfContentReadOnly(res);
 }
 
 export async function serveDocumentImage(req, res, next) {
@@ -796,13 +579,31 @@ export async function serveDocumentImage(req, res, next) {
   }
 }
 
+async function syncDocumentFromMeeting(document, employeeId) {
+  if (!document?.meetingId || !document?.linkedRowKey) return document;
+
+  const meeting = await getMeetingSnapshot(document.linkedRowKey, document.meetingId);
+  if (!meeting || !meeting.items.length) return document;
+
+  const context = await getClientContext(document.linkedRowKey);
+  await replaceDocumentWithMeetingSnapshot(document, meeting, employeeId, context);
+  return loadOwnedDocument(document.id, employeeId);
+}
+
 export async function previewDocument(req, res, next) {
   const employeeId = BigInt(req.employee.id);
+
   try {
-    const document = await loadOwnedDocument(req.params.id, employeeId);
+    let document = await loadOwnedDocument(req.params.id, employeeId);
     if (!document) return res.status(404).json({ message: "Document not found." });
+
+    document = await syncDocumentFromMeeting(document, employeeId);
     const { bytes } = await renderOwnedDocument(document);
-    res.set({ "Content-Type": "application/pdf", "Content-Disposition": 'inline; filename="preview.pdf"' });
+
+    res.set({
+      "Content-Type": "application/pdf",
+      "Content-Disposition": 'inline; filename="preview.pdf"',
+    });
     return res.send(Buffer.from(bytes));
   } catch (error) {
     return next(error);
@@ -813,22 +614,16 @@ export async function generateDocument(req, res, next) {
   const employeeId = BigInt(req.employee.id);
 
   try {
-    const document = await loadOwnedDocument(req.params.id, employeeId);
+    let document = await loadOwnedDocument(req.params.id, employeeId);
     if (!document) return res.status(404).json({ message: "Document not found." });
     if (document.status !== "draft") {
       return res.status(409).json({ message: "Only draft documents can be generated." });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Generate directly to the browser
-    |--------------------------------------------------------------------------
-    |
-    | The final PDF is NOT written to hosting storage and no history record is
-    | created. The draft remains editable so the employee can make another
-    | change and generate again if needed.
-    |
-    */
+    // Always render the latest saved Client Meeting content. This prevents a
+    // stale PDF draft from missing an item that was just added on the meeting page.
+    document = await syncDocumentFromMeeting(document, employeeId);
+
     const { bytes } = await renderOwnedDocument(document);
     const pdfBuffer = Buffer.from(bytes);
     const generatedFileName = `${(
