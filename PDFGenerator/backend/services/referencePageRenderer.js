@@ -2,6 +2,7 @@ import { rgb } from "pdf-lib";
 
 import {
   createTemplatedPage,
+  DETAIL_CONTENT_TOP,
   DETAIL_DESCRIPTION_FONT_SIZE,
   DETAIL_HEADING_FONT_SIZE,
   DETAIL_HEADING_GAP,
@@ -22,52 +23,60 @@ import {
   wrapText,
 } from "./textRenderer.js";
 
+
 const BLACK = rgb(0, 0, 0);
+
 
 /*
 |--------------------------------------------------------------------------
 | Reference/detail page horizontal layout
 |--------------------------------------------------------------------------
 |
-| PAGE_CONTENT is still used for:
-| - top
-| - bottom
-| - available vertical height
+| Detail pages use equal left/right margins.
 |
-| But detail/reference pages use their own equal left/right margins.
-|
-| Previous global margins:
-| Left  = 74
-| Right = 50
-|
-| New reference-page margins:
-| Left  = 46
-| Right = 46
+| This gives images slightly more usable width while keeping
+| them safely inside the letterhead artwork.
 |
 */
+
 const DETAIL_SIDE_MARGIN = 46;
+
 
 const DETAIL_CONTENT = {
   x: DETAIL_SIDE_MARGIN,
-  right: PAGE_WIDTH - DETAIL_SIDE_MARGIN,
+  right:
+    PAGE_WIDTH -
+    DETAIL_SIDE_MARGIN,
 };
+
 
 DETAIL_CONTENT.width =
   DETAIL_CONTENT.right -
   DETAIL_CONTENT.x;
 
-/*
-|--------------------------------------------------------------------------
-| Minimum remaining area worth using for an image
-|--------------------------------------------------------------------------
-*/
-const MIN_USEFUL_IMAGE_SPACE = 95;
 
 /*
 |--------------------------------------------------------------------------
-| Create one normal letterhead page
+| Detail-page usable height
+|--------------------------------------------------------------------------
+|
+| DETAIL_CONTENT_TOP is higher than the previous PAGE_CONTENT.top.
+|
+| This removes the large blank gap below the Make My Event logo.
+|
+*/
+
+const DETAIL_PAGE_HEIGHT =
+  DETAIL_CONTENT_TOP -
+  PAGE_CONTENT.bottom;
+
+
+/*
+|--------------------------------------------------------------------------
+| Create letterhead page
 |--------------------------------------------------------------------------
 */
+
 async function newPage(
   outputPdf,
   templatePdf,
@@ -78,24 +87,107 @@ async function newPage(
   );
 }
 
+
+/*
+|--------------------------------------------------------------------------
+| Normal image size
+|--------------------------------------------------------------------------
+|
+| This calculates the normal/reference image size.
+|
+| If this normal size fits under the Item Name + Description,
+| we use it unchanged.
+|
+*/
+
+function getNormalImageSize(
+  embeddedImage,
+) {
+  return containImage(
+    embeddedImage.width,
+    embeddedImage.height,
+
+    DETAIL_CONTENT.width,
+
+    DETAIL_PAGE_HEIGHT,
+
+    {
+      allowUpscale: true,
+    },
+  );
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| Adaptive first-image sizing
+|--------------------------------------------------------------------------
+|
+| The first image should remain on the same page as:
+|
+| Item Name
+| Description
+| Image
+|
+| Rules:
+|
+| 1. If normal image fits:
+|       Do nothing.
+|
+| 2. If normal image exceeds the bottom of the page:
+|       Reduce only enough to make it fit.
+|
+| The aspect ratio is always preserved.
+|
+*/
+
+function fitFirstImageToItemPage(
+  embeddedImage,
+  normalSize,
+  remainingHeight,
+) {
+  /*
+   * Already fits normally.
+   * Do not resize unnecessarily.
+   */
+  if (
+    normalSize.height <=
+    remainingHeight
+  ) {
+    return normalSize;
+  }
+
+
+  /*
+   * It is too tall.
+   *
+   * Reduce only enough to fit into
+   * the remaining space.
+   */
+  return containImage(
+    embeddedImage.width,
+    embeddedImage.height,
+
+    DETAIL_CONTENT.width,
+
+    Math.max(
+      1,
+      remainingHeight,
+    ),
+
+    {
+      allowUpscale: true,
+    },
+  );
+}
+
+
 /*
 |--------------------------------------------------------------------------
 | Render detailed/reference pages
 |--------------------------------------------------------------------------
-|
-| Each real item is rendered as:
-|
-| Item Name
-|
-| Description / Details
-|
-| Image 1
-| Image 2
-| Image 3
-|
-| Excel subtotal/footer rows are ignored here because they have no itemName.
-|
 */
+
 export async function renderReferenceSection(
   outputPdf,
   {
@@ -105,22 +197,21 @@ export async function renderReferenceSection(
   },
 ) {
   for (const item of items) {
+
     /*
     |--------------------------------------------------------------------------
-    | Skip non-item Excel rows
+    | Ignore non-item Excel rows
     |--------------------------------------------------------------------------
     |
-    | Example Excel row:
+    | Example:
     |
-    | Items   = ""
-    | Details = ""
-    | Qty     = "Sub Total"
-    | TSqft   = "3443"
-    | Price   = "0"
+    | Item = ""
+    | Qty = "Sub Total"
     |
-    | It belongs in the summary table only.
+    | Such rows belong only in the summary table.
     |
     */
+
     if (
       !String(
         item.itemName || "",
@@ -129,39 +220,66 @@ export async function renderReferenceSection(
       continue;
     }
 
-    // Do not create a detail/reference page when the item has no images.
-    // The item still appears in the summary table on the first page.
-    const images = item.embeddedImages || [];
+
+    /*
+    |--------------------------------------------------------------------------
+    | Images
+    |--------------------------------------------------------------------------
+    */
+
+    const images =
+      item.embeddedImages || [];
+
+
+    /*
+     * Do not generate an empty detail page
+     * for an item that has no images.
+     *
+     * It still remains visible in the main summary table.
+     */
+
     if (!images.length) {
       continue;
     }
 
+
     /*
     |--------------------------------------------------------------------------
-    | Every real item starts on its own letterhead page
+    | Every actual item starts on a fresh page
     |--------------------------------------------------------------------------
     */
+
     let page =
       await newPage(
         outputPdf,
         templatePdf,
       );
 
+
+    /*
+     * Start substantially closer to the logo.
+     */
     let cursorY =
-      PAGE_CONTENT.top;
+      DETAIL_CONTENT_TOP;
+
 
     /*
     |--------------------------------------------------------------------------
     | Item heading
     |--------------------------------------------------------------------------
     */
+
     const headingLines =
       wrapText(
         item.itemName || "Item",
+
         fonts.bold,
+
         DETAIL_HEADING_FONT_SIZE,
+
         DETAIL_CONTENT.width,
       );
+
 
     drawLines(
       page,
@@ -190,26 +308,26 @@ export async function renderReferenceSection(
       },
     );
 
+
     cursorY -=
       measureLinesHeight(
         headingLines.length,
+
         DETAIL_HEADING_FONT_SIZE,
+
         DETAIL_LINE_HEIGHT_FACTOR,
       );
+
 
     /*
     |--------------------------------------------------------------------------
     | Description
     |--------------------------------------------------------------------------
     |
-    | customCaption has priority if present.
-    |
-    | Otherwise:
-    |
-    | Client Meeting mode -> Description
-    | Excel mode          -> Details/Description mapped into item.description
+    | customCaption has priority.
     |
     */
+
     const description =
       String(
         item.customCaption?.trim() ||
@@ -217,79 +335,101 @@ export async function renderReferenceSection(
           "",
       ).trim();
 
+
     if (description) {
+
       cursorY -=
         DETAIL_HEADING_GAP;
 
-      /*
-        Wrap full description once using the wider,
-        symmetrical reference-page content area.
-      */
-      const remainingDescriptionLines =
+
+      const descriptionLines =
         wrapText(
           description,
+
           fonts.regular,
+
           DETAIL_DESCRIPTION_FONT_SIZE,
+
           DETAIL_CONTENT.width,
         );
+
 
       const lineHeight =
         DETAIL_DESCRIPTION_FONT_SIZE *
         DETAIL_LINE_HEIGHT_FACTOR;
 
+
+      let lineIndex = 0;
+
+
       /*
       |--------------------------------------------------------------------------
-      | Description pagination
+      | Long-description protection
       |--------------------------------------------------------------------------
       |
-      | Very long descriptions continue onto fresh letterhead pages.
+      | Normally the description will fit easily.
+      |
+      | If somebody enters a very long description,
+      | it continues onto a fresh letterhead page
+      | instead of being clipped.
       |
       */
+
       while (
-        remainingDescriptionLines.length
+        lineIndex <
+        descriptionLines.length
       ) {
+
+        const availableHeight =
+          cursorY -
+          PAGE_CONTENT.bottom;
+
+
         let lineCapacity =
           Math.floor(
-            (
-              cursorY -
-              PAGE_CONTENT.bottom
-            ) /
+            availableHeight /
               lineHeight,
           );
 
+
         /*
-          No room left on current page.
-        */
+         * No text space left.
+         */
         if (
           lineCapacity < 1
         ) {
+
           page =
             await newPage(
               outputPdf,
               templatePdf,
             );
 
+
           cursorY =
-            PAGE_CONTENT.top;
+            DETAIL_CONTENT_TOP;
+
 
           lineCapacity =
             Math.max(
               1,
+
               Math.floor(
-                PAGE_CONTENT.height /
+                DETAIL_PAGE_HEIGHT /
                   lineHeight,
               ),
             );
         }
 
-        /*
-          Draw only the number of lines that fit.
-        */
+
         const chunk =
-          remainingDescriptionLines.splice(
-            0,
-            lineCapacity,
+          descriptionLines.slice(
+            lineIndex,
+
+            lineIndex +
+              lineCapacity,
           );
+
 
         drawLines(
           page,
@@ -318,148 +458,210 @@ export async function renderReferenceSection(
           },
         );
 
+
         cursorY -=
           measureLinesHeight(
             chunk.length,
+
             DETAIL_DESCRIPTION_FONT_SIZE,
+
             DETAIL_LINE_HEIGHT_FACTOR,
           );
 
+
+        lineIndex +=
+          chunk.length;
+
+
         /*
-          More description remains:
-          continue on next letterhead page.
-        */
+         * More description remains.
+         */
         if (
-          remainingDescriptionLines.length
+          lineIndex <
+          descriptionLines.length
         ) {
+
           page =
             await newPage(
               outputPdf,
               templatePdf,
             );
 
+
           cursorY =
-            PAGE_CONTENT.top;
+            DETAIL_CONTENT_TOP;
         }
       }
     }
 
+
     /*
     |--------------------------------------------------------------------------
-    | Item images
+    | Gap between description and image
     |--------------------------------------------------------------------------
-    |
-    | Meeting mode:
-    | Images can come from Client Meeting snapshot.
-    |
-    | Excel mode:
-    | Images are manually uploaded per item by the employee.
-    |
-    | Multiple images per item are supported.
-    |
     */
+
     cursorY -=
       DETAIL_IMAGE_GAP;
 
+
     /*
     |--------------------------------------------------------------------------
-    | Draw images sequentially
+    | Draw images
     |--------------------------------------------------------------------------
     */
-for (const embeddedImage of images) {
-  /*
-  |--------------------------------------------------------------------------
-  | Calculate the image size using the FULL page content area
-  |--------------------------------------------------------------------------
-  |
-  | Important:
-  | Do NOT calculate image size using the remaining space on the current page.
-  |
-  | Otherwise the second/third image gets smaller just because there is less
-  | space left after the previous image.
-  |
-  */
-  let fitted =
-    containImage(
-      embeddedImage.width,
-      embeddedImage.height,
-      DETAIL_CONTENT.width,
-      PAGE_CONTENT.height,
-      {
-        allowUpscale: true,
-      },
-    );
 
-  let remaining =
-    cursorY -
-    PAGE_CONTENT.bottom;
+    for (
+      let imageIndex = 0;
+      imageIndex < images.length;
+      imageIndex += 1
+    ) {
 
-  /*
-  |--------------------------------------------------------------------------
-  | If the image cannot fit at its normal size, start a new page
-  |--------------------------------------------------------------------------
-  */
-  if (
-    fitted.height >
-    remaining
-  ) {
-    page =
-      await newPage(
-        outputPdf,
-        templatePdf,
-      );
+      const embeddedImage =
+        images[imageIndex];
 
-    cursorY =
-      PAGE_CONTENT.top;
 
-    remaining =
-      PAGE_CONTENT.height;
+      /*
+       * Calculate the image's normal display size.
+       */
+      const normalSize =
+        getNormalImageSize(
+          embeddedImage,
+        );
 
-    /*
-     * Recalculate against the full fresh page.
-     */
-    fitted =
-      containImage(
-        embeddedImage.width,
-        embeddedImage.height,
-        DETAIL_CONTENT.width,
-        PAGE_CONTENT.height,
+
+      let remainingHeight =
+        cursorY -
+        PAGE_CONTENT.bottom;
+
+
+      let fitted =
+        normalSize;
+
+
+      /*
+      |--------------------------------------------------------------------------
+      | FIRST IMAGE
+      |--------------------------------------------------------------------------
+      |
+      | Keep first image together with:
+      |
+      | Item Name
+      | Description
+      |
+      */
+
+      if (
+        imageIndex === 0
+      ) {
+
+        fitted =
+          fitFirstImageToItemPage(
+            embeddedImage,
+
+            normalSize,
+
+            remainingHeight,
+          );
+      }
+
+
+      /*
+      |--------------------------------------------------------------------------
+      | SECOND / THIRD / OTHER IMAGES
+      |--------------------------------------------------------------------------
+      |
+      | We do NOT shrink these simply because the current page is almost full.
+      |
+      | Instead they start on a fresh page at normal size.
+      |
+      */
+
+      else if (
+        normalSize.height >
+        remainingHeight
+      ) {
+
+        page =
+          await newPage(
+            outputPdf,
+            templatePdf,
+          );
+
+
+        cursorY =
+          DETAIL_CONTENT_TOP;
+
+
+        remainingHeight =
+          cursorY -
+          PAGE_CONTENT.bottom;
+
+
+        /*
+         * Normally normalSize will fit now.
+         *
+         * Very tall portrait images still receive
+         * standard contain fitting.
+         */
+
+        fitted =
+          normalSize.height <=
+          remainingHeight
+
+            ? normalSize
+
+            : containImage(
+                embeddedImage.width,
+
+                embeddedImage.height,
+
+                DETAIL_CONTENT.width,
+
+                remainingHeight,
+
+                {
+                  allowUpscale: true,
+                },
+              );
+      }
+
+
+      /*
+      |--------------------------------------------------------------------------
+      | Draw image
+      |--------------------------------------------------------------------------
+      */
+
+      drawImageCentered(
+        page,
+        embeddedImage,
         {
-          allowUpscale: true,
+          contentX:
+            DETAIL_CONTENT.x,
+
+          contentWidth:
+            DETAIL_CONTENT.width,
+
+          topY:
+            cursorY,
+
+          width:
+            fitted.width,
+
+          height:
+            fitted.height,
         },
       );
+
+
+      /*
+       * Continue below image.
+       */
+
+      cursorY -=
+        fitted.height +
+        DETAIL_IMAGE_GAP;
+    }
   }
-
-  /*
-  |--------------------------------------------------------------------------
-  | Draw image
-  |--------------------------------------------------------------------------
-  */
-  drawImageCentered(
-    page,
-    embeddedImage,
-    {
-      contentX:
-        DETAIL_CONTENT.x,
-
-      contentWidth:
-        DETAIL_CONTENT.width,
-
-      topY:
-        cursorY,
-
-      width:
-        fitted.width,
-
-      height:
-        fitted.height,
-    },
-  );
-
-  /*
-   * Move cursor below the image.
-   */
-  cursorY -=
-    fitted.height +
-    DETAIL_IMAGE_GAP;
-}}}
+}
