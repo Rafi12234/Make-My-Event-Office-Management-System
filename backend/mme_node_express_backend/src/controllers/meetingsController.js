@@ -88,30 +88,7 @@ async function getDefaultSheetId() {
   });
   return sheet?.id || null;
 }
-async function getClientPhone(sheetId, rowKey) {
-  if (!sheetId) return "";
 
-  const row = await prisma.sheetRow.findFirst({
-    where: { sheetId, rowKey },
-    select: {
-      cells: {
-        where: {
-          column: {
-            columnName: { equals: "Client Phone Number" },
-          },
-        },
-        select: {
-          valueText: true,
-          displayValue: true,
-        },
-        take: 1,
-      },
-    },
-  });
-
-  const cell = row?.cells?.[0];
-  return cell?.valueText || cell?.displayValue || "";
-}
 async function getClientName(sheetId, rowKey) {
   if (!sheetId) return "";
 
@@ -124,6 +101,24 @@ async function getClientName(sheetId, rowKey) {
     select: {
       cells: {
         where: { column: { columnName: { equals: "Client Name" } } },
+        select: { valueText: true, displayValue: true },
+        take: 1,
+      },
+    },
+  });
+
+  const cell = row?.cells?.[0];
+  return cell?.valueText || cell?.displayValue || "";
+}
+
+async function getClientPhone(sheetId, rowKey) {
+  if (!sheetId) return "";
+
+  const row = await prisma.sheetRow.findFirst({
+    where: { sheetId, rowKey },
+    select: {
+      cells: {
+        where: { column: { columnName: { equals: "Client Phone Number" } } },
         select: { valueText: true, displayValue: true },
         take: 1,
       },
@@ -311,6 +306,27 @@ function parseQuantity(value) {
   return Math.min(Math.round(quantity), 100000);
 }
 
+function parseOptionalPrice(value) {
+  if (value === undefined || value === null || String(value).trim() === "") return null;
+
+  const normalized = String(value)
+    .trim()
+    .replace(/,/g, "")
+    .replace(/[^0-9.\-]/g, "");
+
+  if (!normalized) return null;
+
+  const price = Number(normalized);
+  if (!Number.isFinite(price) || price < 0) return null;
+  return Math.min(Math.round(price * 100) / 100, 999999999999.99);
+}
+
+function decimalToNumber(value) {
+  if (value === null || value === undefined) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
 // The finalize budget is optional free-entry currency — blank clears it
 // (stored as NULL) rather than defaulting to 0.
 function parseBudget(value) {
@@ -334,6 +350,13 @@ async function copyForwardFromPreviousMeeting(rowKey, newMeetingId, employeeId) 
   });
   if (!previous) return;
 
+  if (previous.totalPrice !== null && previous.totalPrice !== undefined) {
+    await prisma.clientMeeting.update({
+      where: { id: newMeetingId },
+      data: { totalPrice: previous.totalPrice },
+    });
+  }
+
   for (const item of previous.items) {
     const newItem = await prisma.meetingItem.create({
       data: {
@@ -342,6 +365,7 @@ async function copyForwardFromPreviousMeeting(rowKey, newMeetingId, employeeId) 
         customLabel: item.customLabel,
         description: item.description,
         quantity: item.quantity,
+        itemPrice: item.itemPrice,
         createdById: employeeId,
         updatedById: employeeId,
       },
@@ -374,10 +398,10 @@ export async function listMeetings(req, res, next) {
   }
 
   try {
-const sheetId = await getDefaultSheetId();
-const clientName = await getClientName(sheetId, rowKey);
-const clientPhone = await getClientPhone(sheetId, rowKey);
-const eventDate = await getEventDate(sheetId, rowKey);
+    const sheetId = await getDefaultSheetId();
+    const clientName = await getClientName(sheetId, rowKey);
+    const clientPhone = await getClientPhone(sheetId, rowKey);
+    const eventDate = await getEventDate(sheetId, rowKey);
 
     const meetings = await prisma.clientMeeting.findMany({
       where: { linkedRowKey: rowKey },
@@ -426,6 +450,7 @@ const eventDate = await getEventDate(sheetId, rowKey);
           nextMeetingAssignedEmployeeName: meeting.nextMeeting?.assignedEmployee?.fullName || null,
           assignedByEmployeeName: meeting.assignedBy?.fullName || null,
           requirements: parseRequirements(meeting.requirements),
+          totalPrice: decimalToNumber(meeting.totalPrice),
           createdByName: meeting.createdBy?.fullName || null,
           updatedByName: meeting.updatedBy?.fullName || null,
           createdAt: formatDateTime(meeting.createdAt),
@@ -444,6 +469,7 @@ const eventDate = await getEventDate(sheetId, rowKey);
             customLabel: item.customLabel || "",
             description: item.description || "",
             quantity: item.quantity ?? 1,
+            itemPrice: decimalToNumber(item.itemPrice),
             images: item.images.map((image) => ({
               id: image.id,
               originalFileName: image.originalFileName,
@@ -538,6 +564,9 @@ export async function updateMeeting(req, res, next) {
   const data = { updatedById: employeeId };
   if (req.body.requirements !== undefined) {
     data.requirements = sanitizeRequirements(req.body.requirements);
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body, "totalPrice")) {
+    data.totalPrice = parseOptionalPrice(req.body.totalPrice);
   }
 
   try {
@@ -706,6 +735,7 @@ export async function getFinalizePreview(req, res, next) {
         group.customLabel = item.customLabel || "";
         group.description = item.description || "";
         group.quantity = item.quantity ?? 1;
+        group.itemPrice = decimalToNumber(item.itemPrice);
         group.sourceMeetingId = meeting.id;
         group.sourceItemId = item.id;
 
@@ -727,6 +757,7 @@ export async function getFinalizePreview(req, res, next) {
         customLabel: group.customLabel,
         description: group.description,
         quantity: group.quantity,
+        itemPrice: group.itemPrice,
         sourceMeetingId: group.sourceMeetingId,
         sourceItemId: group.sourceItemId,
         images: Array.from(group.imagesByFile.values()).map((image) => ({
@@ -1073,6 +1104,7 @@ export async function createMeetingItem(req, res, next) {
 
   const description = String(req.body.description || "").slice(0, 2000);
   const quantity = parseQuantity(req.body.quantity);
+  const itemPrice = parseOptionalPrice(req.body.itemPrice);
   // Acting employee always comes from the authenticated session, not the body.
   const employeeId = isValidId(req.employee.id);
 
@@ -1104,6 +1136,7 @@ export async function createMeetingItem(req, res, next) {
         customLabel: isOther ? customLabel : null,
         description: description || null,
         quantity,
+        itemPrice,
         createdById: employeeId,
         updatedById: employeeId,
       },
@@ -1116,6 +1149,7 @@ export async function createMeetingItem(req, res, next) {
         customLabel: created.customLabel || "",
         description: created.description || "",
         quantity: created.quantity ?? 1,
+        itemPrice: decimalToNumber(created.itemPrice),
         images: [],
       },
     });
@@ -1137,6 +1171,8 @@ export async function updateMeetingItem(req, res, next) {
 
   const description = String(req.body.description || "").slice(0, 2000);
   const quantity = parseQuantity(req.body.quantity);
+  const hasItemPrice = Object.prototype.hasOwnProperty.call(req.body, "itemPrice");
+  const itemPrice = hasItemPrice ? parseOptionalPrice(req.body.itemPrice) : undefined;
   // Acting employee always comes from the authenticated session, not the body.
   const employeeId = isValidId(req.employee.id);
 
@@ -1149,7 +1185,12 @@ export async function updateMeetingItem(req, res, next) {
       return res.status(404).json({ message: "Item not found." });
     }
 
-    const data = { description: description || null, quantity, updatedById: employeeId };
+    const data = {
+      description: description || null,
+      quantity,
+      updatedById: employeeId,
+    };
+    if (hasItemPrice) data.itemPrice = itemPrice;
     if (item.itemKey === "other" && req.body.customLabel !== undefined) {
       const customLabel = sanitizeCustomLabel(req.body.customLabel);
       if (!customLabel) {
@@ -1166,6 +1207,116 @@ export async function updateMeetingItem(req, res, next) {
         customLabel: updated.customLabel || "",
         description,
         quantity,
+        itemPrice: decimalToNumber(updated.itemPrice),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// ─── POST /api/meetings/:rowKey/:meetingId/items/import — Excel rows ───
+
+export async function importMeetingItems(req, res, next) {
+  const { rowKey, meetingId } = req.params;
+  const mId = isValidId(meetingId);
+
+  if (!isValidRowKey(rowKey) || !mId) {
+    return res.status(400).json({ message: "Invalid reference." });
+  }
+
+  const employeeId = isValidId(req.employee.id);
+  const rawItems = Array.isArray(req.body.items) ? req.body.items.slice(0, 500) : [];
+
+  const items = rawItems
+    .filter((item) => item && typeof item === "object")
+    .map((item) => {
+      const itemKey = String(item.itemKey || "");
+      if (!isValidItemKey(itemKey)) return null;
+
+      const customLabel = itemKey === "other" ? sanitizeCustomLabel(item.customLabel) : null;
+      if (itemKey === "other" && !customLabel) return null;
+
+      const hasItemPrice = Object.prototype.hasOwnProperty.call(item, "itemPrice");
+
+      return {
+        itemKey,
+        customLabel,
+        description: String(item.description || "").slice(0, 2000) || null,
+        quantity: parseQuantity(item.quantity),
+        hasItemPrice,
+        itemPrice: hasItemPrice ? parseOptionalPrice(item.itemPrice) : undefined,
+      };
+    })
+    .filter(Boolean);
+
+  if (!items.length) {
+    return res.status(422).json({ message: "The Excel file does not contain any valid item rows." });
+  }
+
+  try {
+    const meeting = await prisma.clientMeeting.findFirst({
+      where: { id: mId, linkedRowKey: rowKey },
+      select: { id: true },
+    });
+
+    if (!meeting) {
+      return res.status(404).json({ message: "Meeting not found." });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      let createdCount = 0;
+      let updatedCount = 0;
+
+      for (const item of items) {
+        // Fixed dropdown items are unique in the manual editor. During an
+        // Excel import, update an existing fixed item instead of creating a
+        // duplicate. Custom/Other rows are appended exactly as separate rows.
+        if (item.itemKey !== "other") {
+          const existing = await tx.meetingItem.findFirst({
+            where: { meetingId: mId, itemKey: item.itemKey },
+            select: { id: true },
+          });
+
+          if (existing) {
+            const updateData = {
+              description: item.description,
+              quantity: item.quantity,
+              updatedById: employeeId,
+            };
+            if (item.hasItemPrice) updateData.itemPrice = item.itemPrice;
+
+            await tx.meetingItem.update({
+              where: { id: existing.id },
+              data: updateData,
+            });
+            updatedCount += 1;
+            continue;
+          }
+        }
+
+        const createData = {
+          meetingId: mId,
+          itemKey: item.itemKey,
+          customLabel: item.customLabel,
+          description: item.description,
+          quantity: item.quantity,
+          createdById: employeeId,
+          updatedById: employeeId,
+        };
+        if (item.hasItemPrice) createData.itemPrice = item.itemPrice;
+
+        await tx.meetingItem.create({ data: createData });
+        createdCount += 1;
+      }
+
+      return { createdCount, updatedCount };
+    });
+
+    res.status(201).json({
+      data: {
+        importedCount: result.createdCount + result.updatedCount,
+        ...result,
       },
     });
   } catch (error) {
