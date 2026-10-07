@@ -20,8 +20,8 @@ import {
   FileText,
   ImagePlus,
   Loader2,
-  Phone,
   Pencil,
+  Phone,
   Save,
   Sparkles,
   Trash2,
@@ -45,6 +45,7 @@ import {
   deleteMeetingItem,
   deleteMeetingItemImage,
   finalizeClient,
+  importMeetingItems,
   loadClientMeetings,
   loadFinalizationDetail,
   loadFinalizePreview,
@@ -53,6 +54,7 @@ import {
   updateMeetingItem,
   uploadMeetingItemImages,
 } from "../services/meetingsStorage";
+import { parseMeetingExcelFile } from "../utils/meetingExcelImport";
 
 function toDatetimeLocalValue(value) {
   if (!value) return "";
@@ -122,6 +124,42 @@ function formatEventDateDisplay(iso) {
   if (!match) return "";
   const [, yyyy, mm, dd] = match;
   return `${dd}/${mm}/${yyyy}`;
+}
+
+function normalizeItemIdentity(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_\-]+/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function excelItemToMeetingItem(itemName) {
+  const normalized = normalizeItemIdentity(itemName);
+  const matched = CLIENT_REQUIREMENT_OPTIONS.find((option) => {
+    if (option.key === "other") return false;
+    return (
+      normalizeItemIdentity(option.label) === normalized ||
+      normalizeItemIdentity(option.key) === normalized
+    );
+  });
+
+  if (matched) {
+    return { itemKey: matched.key, customLabel: "" };
+  }
+
+  return {
+    itemKey: "other",
+    customLabel: String(itemName || "").trim().slice(0, 160),
+  };
+}
+
+function comparablePrice(value) {
+  if (value === null || value === undefined || String(value).trim() === "") {
+    return null;
+  }
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.round(number * 100) / 100 : String(value).trim();
 }
 
 function ImageLightbox({ images, initialIndex, onClose }) {
@@ -237,8 +275,17 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
   const [draftItemKey, setDraftItemKey] = useState("");
   const [draftCustomLabel, setDraftCustomLabel] = useState("");
   const [error, setError] = useState("");
+  const [isImportingExcel, setIsImportingExcel] = useState(false);
+  const [showItemPrice, setShowItemPrice] = useState(() =>
+    meeting.items.some((item) => item.itemPrice !== null && item.itemPrice !== undefined),
+  );
+  const [showTotalPrice, setShowTotalPrice] = useState(() =>
+    meeting.totalPrice !== null && meeting.totalPrice !== undefined,
+  );
+  const [totalPrice, setTotalPrice] = useState(meeting.totalPrice ?? "");
   const [dirtyItemIds, setDirtyItemIds] = useState(() => new Set());
   const itemRowRefs = useRef({});
+  const excelInputRef = useRef(null);
   // Items created this editing session that have not been confirmed by a
   // Save click yet - discarded on Cancel or if the employee leaves without saving.
   const [pendingNewItemIds, setPendingNewItemIds] = useState(() => new Set());
@@ -316,6 +363,7 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
   const isDirty =
     nextMeetingDatetime !== toDatetimeLocalValue(meeting.nextMeetingDatetime) ||
     isNextMeetingAssigneeDirty ||
+    comparablePrice(totalPrice) !== comparablePrice(meeting.totalPrice) ||
     hasDirtyItems ||
     hasPendingNewItems;
 
@@ -330,6 +378,11 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
       setError("Next meeting date cannot be before today. Any time of day is fine.");
     }
   }
+
+function handleToggleTotalPrice() {
+  setShowTotalPrice((current) => !current);
+  setError("");
+}
 
   async function handleSave() {
     setError("");
@@ -346,6 +399,7 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
       await updateMeeting(rowKey, meeting.id, {
         nextMeetingDatetime: nextMeetingDatetime || null,
         nextMeetingAssignedEmployeeId: nextMeetingDatetime ? (nextMeetingAssignedEmployeeId || null) : null,
+        totalPrice: showTotalPrice && totalPrice !== "" ? totalPrice : null,
         employeeId,
       });
       const itemsFailed = await saveDirtyItems();
@@ -386,6 +440,8 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
     setError("");
     setNextMeetingDatetime(toDatetimeLocalValue(meeting.nextMeetingDatetime));
     setNextMeetingAssignedEmployeeId(defaultNextMeetingAssigneeId(meeting, employeeId));
+    setTotalPrice(meeting.totalPrice ?? "");
+    setShowTotalPrice(meeting.totalPrice !== null && meeting.totalPrice !== undefined);
     Object.values(itemRowRefs.current).forEach((row) => row?.cancel());
     setIsEditing(false);
     const discarded = await discardPendingNewItems();
@@ -420,6 +476,7 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
         customLabel,
         description: "",
         quantity: 1,
+        itemPrice: null,
         employeeId,
       });
       if (created?.id) {
@@ -464,6 +521,101 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
     const trimmed = draftCustomLabel.trim();
     if (!trimmed) return;
     handleAddItem("other", trimmed);
+  }
+
+  async function handleExcelSelected(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    setIsImportingExcel(true);
+    setError("");
+
+    try {
+const parsed =
+  await parseMeetingExcelFile(file);
+
+const items =
+  parsed.rows.map((row) => ({
+    ...excelItemToMeetingItem(
+      row.itemName,
+    ),
+
+    description:
+      row.description,
+
+    quantity:
+      row.quantity,
+
+    ...(parsed.hasItemPriceColumn
+      ? {
+          itemPrice:
+            row.itemPrice,
+        }
+      : {}),
+  }));
+
+
+// ─────────────────────────────────────────────
+// 1. Import item rows
+// ─────────────────────────────────────────────
+
+await importMeetingItems(
+  rowKey,
+  meeting.id,
+  items,
+);
+
+
+// ─────────────────────────────────────────────
+// 2. If Excel has Item Price, show Item Price
+// ─────────────────────────────────────────────
+
+if (
+  parsed.hasItemPriceColumn
+) {
+  setShowItemPrice(true);
+}
+
+
+// ─────────────────────────────────────────────
+// 3. If Excel has Price / Total Price,
+//    put it into ONE overall meeting Total Price
+// ─────────────────────────────────────────────
+
+if (
+  parsed.hasTotalPriceColumn &&
+  parsed.totalPrice !== null
+) {
+  setTotalPrice(
+    String(parsed.totalPrice),
+  );
+
+  setShowTotalPrice(true);
+
+  await updateMeeting(
+    rowKey,
+    meeting.id,
+    {
+      totalPrice:
+        parsed.totalPrice,
+
+      employeeId,
+    },
+  );
+}
+
+
+// ─────────────────────────────────────────────
+// Refresh meeting
+// ─────────────────────────────────────────────
+
+await onChanged();
+    } catch (err) {
+      setError(err.message || "Failed to import Excel items.");
+    } finally {
+      setIsImportingExcel(false);
+    }
   }
 
   return (
@@ -665,7 +817,57 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
               </span>
             </div>
 
-            <div className="relative flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowItemPrice((value) => !value)}
+                className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-[11px] font-black transition-all duration-200 ${
+                  showItemPrice
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                }`}
+                title="Show or hide the Item Price column"
+              >
+                <CheckCircle2 size={12} />
+                Item Price
+              </button>
+
+<button
+  type="button"
+  onClick={handleToggleTotalPrice}
+  className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-[11px] font-black transition-all duration-200 ${
+    showTotalPrice
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+  }`}
+  title="Show or hide the overall Total Price field"
+>
+  <CheckCircle2 size={12} />
+  Total Price
+</button>
+
+              <button
+                type="button"
+                onClick={() => excelInputRef.current?.click()}
+                disabled={fieldsLocked || isImportingExcel}
+                className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-black text-emerald-700 transition-all duration-200 hover:border-emerald-300 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-45"
+                title={fieldsLocked ? "Click Edit before uploading Excel" : "Import meeting items from Excel"}
+              >
+                {isImportingExcel ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <FileText size={13} />
+                )}
+                Excel Upload
+              </button>
+              <input
+                ref={excelInputRef}
+                type="file"
+                accept=".xlsx,.xls,.xlsm,.xlsb,.csv"
+                onChange={handleExcelSelected}
+                className="hidden"
+              />
+
               {!fieldsLocked && (
                 <button
                   onClick={isAddingItem ? handleCancelAddItem : handleStartAddItem}
@@ -708,6 +910,11 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
                       <th className="min-w-25 border-b border-r border-slate-200 px-4 py-3 text-left text-[10px] font-black uppercase tracking-widest text-slate-400">
                         Qty
                       </th>
+                      {showItemPrice && (
+                        <th className="min-w-32 border-b border-r border-slate-200 px-4 py-3 text-left text-[10px] font-black uppercase tracking-widest text-slate-400">
+                          Item Price
+                        </th>
+                      )}
                       <th className="min-w-60 border-b border-slate-200 px-4 py-3 text-left text-[10px] font-black uppercase tracking-widest text-slate-400">
                         Images
                       </th>
@@ -762,7 +969,7 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
                           )}
                         </td>
                         <td
-                          colSpan={3}
+                          colSpan={3 + Number(showItemPrice)}
                           className="px-4 py-2.5 text-[11px] font-medium italic text-slate-300"
                         >
                           {draftItemKey === "other"
@@ -782,7 +989,8 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
                         meetingId={meeting.id}
                         item={item}
                         employeeId={employeeId}
-                        locked={fieldsLocked}
+                        locked={fieldsLocked || isSaving}
+                        showItemPrice={showItemPrice}
                         onChanged={onChanged}
                         onDirtyChange={handleItemDirtyChange}
                         onItemRemoved={handleItemRemoved}
@@ -790,6 +998,32 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          )}
+
+          {showTotalPrice && (
+            <div className="mt-4 flex justify-end">
+              <div className="w-full max-w-xs rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-400">
+                  Total Price
+                </label>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-black text-slate-500">৳</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={totalPrice}
+                    onChange={(e) => setTotalPrice(e.target.value)}
+                    disabled={fieldsLocked}
+                    placeholder="0.00"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 outline-none transition-all duration-200 placeholder:text-slate-300 hover:border-slate-300 focus:border-slate-400 focus:ring-4 focus:ring-slate-100 disabled:cursor-not-allowed disabled:opacity-70"
+                  />
+                </div>
+                <p className="mt-1.5 text-[10px] font-semibold text-slate-400">
+                  Overall total for this meeting, not an item-wise amount.
+                </p>
               </div>
             </div>
           )}
@@ -806,73 +1040,183 @@ function MeetingCard({ meeting, rowKey, employeeId, employeeDirectory, onChanged
 }
 
 const MeetingItemRow = forwardRef(function MeetingItemRow(
-  { rowKey, meetingId, item, employeeId, locked, onChanged, onDirtyChange, onItemRemoved },
+  {
+    rowKey,
+    meetingId,
+    item,
+    employeeId,
+    locked,
+    showItemPrice,
+    onChanged,
+    onDirtyChange,
+    onItemRemoved,
+  },
   ref
 ) {
   const [description, setDescription] = useState(item.description || "");
   const [quantity, setQuantity] = useState(item.quantity ?? 1);
+  const [itemPrice, setItemPrice] = useState(item.itemPrice ?? "");
+
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(null);
   const [error, setError] = useState("");
+
+  // Images selected during Edit are kept only in browser memory until the
+  // parent meeting Save button is clicked. Cancel simply discards them.
+  const [pendingImages, setPendingImages] = useState([]);
+  const [pendingDeletedImageIds, setPendingDeletedImageIds] = useState(
+    () => new Set()
+  );
+  const pendingImagesRef = useRef([]);
+
   const fileInputRef = useRef(null);
   const [orderedImageIds, setOrderedImageIds] = useState(() =>
     item.images.map((image) => image.id)
   );
-  const [prevImageIds, setPrevImageIds] = useState(() =>
-    item.images.map((image) => image.id)
-  );
   const [dragIndex, setDragIndex] = useState(null);
 
-  const currentImageIds = item.images.map((image) => image.id);
-  if (
-    currentImageIds.length !== prevImageIds.length ||
-    currentImageIds.some((id, i) => id !== prevImageIds[i])
-  ) {
-    const stillPresent = orderedImageIds.filter((id) =>
-      currentImageIds.includes(id)
-    );
-    const newlyAdded = currentImageIds.filter(
-      (id) => !orderedImageIds.includes(id)
-    );
-    setOrderedImageIds([...stillPresent, ...newlyAdded]);
-    setPrevImageIds(currentImageIds);
-  }
+  useEffect(() => {
+    pendingImagesRef.current = pendingImages;
+  }, [pendingImages]);
+
+  // Revoke temporary browser URLs if this row unmounts before Save/Cancel.
+  useEffect(() => {
+    return () => {
+      pendingImagesRef.current.forEach((image) => {
+        URL.revokeObjectURL(image.previewUrl);
+      });
+    };
+  }, []);
+
+  // Preserve the employee's local display order while also picking up newly
+  // persisted images after a meeting refresh.
+  useEffect(() => {
+    const currentImageIds = item.images.map((image) => image.id);
+
+    setOrderedImageIds((previousIds) => {
+      const stillPresent = previousIds.filter((id) =>
+        currentImageIds.includes(id)
+      );
+      const newlyAdded = currentImageIds.filter(
+        (id) => !previousIds.includes(id)
+      );
+      const nextIds = [...stillPresent, ...newlyAdded];
+
+      if (
+        nextIds.length === previousIds.length &&
+        nextIds.every((id, index) => id === previousIds[index])
+      ) {
+        return previousIds;
+      }
+
+      return nextIds;
+    });
+  }, [item.images]);
 
   const orderedImages = orderedImageIds
     .map((id) => item.images.find((image) => image.id === id))
-    .filter(Boolean);
+    .filter(
+      (image) =>
+        Boolean(image) && !pendingDeletedImageIds.has(image.id)
+    );
 
   const option = CLIENT_REQUIREMENT_OPTIONS.find(
-    (c) => c.key === item.itemKey
+    (candidate) => candidate.key === item.itemKey
   );
+
   const displayLabel =
-    item.itemKey === "other" ? item.customLabel || "Other" : option?.label || item.itemKey;
+    item.itemKey === "other"
+      ? item.customLabel || "Other"
+      : option?.label || item.itemKey;
+
   const isDirty =
     description !== (item.description || "") ||
-    Number(quantity) !== (item.quantity ?? 1);
+    Number(quantity) !== (item.quantity ?? 1) ||
+    comparablePrice(itemPrice) !== comparablePrice(item.itemPrice) ||
+    pendingImages.length > 0 ||
+    pendingDeletedImageIds.size > 0;
 
   async function handleSave() {
     setIsSaving(true);
+    setIsUploading(
+      pendingImages.length > 0 || pendingDeletedImageIds.size > 0
+    );
     setError("");
+
     try {
+      // Save the normal item fields first.
       await updateMeetingItem(rowKey, meetingId, item.id, {
         description,
         quantity,
+        itemPrice: itemPrice === "" ? null : itemPrice,
         employeeId,
       });
+
+      // Upload newly selected images only after the meeting Save button is
+      // clicked. Clear successfully-uploaded pending files immediately so a
+      // later failure cannot upload the same files twice on retry.
+      if (pendingImages.length > 0) {
+        await uploadMeetingItemImages(
+          rowKey,
+          meetingId,
+          item.id,
+          pendingImages.map((image) => image.file),
+          employeeId
+        );
+
+        pendingImages.forEach((image) => {
+          URL.revokeObjectURL(image.previewUrl);
+        });
+        setPendingImages([]);
+      }
+
+      // Existing image removals are also committed only on Save.
+      if (pendingDeletedImageIds.size > 0) {
+        const idsToDelete = Array.from(pendingDeletedImageIds);
+
+        for (const imageId of idsToDelete) {
+          await deleteMeetingItemImage(
+            rowKey,
+            meetingId,
+            item.id,
+            imageId
+          );
+
+          // Remove each successfully deleted id from the pending set
+          // immediately so retries cannot try to delete it again.
+          setPendingDeletedImageIds((previous) => {
+            const next = new Set(previous);
+            next.delete(imageId);
+            return next;
+          });
+        }
+      }
     } catch (err) {
       setError(err.message || "Failed to save item.");
       throw err;
     } finally {
       setIsSaving(false);
+      setIsUploading(false);
     }
   }
 
   function handleCancel() {
     setDescription(item.description || "");
     setQuantity(item.quantity ?? 1);
+    setItemPrice(item.itemPrice ?? "");
+
+    // Discard files that have never been uploaded.
+    pendingImages.forEach((image) => {
+      URL.revokeObjectURL(image.previewUrl);
+    });
+    setPendingImages([]);
+
+    // Restore existing images that were only marked for deletion.
+    setPendingDeletedImageIds(new Set());
+
+    setViewerIndex(null);
     setError("");
   }
 
@@ -884,6 +1228,7 @@ const MeetingItemRow = forwardRef(function MeetingItemRow(
 
   useEffect(() => {
     onDirtyChange?.(item.id, isDirty);
+
     return () => {
       onDirtyChange?.(item.id, false);
     };
@@ -892,20 +1237,24 @@ const MeetingItemRow = forwardRef(function MeetingItemRow(
   function handleImageDragStart(index) {
     setDragIndex(index);
   }
+
   function handleImageDragOver(event) {
     event.preventDefault();
   }
+
   function handleImageDrop(dropIndex) {
     if (dragIndex === null || dragIndex === dropIndex) {
       setDragIndex(null);
       return;
     }
-    setOrderedImageIds((prev) => {
-      const next = [...prev];
+
+    setOrderedImageIds((previous) => {
+      const next = [...previous];
       const [movedId] = next.splice(dragIndex, 1);
       next.splice(dropIndex, 0, movedId);
       return next;
     });
+
     setDragIndex(null);
   }
 
@@ -914,10 +1263,13 @@ const MeetingItemRow = forwardRef(function MeetingItemRow(
       !window.confirm(
         `Remove "${displayLabel}" and its images? This cannot be undone.`
       )
-    )
+    ) {
       return;
+    }
+
     setIsDeleting(true);
     setError("");
+
     try {
       await deleteMeetingItem(rowKey, meetingId, item.id);
       onItemRemoved?.(item.id);
@@ -928,45 +1280,60 @@ const MeetingItemRow = forwardRef(function MeetingItemRow(
     }
   }
 
-  async function handleFilesSelected(e) {
-    const files = Array.from(e.target.files || []);
-    e.target.value = "";
+  function handleFilesSelected(event) {
+    const files = Array.from(event.target.files || []);
+    event.target.value = "";
+
     if (!files.length) return;
-    setIsUploading(true);
+
     setError("");
-    try {
-      await uploadMeetingItemImages(
-        rowKey,
-        meetingId,
-        item.id,
-        files,
-        employeeId
-      );
-      onChanged();
-    } catch (err) {
-      setError(err.message || "Failed to upload images.");
-    } finally {
-      setIsUploading(false);
-    }
+
+    const batchId = Date.now();
+    const newPendingImages = files.map((file, index) => ({
+      id: `${batchId}-${index}-${Math.random().toString(36).slice(2)}`,
+      file,
+      previewUrl: URL.createObjectURL(file),
+    }));
+
+    setPendingImages((previous) => [
+      ...previous,
+      ...newPendingImages,
+    ]);
   }
 
-  async function handleDeleteImage(imageId) {
-    try {
-      await deleteMeetingItemImage(rowKey, meetingId, item.id, imageId);
-      onChanged();
-    } catch (err) {
-      setError(err.message || "Failed to delete image.");
-    }
+  function handleDeleteImage(imageId) {
+    setPendingDeletedImageIds((previous) => {
+      const next = new Set(previous);
+      next.add(imageId);
+      return next;
+    });
+
+    setViewerIndex(null);
+    setError("");
+  }
+
+  function handleRemovePendingImage(pendingId) {
+    setPendingImages((previous) => {
+      const target = previous.find((image) => image.id === pendingId);
+
+      if (target) {
+        URL.revokeObjectURL(target.previewUrl);
+      }
+
+      return previous.filter((image) => image.id !== pendingId);
+    });
   }
 
   return (
     <tr className="border-b border-slate-100 align-top transition-colors duration-150 hover:bg-slate-50/50 last:border-b-0">
       <td className="border-r border-slate-100 px-4 py-3">
         <div className="flex items-start justify-between gap-2">
-          <span className="font-black text-slate-900 leading-tight">
+          <span className="font-black leading-tight text-slate-900">
             {displayLabel}
           </span>
+
           <button
+            type="button"
             onClick={handleDeleteItem}
             disabled={isDeleting || locked}
             title="Delete this item"
@@ -985,7 +1352,7 @@ const MeetingItemRow = forwardRef(function MeetingItemRow(
         <textarea
           rows={3}
           value={description}
-          onChange={(e) => setDescription(e.target.value)}
+          onChange={(event) => setDescription(event.target.value)}
           readOnly={locked}
           placeholder="Describe this item..."
           className={`w-full resize-none rounded-xl border border-slate-200 px-2 py-1.5 text-xs leading-5 text-slate-700 outline-none transition-all duration-200 placeholder:text-slate-300 ${
@@ -1001,18 +1368,43 @@ const MeetingItemRow = forwardRef(function MeetingItemRow(
           type="number"
           min="0"
           value={quantity}
-          onChange={(e) => setQuantity(e.target.value)}
+          onChange={(event) => setQuantity(event.target.value)}
           disabled={locked}
           className="w-full rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700 outline-none transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 focus:border-slate-400 focus:bg-white focus:ring-2 focus:ring-slate-100 disabled:cursor-not-allowed disabled:opacity-70"
         />
+
         {isSaving && (
-          <Loader2 size={11} className="mt-1 animate-spin text-slate-300" />
+          <Loader2
+            size={11}
+            className="mt-1 animate-spin text-slate-300"
+          />
         )}
-        {error && <p className="mt-1 text-[10px] font-bold text-red-500">{error}</p>}
+
+        {error && (
+          <p className="mt-1 text-[10px] font-bold text-red-500">
+            {error}
+          </p>
+        )}
       </td>
+
+      {showItemPrice && (
+        <td className="border-r border-slate-100 px-3 py-2">
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={itemPrice}
+            onChange={(event) => setItemPrice(event.target.value)}
+            disabled={locked}
+            placeholder="0.00"
+            className="w-full rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700 outline-none transition-all duration-200 placeholder:text-slate-300 hover:border-slate-300 hover:bg-slate-50 focus:border-slate-400 focus:bg-white focus:ring-2 focus:ring-slate-100 disabled:cursor-not-allowed disabled:opacity-70"
+          />
+        </td>
+      )}
 
       <td className="px-3 py-2.5">
         <button
+          type="button"
           onClick={() => fileInputRef.current?.click()}
           disabled={isUploading || locked}
           className="mb-3 inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-black text-slate-600 shadow-sm transition-all duration-200 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
@@ -1024,6 +1416,7 @@ const MeetingItemRow = forwardRef(function MeetingItemRow(
           )}
           Upload
         </button>
+
         <input
           ref={fileInputRef}
           type="file"
@@ -1033,24 +1426,25 @@ const MeetingItemRow = forwardRef(function MeetingItemRow(
           className="hidden"
         />
 
-        {orderedImages.length === 0 ? (
+        {orderedImages.length === 0 && pendingImages.length === 0 ? (
           <p className="text-[11px] font-medium text-slate-300">
             No images yet.
           </p>
         ) : (
           <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4">
+            {/* Already-saved images */}
             {orderedImages.map((image, imageIndex) => (
               <div
-                key={image.id}
+                key={`saved-${image.id}`}
                 draggable={!locked}
                 onDragStart={() => handleImageDragStart(imageIndex)}
                 onDragOver={handleImageDragOver}
                 onDrop={() => handleImageDrop(imageIndex)}
                 onDragEnd={() => setDragIndex(null)}
                 title="Drag to reorder priority — left-most is 1st priority"
-                className={`group relative aspect-square w-full max-w-18 cursor-grab overflow-hidden rounded-xl border bg-slate-100 transition-all duration-200 hover:border-slate-300 hover:shadow-md hover:scale-105 active:cursor-grabbing ${
+                className={`group relative aspect-square w-full max-w-18 cursor-grab overflow-hidden rounded-xl border bg-slate-100 transition-all duration-200 hover:scale-105 hover:border-slate-300 hover:shadow-md active:cursor-grabbing ${
                   dragIndex === imageIndex
-                    ? "opacity-40 border-slate-400"
+                    ? "border-slate-400 opacity-40"
                     : "border-slate-200"
                 }`}
                 onClick={() => setViewerIndex(imageIndex)}
@@ -1058,25 +1452,61 @@ const MeetingItemRow = forwardRef(function MeetingItemRow(
                 <span className="absolute left-1 top-1 z-10 flex h-4 w-4 items-center justify-center rounded-md bg-black/60 text-[9px] font-black text-white">
                   {imageIndex + 1}
                 </span>
+
                 <img
                   src={resolveImageUrl(image.url)}
                   alt={image.originalFileName || "Item image"}
                   className="h-full w-full object-cover"
                   loading="lazy"
                 />
+
                 <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-all duration-200 group-hover:bg-black/30">
                   <ZoomIn
                     size={14}
                     className="text-white opacity-0 transition-all duration-200 group-hover:opacity-100"
                   />
                 </div>
+
                 {!locked && (
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
                       handleDeleteImage(image.id);
                     }}
                     className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-lg bg-black/70 text-white opacity-0 transition-all duration-200 group-hover:opacity-100 hover:bg-red-500"
+                    title="Remove on Save"
+                  >
+                    <X size={10} />
+                  </button>
+                )}
+              </div>
+            ))}
+
+            {/* Newly-selected images are shown immediately in the same style.
+                They are still browser-only until the employee clicks Save. */}
+            {pendingImages.map((image, pendingIndex) => (
+              <div
+                key={`pending-${image.id}`}
+                className="group relative aspect-square w-full max-w-18 overflow-hidden rounded-xl border border-slate-200 bg-slate-100 transition-all duration-200 hover:scale-105 hover:border-slate-300 hover:shadow-md"
+                title="Selected image — click Save to keep it"
+              >
+                <span className="absolute left-1 top-1 z-10 flex h-4 w-4 items-center justify-center rounded-md bg-black/60 text-[9px] font-black text-white">
+                  {orderedImages.length + pendingIndex + 1}
+                </span>
+
+                <img
+                  src={image.previewUrl}
+                  alt={image.file?.name || `Selected image ${pendingIndex + 1}`}
+                  className="h-full w-full object-cover"
+                />
+
+                {!locked && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemovePendingImage(image.id)}
+                    className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-lg bg-black/70 text-white opacity-0 transition-all duration-200 group-hover:opacity-100 hover:bg-red-500"
+                    title="Remove selected image"
                   >
                     <X size={10} />
                   </button>
@@ -1086,7 +1516,7 @@ const MeetingItemRow = forwardRef(function MeetingItemRow(
           </div>
         )}
 
-        {viewerIndex !== null && (
+        {viewerIndex !== null && orderedImages[viewerIndex] && (
           <ImageLightbox
             images={orderedImages}
             initialIndex={viewerIndex}
@@ -1737,11 +2167,11 @@ export default function ClientMeetingsPage() {
   const refresh = useCallback(async () => {
     setError("");
     try {
-const data = await loadClientMeetings(rowKey);
-setClientName(data.clientName || "");
-setClientPhone(data.clientPhone || "");
-setEventDate(data.eventDate || "");
-setMeetings(data.meetings || []);
+      const data = await loadClientMeetings(rowKey);
+      setClientName(data.clientName || "");
+      setClientPhone(data.clientPhone || "");
+      setEventDate(data.eventDate || "");
+      setMeetings(data.meetings || []);
       setFinalization(data.finalization || null);
     } catch (err) {
       setError(err.message || "Failed to load meetings.");
@@ -1843,28 +2273,26 @@ setMeetings(data.meetings || []);
                     Client Meetings
                   </p>
                 </div>
-<h1 className="text-3xl font-black text-slate-900 sm:text-4xl">
-  {clientName || "This client"}
-</h1>
-
-<div className="mt-2 flex flex-wrap items-center gap-2">
-  {eventDate && (
-    <p className="inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-600">
-      <CalendarClock size={13} className="text-slate-400" />
-      Event Date: {formatEventDateDisplay(eventDate)}
-    </p>
-  )}
-
-  {clientPhone && (
-    <a
-      href={`tel:${clientPhone.replace(/[^\d+]/g, "")}`}
-      className="inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
-    >
-      <Phone size={13} className="text-slate-400" />
-      Phone: {clientPhone}
-    </a>
-  )}
-</div>
+                <h1 className="text-3xl font-black text-slate-900 sm:text-4xl">
+                  {clientName || "This client"}
+                </h1>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {eventDate && (
+                    <p className="inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-600">
+                      <CalendarClock size={13} className="text-slate-400" />
+                      Event Date: {formatEventDateDisplay(eventDate)}
+                    </p>
+                  )}
+                  {clientPhone && (
+                    <a
+                      href={`tel:${clientPhone.replace(/[^\d+]/g, "")}`}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+                    >
+                      <Phone size={13} className="text-slate-400" />
+                      Phone: {clientPhone}
+                    </a>
+                  )}
+                </div>
                 <p className="mt-2.5 max-w-2xl text-sm leading-relaxed text-slate-500">
                   Schedule meetings, track client requirements, and upload the
                   images the client chose during each session.
