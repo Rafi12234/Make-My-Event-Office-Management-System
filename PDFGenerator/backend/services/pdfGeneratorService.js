@@ -2,6 +2,7 @@ import { PDFDocument, StandardFonts } from "pdf-lib";
 
 import {
   PAGE_CONTENT,
+  SUMMARY_TABLE_TOP,
   TABLE_TITLE_ROW_HEIGHT,
   createTemplatedPage,
   loadTemplatePdf,
@@ -17,6 +18,7 @@ import {
   measureRows,
   measureHeaderHeight,
   splitMeasuredRow,
+  drawMergedTotalPriceCell,
 } from "./tableRenderer.js";
 
 import { renderReferenceSection } from "./referencePageRenderer.js";
@@ -104,210 +106,97 @@ async function drawTableSection(
   },
 ) {
   let page = firstPage;
+  let y;
+  let dataTopY;
 
-  /*
-    First page table title
-  */
-  let y = drawTableTitle(
-    page,
-    {
-      x: PAGE_CONTENT.x,
-      y: PAGE_CONTENT.top,
-      width:
-        PAGE_CONTENT.width,
-      title:
-        eventTitle,
-      font:
-        fonts.bold,
-    },
+  const headerHeight = measureHeaderHeight(
+    columnWidths,
+    fonts.bold,
+    tableOptions,
   );
 
-  /*
-    First page header
-  */
-  y = drawTableHeader(
-    page,
-    {
+  const continuationRowMaxHeight =
+    (SUMMARY_TABLE_TOP - PAGE_CONTENT.bottom) -
+    TABLE_TITLE_ROW_HEIGHT -
+    headerHeight;
+
+  async function beginTablePage(nextPage) {
+    page = nextPage;
+
+    y = drawTableTitle(page, {
+      x: PAGE_CONTENT.x,
+      y: SUMMARY_TABLE_TOP,
+      width: PAGE_CONTENT.width,
+      title: eventTitle,
+      font: fonts.bold,
+    });
+
+    y = drawTableHeader(page, {
       x: PAGE_CONTENT.x,
       y,
       columnWidths,
-      font:
-        fonts.bold,
-      options:
-        tableOptions,
-    },
-  );
+      font: fonts.bold,
+      options: tableOptions,
+    });
 
-  const headerHeight =
-    measureHeaderHeight(
+    // The merged Price cell starts directly below the header row.
+    dataTopY = y;
+  }
+
+  function finalizeCurrentTablePage() {
+    if (typeof dataTopY !== "number" || typeof y !== "number" || y >= dataTopY) {
+      return;
+    }
+
+    drawMergedTotalPriceCell(page, {
+      x: PAGE_CONTENT.x,
+      topY: dataTopY,
+      bottomY: y,
       columnWidths,
-      fonts.bold,
-      tableOptions,
-    );
+      font: fonts.bold,
+      options: tableOptions,
+    });
+  }
 
-  /*
-    Maximum usable row height on a continuation page.
-
-    Continuation pages repeat:
-    - title
-    - table header
-  */
-  const continuationRowMaxHeight =
-    PAGE_CONTENT.height -
-    TABLE_TITLE_ROW_HEIGHT -
-    headerHeight;
+  await beginTablePage(firstPage);
 
   for (const row of rows) {
     /*
     |--------------------------------------------------------------------------
     | Very tall row
     |--------------------------------------------------------------------------
-    |
-    | If a row itself is taller than one usable page,
-    | split it into multiple visual row segments.
-    |
     */
-    if (
-      row.height >
-      continuationRowMaxHeight
-    ) {
-      /*
-        If current page already contains table data,
-        start the large split-row on a new page.
-      */
-      if (
-        y <
-        PAGE_CONTENT.top -
-          TABLE_TITLE_ROW_HEIGHT -
-          headerHeight
-      ) {
-        page =
-          await createTemplatedPage(
-            outputPdf,
-            templatePdf,
-          );
-
-        y = drawTableTitle(
-          page,
-          {
-            x:
-              PAGE_CONTENT.x,
-
-            y:
-              PAGE_CONTENT.top,
-
-            width:
-              PAGE_CONTENT.width,
-
-            title:
-              eventTitle,
-
-            font:
-              fonts.bold,
-          },
-        );
-
-        y = drawTableHeader(
-          page,
-          {
-            x:
-              PAGE_CONTENT.x,
-
-            y,
-
-            columnWidths,
-
-            font:
-              fonts.bold,
-
-            options:
-              tableOptions,
-          },
-        );
+    if (row.height > continuationRowMaxHeight) {
+      // If this page already has data, close its merged Price cell first and
+      // start the oversized row on a fresh continuation page.
+      if (y < dataTopY) {
+        finalizeCurrentTablePage();
+        const nextPage = await createTemplatedPage(outputPdf, templatePdf);
+        await beginTablePage(nextPage);
       }
 
-      const segments =
-        splitMeasuredRow(
-          row,
-          continuationRowMaxHeight,
-          columnWidths,
-          tableOptions,
-        );
+      const segments = splitMeasuredRow(
+        row,
+        continuationRowMaxHeight,
+        columnWidths,
+        tableOptions,
+      );
 
-      for (
-        const [
-          segmentIndex,
-          segment,
-        ] of segments.entries()
-      ) {
-        if (
-          segmentIndex > 0
-        ) {
-          page =
-            await createTemplatedPage(
-              outputPdf,
-              templatePdf,
-            );
-
-          y = drawTableTitle(
-            page,
-            {
-              x:
-                PAGE_CONTENT.x,
-
-              y:
-                PAGE_CONTENT.top,
-
-              width:
-                PAGE_CONTENT.width,
-
-              title:
-                eventTitle,
-
-              font:
-                fonts.bold,
-            },
-          );
-
-          y = drawTableHeader(
-            page,
-            {
-              x:
-                PAGE_CONTENT.x,
-
-              y,
-
-              columnWidths,
-
-              font:
-                fonts.bold,
-
-              options:
-                tableOptions,
-            },
-          );
+      for (const [segmentIndex, segment] of segments.entries()) {
+        if (segmentIndex > 0) {
+          finalizeCurrentTablePage();
+          const nextPage = await createTemplatedPage(outputPdf, templatePdf);
+          await beginTablePage(nextPage);
         }
 
-        y = drawTableRow(
-          page,
-          {
-            x:
-              PAGE_CONTENT.x,
-
-            y,
-
-            columnWidths,
-
-            row:
-              segment,
-
-            font:
-              fonts.regular,
-
-            options:
-              tableOptions,
-          },
-        );
+        y = drawTableRow(page, {
+          x: PAGE_CONTENT.x,
+          y,
+          columnWidths,
+          row: segment,
+          font: fonts.regular,
+          options: tableOptions,
+        });
       }
 
       continue;
@@ -318,81 +207,30 @@ async function drawTableSection(
     | Normal row pagination
     |--------------------------------------------------------------------------
     */
-    if (
-      y - row.height <
-      PAGE_CONTENT.bottom
-    ) {
-      page =
-        await createTemplatedPage(
-          outputPdf,
-          templatePdf,
-        );
-
-      y = drawTableTitle(
-        page,
-        {
-          x:
-            PAGE_CONTENT.x,
-
-          y:
-            PAGE_CONTENT.top,
-
-          width:
-            PAGE_CONTENT.width,
-
-          title:
-            eventTitle,
-
-          font:
-            fonts.bold,
-        },
-      );
-
-      y = drawTableHeader(
-        page,
-        {
-          x:
-            PAGE_CONTENT.x,
-
-          y,
-
-          columnWidths,
-
-          font:
-            fonts.bold,
-
-          options:
-            tableOptions,
-        },
-      );
+    if (y - row.height < PAGE_CONTENT.bottom) {
+      finalizeCurrentTablePage();
+      const nextPage = await createTemplatedPage(outputPdf, templatePdf);
+      await beginTablePage(nextPage);
     }
 
-    y = drawTableRow(
-      page,
-      {
-        x:
-          PAGE_CONTENT.x,
-
-        y,
-
-        columnWidths,
-
-        row,
-
-        font:
-          fonts.regular,
-
-        options:
-          tableOptions,
-      },
-    );
+    y = drawTableRow(page, {
+      x: PAGE_CONTENT.x,
+      y,
+      columnWidths,
+      row,
+      font: fonts.regular,
+      options: tableOptions,
+    });
   }
+
+  finalizeCurrentTablePage();
 
   return {
     page,
     y,
   };
 }
+
 
 /*
 |--------------------------------------------------------------------------
@@ -428,6 +266,9 @@ export async function generatePdfDocument({
   excelColumns = [],
 
   nbPoints = [],
+
+  // Overall meeting total. This is intentionally not an item-wise column.
+  totalPrice = null,
 }) {
   if (!items?.length) {
     throw new Error(
@@ -487,6 +328,7 @@ export async function generatePdfDocument({
     sourceMode,
     selectedColumns,
     excelColumns,
+    totalPrice,
   };
 
   /*
@@ -562,12 +404,8 @@ export async function generatePdfDocument({
       nbPoints,
       fonts,
       templatePdf,
-
-      page:
-        afterTable.page,
-
-      y:
-        afterTable.y,
+      page: afterTable.page,
+      y: afterTable.y,
     },
   );
 
