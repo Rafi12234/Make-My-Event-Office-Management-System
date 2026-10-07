@@ -13,10 +13,14 @@ export const PAGE_CONTENT = {
 PAGE_CONTENT.width = PAGE_CONTENT.right - PAGE_CONTENT.x;
 PAGE_CONTENT.height = PAGE_CONTENT.top - PAGE_CONTENT.bottom;
 
+// Summary table starts closer to the logo, matching the supplied proposal.
+// Other content/reference pages keep using PAGE_CONTENT.top.
+export const SUMMARY_TABLE_TOP = 600;
+
 export const DATE_FIELD = {
   x: 455,
-  y: 565,
-  fontSize: 10,
+  y: 614,
+  fontSize: 9,
 };
 
 export async function createTemplatedPage(outputPdf, templatePdf) {
