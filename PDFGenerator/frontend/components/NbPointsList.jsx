@@ -1,54 +1,30 @@
-import { ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
+const textareaClassName =
+  "min-h-[320px] w-full resize-y rounded-2xl border border-black/10 bg-white px-4 py-4 text-sm leading-7 text-black/80 outline-none transition focus:border-black/35 focus:ring-4 focus:ring-black/[0.03] disabled:bg-black/[0.025] disabled:text-black/55";
 
-const inputClassName =
-  "w-full rounded-xl border border-black/10 bg-white px-3.5 py-2.5 text-sm text-black/85 outline-none transition-colors focus:border-black/40 disabled:bg-black/[0.025] disabled:text-black/55";
+function pointsToText(points) {
+  if (!Array.isArray(points) || points.length === 0) return "";
+  if (points.length === 1) return String(points[0] ?? "");
+  return points
+    .map((point, index) => `${index + 1}. ${String(point ?? "").trim()}`)
+    .join("\n");
+}
 
 export default function NbPointsList({ points, onChange, disabled = false }) {
-  function updateText(index, text) {
-    const next = [...points];
-    next[index] = text;
-    onChange(next);
-  }
-
-  function moveItem(index, direction) {
-    const targetIndex = index + direction;
-    if (targetIndex < 0 || targetIndex >= points.length) return;
-    const next = [...points];
-    [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
-    onChange(next);
-  }
+  const text = pointsToText(points);
 
   return (
-    <div className="space-y-2">
-      {points.map((point, index) => (
-        <div key={index} className="flex items-center gap-2">
-          <span className="flex h-9 w-7 shrink-0 items-center justify-center text-xs font-black text-black/40">{index + 1}.</span>
-          <input
-            className={inputClassName}
-            value={point}
-            disabled={disabled}
-            onChange={(event) => updateText(index, event.target.value)}
-            placeholder="e.g. 80% of the total money should be paid in advance/confirmation."
-          />
-          {!disabled && (
-            <div className="flex shrink-0 items-center gap-0.5">
-              <button type="button" onClick={() => moveItem(index, -1)} disabled={index === 0} className="flex h-8 w-8 items-center justify-center rounded-lg text-black/40 hover:bg-black/5 disabled:opacity-25"><ChevronUp size={16} /></button>
-              <button type="button" onClick={() => moveItem(index, 1)} disabled={index === points.length - 1} className="flex h-8 w-8 items-center justify-center rounded-lg text-black/40 hover:bg-black/5 disabled:opacity-25"><ChevronDown size={16} /></button>
-              <button type="button" onClick={() => onChange(points.filter((_, i) => i !== index))} className="flex h-8 w-8 items-center justify-center rounded-lg text-red-500/70 hover:bg-red-50 hover:text-red-600"><Trash2 size={16} /></button>
-            </div>
-          )}
-        </div>
-      ))}
+    <div>
+      <textarea
+        className={textareaClassName}
+        value={text}
+        disabled={disabled}
+        onChange={(event) => onChange([event.target.value])}
+        placeholder="Paste the full N.B. text here. Numbering and line breaks will be kept in the PDF."
+      />
 
-      {!disabled && (
-        <button
-          type="button"
-          onClick={() => onChange([...points, ""])}
-          className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-black/15 bg-white px-4 py-2.5 text-sm font-black text-black/60 hover:border-black/30 hover:text-black"
-        >
-          <Plus size={16} /> Add NB Point
-        </button>
-      )}
+      <p className="mt-2 text-[11px] leading-relaxed text-black/40">
+        Paste or edit the complete N.B. in one place. This change applies only to this client PDF; the default N.B. for other clients is unchanged.
+      </p>
     </div>
   );
 }
