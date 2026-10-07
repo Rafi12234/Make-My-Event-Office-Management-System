@@ -71,8 +71,14 @@ const MEETING_META = {
   },
 
   price: {
+    label: "Item Price",
+    weight: 9,
+  },
+
+  totalPrice: {
     label: "Price",
     weight: 8,
+    role: "totalPrice",
   },
 };
 
@@ -284,11 +290,12 @@ function sanitizeExcelColumns(
 | Items | Details | Size | SQFT | Qty | TSqft | Unit | Price
 |
 */
-export function getTableColumns({
-  sourceMode = "meeting",
-  selectedColumns = [],
-  excelColumns = [],
-} = {}) {
+export function getTableColumns(options = {}) {
+  const {
+    sourceMode = "meeting",
+    selectedColumns = [],
+    excelColumns = [],
+  } = options;
   /*
   |--------------------------------------------------------------------------
   | Excel mode
@@ -316,12 +323,18 @@ export function getTableColumns({
         ),
     );
 
+  const hasTotalPrice =
+    options.totalPrice !== null &&
+    options.totalPrice !== undefined &&
+    String(options.totalPrice).trim() !== "";
+
   return [
     "sl",
     "item",
     "description",
     "qty",
     ...optional,
+    ...(hasTotalPrice ? ["totalPrice"] : []),
   ].map(
     (key) => ({
       key,
@@ -558,6 +571,12 @@ function textValue(
       item.quantity ||
       ""
     );
+  }
+
+  // Overall Total Price is rendered as one merged cell for the whole
+  // visible table section, not repeated row-by-row.
+  if (column.key === "totalPrice") {
+    return "";
   }
 
   return item[
@@ -1330,7 +1349,20 @@ export function drawTableRow(
 
   /*
     Bottom horizontal border.
+
+    When the meeting has an overall Total Price, its far-right Price column
+    behaves like one merged cell. Row separator lines stop before that column.
+    The final bottom border for the merged cell is drawn by
+    drawMergedTotalPriceCell().
   */
+  const hasMergedTotalPrice =
+    options.sourceMode !== "excel" &&
+    columns.at(-1)?.key === "totalPrice";
+
+  const rowLineEndX = hasMergedTotalPrice
+    ? x + width - (columnWidths.totalPrice || 0)
+    : x + width;
+
   page.drawLine({
     start: {
       x,
@@ -1338,8 +1370,7 @@ export function drawTableRow(
     },
 
     end: {
-      x:
-        x + width,
+      x: rowLineEndX,
       y: bottomY,
     },
 
@@ -1354,6 +1385,11 @@ export function drawTableRow(
     const column of
       columns
   ) {
+    if (column.key === "totalPrice") {
+      cursor += columnWidths[column.key];
+      continue;
+    }
+
     const lines =
       row.wrapped[
         column.key
@@ -1448,3 +1484,82 @@ export function drawTableRow(
 
   return bottomY;
 }
+
+/*
+|--------------------------------------------------------------------------
+| Draw merged overall Total Price cell
+|--------------------------------------------------------------------------
+|
+| The reference proposal shows one Price cell spanning all item rows on each
+| table page. This function closes that cell and centers the meeting total.
+|
+*/
+function formatTotalPrice(value) {
+  if (value === null || value === undefined || String(value).trim() === "") {
+    return "";
+  }
+
+  const number = Number(String(value).replace(/,/g, ""));
+  if (!Number.isFinite(number)) return String(value);
+
+  return number.toLocaleString("en-IN", {
+    minimumFractionDigits: Number.isInteger(number) ? 0 : 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+export function drawMergedTotalPriceCell(
+  page,
+  {
+    x,
+    topY,
+    bottomY,
+    columnWidths,
+    font,
+    options = {},
+  },
+) {
+  const columns = getTableColumns(options);
+
+  if (
+    options.sourceMode === "excel" ||
+    columns.at(-1)?.key !== "totalPrice" ||
+    topY <= bottomY
+  ) {
+    return;
+  }
+
+  const amount = formatTotalPrice(options.totalPrice);
+  if (!amount) return;
+
+  const totalWidthBefore = columns
+    .slice(0, -1)
+    .reduce(
+      (sum, column) => sum + (columnWidths[column.key] || 0),
+      0,
+    );
+
+  const cellX = x + totalWidthBefore;
+  const cellWidth = columnWidths.totalPrice || 0;
+
+  // Close the merged cell at the bottom of this table page.
+  page.drawLine({
+    start: { x: cellX, y: bottomY },
+    end: { x: cellX + cellWidth, y: bottomY },
+    thickness: 0.7,
+    color: BLACK,
+  });
+
+  const fontSize = Math.min(9.6, tableFontSizes(columns.length).body + 1.2);
+  const textWidth = font.widthOfTextAtSize(amount, fontSize);
+  const centerY = bottomY + (topY - bottomY) / 2;
+
+  page.drawText(amount, {
+    x: cellX + Math.max(3, (cellWidth - textWidth) / 2),
+    y: centerY - fontSize / 2 + 1,
+    size: fontSize,
+    font,
+    color: BLACK,
+  });
+}
+
