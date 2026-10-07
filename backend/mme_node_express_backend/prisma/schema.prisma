@@ -209,6 +209,7 @@ model ClientMeeting {
   expectedMeetingDatetime                           DateTime?            @map("expected_meeting_datetime") @db.DateTime(0)
   discussionNotes                                   String?              @map("discussion_notes") @db.Text
   requirements                                      Json?
+  totalPrice                                        Decimal?             @map("total_price") @db.Decimal(14, 2)
   createdById                                       BigInt?              @map("created_by") @db.UnsignedBigInt
   updatedById                                       BigInt?              @map("updated_by") @db.UnsignedBigInt
   assignedByEmployeeId                              BigInt?              @map("assigned_by_employee_id") @db.UnsignedBigInt
@@ -288,6 +289,7 @@ model MeetingItem {
   customLabel      String?              @map("custom_label") @db.VarChar(160)
   description      String?              @db.Text
   quantity         Int?                 @default(1) @db.UnsignedInt
+  itemPrice        Decimal?             @map("item_price") @db.Decimal(14, 2)
   createdById      BigInt?              @map("created_by") @db.UnsignedBigInt
   updatedById      BigInt?              @map("updated_by") @db.UnsignedBigInt
   createdAt        DateTime             @default(now()) @map("created_at") @db.DateTime(0)
