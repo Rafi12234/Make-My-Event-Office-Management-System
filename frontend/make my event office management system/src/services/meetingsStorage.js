@@ -41,10 +41,10 @@ export async function createMeeting(rowKey, { meetingDatetime, employeeId }) {
   });
 }
 
-export async function updateMeeting(rowKey, meetingId, { meetingDatetime, nextMeetingDatetime, nextMeetingAssignedEmployeeId, requirements, employeeId }) {
+export async function updateMeeting(rowKey, meetingId, { meetingDatetime, nextMeetingDatetime, nextMeetingAssignedEmployeeId, requirements, totalPrice, employeeId }) {
   return apiRequest(`/meetings/${rowKey}/${meetingId}`, {
     method: "PUT",
-    body: JSON.stringify({ meetingDatetime, nextMeetingDatetime, nextMeetingAssignedEmployeeId, requirements, employeeId }),
+    body: JSON.stringify({ meetingDatetime, nextMeetingDatetime, nextMeetingAssignedEmployeeId, requirements, totalPrice, employeeId }),
   });
 }
 
@@ -100,17 +100,46 @@ export async function deleteMeetingImage(rowKey, meetingId, imageId) {
   });
 }
 
-export async function createMeetingItem(rowKey, meetingId, { itemKey, customLabel, description, quantity, employeeId }) {
+export async function createMeetingItem(
+  rowKey,
+  meetingId,
+  { itemKey, customLabel, description, quantity, itemPrice, employeeId },
+) {
   return apiRequest(`/meetings/${rowKey}/${meetingId}/items`, {
     method: "POST",
-    body: JSON.stringify({ itemKey, customLabel, description, quantity, employeeId }),
+    body: JSON.stringify({
+      itemKey,
+      customLabel,
+      description,
+      quantity,
+      itemPrice,
+      employeeId,
+    }),
   });
 }
 
-export async function updateMeetingItem(rowKey, meetingId, itemId, { customLabel, description, quantity, employeeId }) {
+export async function importMeetingItems(rowKey, meetingId, items) {
+  return apiRequest(`/meetings/${rowKey}/${meetingId}/items/import`, {
+    method: "POST",
+    body: JSON.stringify({ items }),
+  });
+}
+
+export async function updateMeetingItem(
+  rowKey,
+  meetingId,
+  itemId,
+  { customLabel, description, quantity, itemPrice, employeeId },
+) {
   return apiRequest(`/meetings/${rowKey}/${meetingId}/items/${itemId}`, {
     method: "PUT",
-    body: JSON.stringify({ customLabel, description, quantity, employeeId }),
+    body: JSON.stringify({
+      customLabel,
+      description,
+      quantity,
+      itemPrice,
+      employeeId,
+    }),
   });
 }
 
