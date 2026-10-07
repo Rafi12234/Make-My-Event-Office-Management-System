@@ -129,6 +129,13 @@ export async function renderReferenceSection(
       continue;
     }
 
+    // Do not create a detail/reference page when the item has no images.
+    // The item still appears in the summary table on the first page.
+    const images = item.embeddedImages || [];
+    if (!images.length) {
+      continue;
+    }
+
     /*
     |--------------------------------------------------------------------------
     | Every real item starts on its own letterhead page
@@ -351,18 +358,6 @@ export async function renderReferenceSection(
     | Multiple images per item are supported.
     |
     */
-    const images =
-      item.embeddedImages || [];
-
-    /*
-      An item without images still gets its heading/description page.
-    */
-    if (
-      !images.length
-    ) {
-      continue;
-    }
-
     cursorY -=
       DETAIL_IMAGE_GAP;
 
