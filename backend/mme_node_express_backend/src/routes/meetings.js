@@ -1,4 +1,4 @@
-﻿import { Router } from "express";
+import { Router } from "express";
 import {
   uploadsRootDirectory,
   meetingImagesDirectory,
@@ -16,6 +16,7 @@ import {
   deleteMeetingImage,
   createMeetingItem,
   updateMeetingItem,
+  importMeetingItems,
   deleteMeetingItem,
   uploadItemImagesMiddleware,
   uploadItemImages,
@@ -36,6 +37,7 @@ router.get("/:rowKey/finalize", getFinalizationDetail);
 router.post("/:rowKey/finalize", finalizeMeeting);
 router.delete("/:rowKey/:meetingId", deleteMeeting);
 router.post("/:rowKey/:meetingId/items", createMeetingItem);
+router.post("/:rowKey/:meetingId/items/import", importMeetingItems);
 router.put("/:rowKey/:meetingId/items/:itemId", updateMeetingItem);
 router.delete("/:rowKey/:meetingId/items/:itemId", deleteMeetingItem);
 router.post(
