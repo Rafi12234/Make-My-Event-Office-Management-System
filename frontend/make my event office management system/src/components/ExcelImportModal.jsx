@@ -1,4 +1,4 @@
-﻿import { FileSpreadsheet, PlusCircle, X } from "lucide-react";
+import { FileSpreadsheet, PlusCircle, X } from "lucide-react";
 
 export default function ExcelImportModal({ preview, onClose, onConfirm }) {
   const visibleRows = preview.rows.slice(0, 5);
@@ -31,7 +31,10 @@ export default function ExcelImportModal({ preview, onClose, onConfirm }) {
               The first Excel row becomes column headings and must include every mandatory column
               (Client Name, Venue, Shift, Client Phone Number, Floor, Guest Count, Event Date).
               Only columns matching an existing sheet column are imported — any extra columns are
-              ignored. Blank or "N/A" cells are stored and shown as N/A. Blank rows are ignored.
+              ignored. Duplicate checking uses only Client Phone Number + Event Date: if both match
+              an existing row, that Excel row is skipped even when the client name or other details
+              differ. If either the phone or event date is different, the row is allowed. Blank or
+              "N/A" cells are stored and shown as N/A. Blank rows are ignored.
             </p>
           </div>
 
