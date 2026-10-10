@@ -1,4 +1,4 @@
-﻿import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import mmeLogo from "../assets/mme-logo-cropped.png";
 import {
@@ -171,10 +171,43 @@ function rowSignature(row) {
   return JSON.stringify({ values: row.values, alreadyBooked: Boolean(row.alreadyBooked) });
 }
 
-function buildRowSignature(values, columns) {
-  return columns
-    .map((column) => String(values[column.id] ?? "").trim().toLowerCase())
-    .join("\u0001");
+// Excel duplicate detection intentionally uses ONLY Client Phone Number +
+// Event Date. Client names and every other field are ignored for duplicate
+// purposes, so a spelling correction such as "Abul Kashem" -> "Abul Kasheem"
+// will not create a second client row when the phone and event date are the
+// same. A row is allowed when either the phone OR event date is different.
+function normalizePhoneForImportDuplicateCheck(raw) {
+  const text = String(raw ?? "").trim();
+  if (!text || /^n\/?a$/i.test(text)) return "";
+
+  let digits = text.replace(/\D/g, "");
+  if (!digits) return "";
+
+  // Treat the common Bangladesh forms as the same phone number:
+  // +8801712345678 / 8801712345678 / 01712345678 / 1712345678.
+  if (digits.startsWith("00880")) digits = digits.slice(2);
+  if (/^8801\d{9}$/.test(digits)) digits = `0${digits.slice(3)}`;
+  else if (/^1\d{9}$/.test(digits)) digits = `0${digits}`;
+
+  return digits;
+}
+
+function normalizeEventDateForImportDuplicateCheck(raw) {
+  const text = String(raw ?? "").trim();
+  if (!text || /^n\/?a$/i.test(text)) return "";
+  return parseFreeTextDateToIso(text);
+}
+
+function buildPhoneEventDuplicateKey(values, phoneColumn, eventDateColumn) {
+  if (!phoneColumn || !eventDateColumn) return null;
+
+  const phone = normalizePhoneForImportDuplicateCheck(values[phoneColumn.id]);
+  const eventDate = normalizeEventDateForImportDuplicateCheck(values[eventDateColumn.id]);
+
+  // Do not collapse incomplete/N/A rows together. The duplicate rule only
+  // applies when BOTH identifying fields contain usable values.
+  if (!phone || !eventDate) return null;
+  return `${phone}\u0001${eventDate}`;
 }
 
 function formatMeetingTimeDisplay(value, emptyLabel) {
@@ -1602,12 +1635,33 @@ const venueFilterOptions = useMemo(() => {
 
     const headerMap = new Map(workspace.columns.map((column) => [normalizeHeader(column.name), column]));
 
-    const importedColumns = importPreview.headers
-      .map((header) => headerMap.get(normalizeHeader(header)))
-      .filter(Boolean);
+    const phoneColumn = workspace.columns.find(
+      (column) =>
+        column.id === "client_phone" ||
+        normalizeHeader(column.name) === normalizeHeader("Client Phone Number"),
+    );
+    const eventDateColumn = workspace.columns.find(
+      (column) =>
+        column.id === "event_date" ||
+        normalizeHeader(column.name) === normalizeHeader("Event Date"),
+    );
 
-    const seenSignatures = new Set(
-      workspace.rows.map((row) => buildRowSignature(row.values, importedColumns)),
+    if (!phoneColumn || !eventDateColumn) {
+      setNotice({
+        type: "error",
+        message:
+          "Import could not check duplicates because Client Phone Number or Event Date is missing from the management sheet.",
+      });
+      return;
+    }
+
+    // Existing sheet rows establish the unique client/event pairs. New rows
+    // accepted from this same Excel file are added to the set too, so duplicate
+    // phone + event-date pairs inside a single upload are skipped as well.
+    const seenPhoneEventKeys = new Set(
+      workspace.rows
+        .map((row) => buildPhoneEventDuplicateKey(row.values, phoneColumn, eventDateColumn))
+        .filter(Boolean),
     );
 
     const importedRows = [];
@@ -1629,12 +1683,12 @@ const venueFilterOptions = useMemo(() => {
         }
       });
 
-      const signature = buildRowSignature(values, importedColumns);
-      if (seenSignatures.has(signature)) {
+      const phoneEventKey = buildPhoneEventDuplicateKey(values, phoneColumn, eventDateColumn);
+      if (phoneEventKey && seenPhoneEventKeys.has(phoneEventKey)) {
         duplicateCount += 1;
         return;
       }
-      seenSignatures.add(signature);
+      if (phoneEventKey) seenPhoneEventKeys.add(phoneEventKey);
 
       importedRows.push({
         id: crypto.randomUUID(),
@@ -1653,7 +1707,7 @@ const venueFilterOptions = useMemo(() => {
       type: "success",
       message:
         duplicateCount > 0
-          ? `${importedRows.length} row(s) imported from ${importPreview.fileName}. ${duplicateCount} duplicate row(s) skipped (already existed).`
+          ? `${importedRows.length} row(s) imported from ${importPreview.fileName}. ${duplicateCount} duplicate row(s) skipped because the same Client Phone Number + Event Date already exists.`
           : `${importedRows.length} row(s) imported from ${importPreview.fileName}.`,
     });
     setImportPreview(null);
