@@ -3,16 +3,30 @@ function normalizeHeader(value, index) {
   return text || `Column ${index + 1}`;
 }
 
+function formatSpreadsheetDateValue(date) {
+  // Excel date cells represent a wall-clock/calendar value, not a moment that
+  // should be converted to UTC. Using toISOString() here shifts midnight
+  // values backwards in positive-offset timezones (e.g. Bangladesh UTC+6:
+  // 29-Nov 00:00 local becomes 28-Nov 18:00Z). Build the string from local
+  // calendar parts instead so the date visible in Excel is the date imported.
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
 function readExcelCellValue(cell) {
   const value = cell.value;
 
   if (value === null || value === undefined) return "";
-  if (value instanceof Date) return value.toISOString().slice(0, 16);
+  if (value instanceof Date) return formatSpreadsheetDateValue(value);
 
   if (typeof value === "object") {
     if ("result" in value && value.result !== undefined) {
       return value.result instanceof Date
-        ? value.result.toISOString().slice(0, 16)
+        ? formatSpreadsheetDateValue(value.result)
         : String(value.result ?? "");
     }
 
@@ -128,7 +142,7 @@ async function parseXlsxWithExcelJS(buffer) {
 
 function readSheetJSCellValue(value) {
   if (value === null || value === undefined) return "";
-  if (value instanceof Date) return value.toISOString().slice(0, 16);
+  if (value instanceof Date) return formatSpreadsheetDateValue(value);
   return String(value);
 }
 
