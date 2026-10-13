@@ -38,9 +38,12 @@ import {
 } from "../data/defaultSheet";
 import { clearCurrentEmployee, fetchTodaySummary, loadCurrentEmployee } from "../services/authStorage";
 import {
+  deleteWorkspaceRows,
   loadEmployeeDirectory,
   loadWorkspace,
-  saveWorkspace,
+  loadWorkspaceRowSnapshot,
+  saveWorkspaceChanges,
+  setWorkspaceRowAlreadyBooked,
 } from "../services/managementStorage";
 import { parseSpreadsheetFile } from "../utils/excelImport";
 import { loadClientMeetings } from "../services/meetingsStorage";
@@ -171,25 +174,28 @@ function rowSignature(row) {
   return JSON.stringify({ values: row.values, alreadyBooked: Boolean(row.alreadyBooked) });
 }
 
-// Excel duplicate detection intentionally uses ONLY Client Phone Number +
-// Event Date. Client names and every other field are ignored for duplicate
-// purposes, so a spelling correction such as "Abul Kashem" -> "Abul Kasheem"
-// will not create a second client row when the phone and event date are the
-// same. A row is allowed when either the phone OR event date is different.
-function normalizePhoneForImportDuplicateCheck(raw) {
+// Excel duplicate detection uses the event itself rather than the client's
+// name/phone. A row is considered a duplicate only when ALL FOUR values match:
+// Event Date + Venue + Shift + Floor. If any one of the four values differs,
+// the Excel row is allowed as a separate client/event record.
+function normalizeImportDuplicateText(raw) {
   const text = String(raw ?? "").trim();
   if (!text || /^n\/?a$/i.test(text)) return "";
+  return text.toLowerCase().replace(/\s+/g, " ");
+}
 
-  let digits = text.replace(/\D/g, "");
-  if (!digits) return "";
+function normalizeFloorForImportDuplicateCheck(raw) {
+  const normalized = normalizeImportDuplicateText(raw);
+  if (!normalized) return "";
 
-  // Treat the common Bangladesh forms as the same phone number:
-  // +8801712345678 / 8801712345678 / 01712345678 / 1712345678.
-  if (digits.startsWith("00880")) digits = digits.slice(2);
-  if (/^8801\d{9}$/.test(digits)) digits = `0${digits.slice(3)}`;
-  else if (/^1\d{9}$/.test(digits)) digits = `0${digits}`;
+  // Keep named floors such as "Ground Floor" / "Level 4" as normalized text,
+  // but make plain numeric values comparable (e.g. 04, 4.0 and 4 -> "4").
+  if (/^[+-]?\d+(?:\.0+)?$/.test(normalized)) {
+    const numeric = Number(normalized);
+    if (Number.isFinite(numeric)) return String(numeric);
+  }
 
-  return digits;
+  return normalized;
 }
 
 function normalizeEventDateForImportDuplicateCheck(raw) {
@@ -198,16 +204,25 @@ function normalizeEventDateForImportDuplicateCheck(raw) {
   return parseFreeTextDateToIso(text);
 }
 
-function buildPhoneEventDuplicateKey(values, phoneColumn, eventDateColumn) {
-  if (!phoneColumn || !eventDateColumn) return null;
+function buildEventDuplicateKey(
+  values,
+  eventDateColumn,
+  venueColumn,
+  shiftColumn,
+  floorColumn,
+) {
+  if (!eventDateColumn || !venueColumn || !shiftColumn || !floorColumn) return null;
 
-  const phone = normalizePhoneForImportDuplicateCheck(values[phoneColumn.id]);
   const eventDate = normalizeEventDateForImportDuplicateCheck(values[eventDateColumn.id]);
+  const venue = normalizeImportDuplicateText(values[venueColumn.id]);
+  const shift = normalizeImportDuplicateText(values[shiftColumn.id]);
+  const floor = normalizeFloorForImportDuplicateCheck(values[floorColumn.id]);
 
-  // Do not collapse incomplete/N/A rows together. The duplicate rule only
-  // applies when BOTH identifying fields contain usable values.
-  if (!phone || !eventDate) return null;
-  return `${phone}\u0001${eventDate}`;
+  // Only declare a duplicate when all four identifying fields are usable and
+  // all four match. Incomplete/N/A rows are never collapsed accidentally.
+  if (!eventDate || !venue || !shift || !floor) return null;
+
+  return `${eventDate}\u0001${venue}\u0001${shift}\u0001${floor}`;
 }
 
 function formatMeetingTimeDisplay(value, emptyLabel) {
@@ -962,6 +977,9 @@ export default function ManagementPage() {
   const [hoveredSection, setHoveredSection] = useState(null);
   const filterDropdownRef = useRef(null);
   const [confirmDeleteRowId, setConfirmDeleteRowId] = useState(null);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [selectedRowIds, setSelectedRowIds] = useState(() => new Set());
+  const [remoteChangeNotice, setRemoteChangeNotice] = useState(null);
   const [resizeCursor, setResizeCursor] = useState(null);
   const [hoverPreview, setHoverPreview] = useState(null);
   const hoverHideTimeout = useRef(null);
@@ -971,6 +989,11 @@ export default function ManagementPage() {
   // save. Lets us tell a brand-new, never-saved row apart from an edit to
   // an already-saved one, and detect real (non-blank) unsaved content.
   const lastSavedRowsSnapshotRef = useRef(new Map());
+  const serverRowKeysRef = useRef(new Set());
+  const serverSnapshotInitializedRef = useRef(false);
+  const localMutationInFlightRef = useRef(false);
+  const suppressNextDirtyMarkRef = useRef(false);
+  const alreadyBookedSaveInFlightRef = useRef(new Set());
   const [filters, setFilters] = useState(() =>
     loadStoredFilters(employee?.id) || {
       dateFrom: "",
@@ -1230,6 +1253,45 @@ const venueFilterOptions = useMemo(() => {
     return [...draftRows, ...rows];
   }, [searchText, workspace.rows, workspace.columns, filters, upcomingOnly, sortOrder]);
 
+  const allVisibleRowsSelected =
+    filteredRows.length > 0 &&
+    filteredRows.every((row) => selectedRowIds.has(String(row.id)));
+
+  function toggleRowSelection(rowId) {
+    const key = String(rowId);
+    setSelectedRowIds((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleSelectAllVisible() {
+    setSelectedRowIds((current) => {
+      const next = new Set(current);
+      if (allVisibleRowsSelected) {
+        for (const row of filteredRows) next.delete(String(row.id));
+      } else {
+        for (const row of filteredRows) next.add(String(row.id));
+      }
+      return next;
+    });
+  }
+
+  // Remove selections that no longer exist locally (for example after a
+  // successful delete or after refreshing the shared workspace).
+  useEffect(() => {
+    const validIds = new Set(workspace.rows.map((row) => String(row.id)));
+    setSelectedRowIds((current) => {
+      const next = new Set([...current].filter((rowId) => validIds.has(rowId)));
+      if (next.size === current.size && [...next].every((rowId) => current.has(rowId))) {
+        return current;
+      }
+      return next;
+    });
+  }, [workspace.rows]);
+
   // True only when there's an unsaved edit to an already-saved row, or a
   // brand-new row that now has real content — NOT when the only unsaved
   // change is a still-empty freshly-added row (that one just vanishes on
@@ -1346,7 +1408,12 @@ const venueFilterOptions = useMemo(() => {
         cachedWorkspace = nextState;
         cachedEmployeeDirectory = employees;
         lastSavedRowsSnapshotRef.current = new Map(nextState.rows.map((row) => [row.id, rowSignature(row)]));
+        serverRowKeysRef.current = new Set(nextState.rows.map((row) => row.id));
+        serverSnapshotInitializedRef.current = true;
         setWorkspace(nextState);
+        setSelectedRowIds(new Set());
+        setRemoteChangeNotice(null);
+        setHasUnsavedChanges(false);
         setEmployeeDirectory(employees);
       } catch (error) {
         if (!cancelled) {
@@ -1368,6 +1435,63 @@ const venueFilterOptions = useMemo(() => {
     loadSharedData();
     return () => {
       cancelled = true;
+    };
+  }, [employee?.id]);
+
+  // Lightweight cross-employee change awareness. Every 10 seconds (and when
+  // this browser tab regains focus) we compare only server row keys, not the
+  // entire sheet. This detects clients another employee added/deleted without
+  // touching or overwriting any unsaved work in the current browser.
+  useEffect(() => {
+    if (!employee?.id) return undefined;
+
+    let cancelled = false;
+    let checking = false;
+
+    async function checkForRemoteClientChanges() {
+      if (checking || localMutationInFlightRef.current) return;
+      checking = true;
+
+      try {
+        const snapshot = await loadWorkspaceRowSnapshot();
+        if (cancelled || localMutationInFlightRef.current) return;
+
+        const nextKeys = new Set((snapshot?.rowKeys || []).map(String));
+        if (!serverSnapshotInitializedRef.current) {
+          serverRowKeysRef.current = nextKeys;
+          serverSnapshotInitializedRef.current = true;
+          return;
+        }
+
+        const previousKeys = serverRowKeysRef.current;
+        const addedKeys = [...nextKeys].filter((key) => !previousKeys.has(key));
+        const deletedKeys = [...previousKeys].filter((key) => !nextKeys.has(key));
+
+        if (addedKeys.length || deletedKeys.length) {
+          setRemoteChangeNotice((current) => ({
+            addedCount: (current?.addedCount || 0) + addedKeys.length,
+            deletedCount: (current?.deletedCount || 0) + deletedKeys.length,
+            detectedAt: Date.now(),
+          }));
+        }
+
+        serverRowKeysRef.current = nextKeys;
+      } catch {
+        // Presence awareness is helpful but must never interrupt client work.
+        // A later poll/focus check will retry automatically.
+      } finally {
+        checking = false;
+      }
+    }
+
+    checkForRemoteClientChanges();
+    const interval = window.setInterval(checkForRemoteClientChanges, 10000);
+    window.addEventListener("focus", checkForRemoteClientChanges);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", checkForRemoteClientChanges);
     };
   }, [employee?.id]);
 
@@ -1416,6 +1540,10 @@ const venueFilterOptions = useMemo(() => {
 
   useEffect(() => {
     if (!hasMounted.current) return;
+    if (suppressNextDirtyMarkRef.current) {
+      suppressNextDirtyMarkRef.current = false;
+      return;
+    }
     setHasUnsavedChanges(true);
   }, [workspace]);
 
@@ -1495,26 +1623,84 @@ const venueFilterOptions = useMemo(() => {
     setNotice({ type: "success", message: "New row added at the top — fill it in and click Save Changes." });
   }
 
-  async function deleteRow(rowId) {
-    const nextRows = workspace.rows
-      .filter((row) => row.id !== rowId)
-      .map((row, index) => ({ ...row, rowNumber: index + 1 }));
+  async function deleteRows(rowIds) {
+    const uniqueRowIds = [...new Set((rowIds || []).map(String).filter(Boolean))];
+    if (!employee?.id || !uniqueRowIds.length || isSaving) return;
 
-    setRowHeights((prev) => {
-      const next = { ...prev };
-      delete next[rowId];
-      localStorage.setItem("mme_row_heights_v1", JSON.stringify(next));
-      return next;
-    });
+    const idsToDelete = new Set(uniqueRowIds);
+    const savedRowIds = uniqueRowIds.filter((rowId) =>
+      lastSavedRowsSnapshotRef.current.has(rowId),
+    );
 
-    if (!employee?.id) {
-      setWorkspace((current) => ({ ...current, rows: nextRows }));
-      setHasUnsavedChanges(true);
-      return;
+    setIsSaving(true);
+    localMutationInFlightRef.current = true;
+
+    try {
+      if (savedRowIds.length) {
+        await deleteWorkspaceRows(savedRowIds);
+      }
+
+      for (const rowId of uniqueRowIds) {
+        lastSavedRowsSnapshotRef.current.delete(rowId);
+        serverRowKeysRef.current.delete(rowId);
+      }
+
+      const current = workspaceRef.current;
+      const nextRows = current.rows
+        .filter((row) => !idsToDelete.has(String(row.id)))
+        .map((row, index) => ({ ...row, rowNumber: index + 1 }));
+      const nextWorkspace = { ...current, rows: nextRows };
+
+      const stillDirty = nextRows.some((row) => {
+        const savedSignature = lastSavedRowsSnapshotRef.current.get(row.id);
+        if (savedSignature === undefined) return !isRowBlank(row, current.columns);
+        return rowSignature(row) !== savedSignature;
+      });
+
+      setRowHeights((prev) => {
+        const next = { ...prev };
+        for (const rowId of uniqueRowIds) delete next[rowId];
+        localStorage.setItem("mme_row_heights_v1", JSON.stringify(next));
+        return next;
+      });
+
+      suppressNextDirtyMarkRef.current = true;
+      cachedWorkspace = nextWorkspace;
+      setWorkspace(nextWorkspace);
+      setSelectedRowIds((currentSelection) => {
+        const next = new Set(currentSelection);
+        for (const rowId of uniqueRowIds) next.delete(rowId);
+        return next;
+      });
+      setHasUnsavedChanges(stillDirty);
+      setNotice({
+        type: "success",
+        message:
+          uniqueRowIds.length === 1
+            ? "Client deleted successfully."
+            : `${uniqueRowIds.length} clients deleted successfully.`,
+      });
+    } catch (error) {
+      setNotice({
+        type: "error",
+        message: error instanceof Error ? error.message : "Could not delete selected client(s).",
+      });
+    } finally {
+      localMutationInFlightRef.current = false;
+      setIsSaving(false);
     }
-
-    await handleSaveChanges(nextRows);
   }
+
+  async function deleteRow(rowId) {
+    await deleteRows([rowId]);
+  }
+
+  async function deleteSelectedRows() {
+    const rowIds = [...selectedRowIds];
+    setConfirmBulkDelete(false);
+    await deleteRows(rowIds);
+  }
+
 
   function updateCell(rowId, columnId, value) {
     setWorkspace((current) => ({
@@ -1532,18 +1718,179 @@ const venueFilterOptions = useMemo(() => {
     }));
   }
 
-  // Toggled via the badge button beside the Event Date cell — marks a client
-  // as already booked with another event management company. Applies
-  // immediately to local state (row highlight shows right away) but is only
-  // persisted to the database once Save Changes is clicked, same as any
-  // other cell edit.
-  function toggleAlreadyBooked(rowId) {
-    setWorkspace((current) => ({
-      ...current,
-      rows: current.rows.map((row) =>
-        row.id === rowId ? { ...row, alreadyBooked: !row.alreadyBooked } : row,
+  // The "already booked with another company" badge saves immediately.
+  // Existing clients use a tiny dedicated PATCH that touches only the badge,
+  // so any unrelated unsaved cell edits on the same row remain unsaved.
+  // For a brand-new draft row, clicking the badge saves that one client row
+  // first (including its current fields) because there is no DB row to patch yet.
+  async function toggleAlreadyBooked(rowId) {
+    const key = String(rowId);
+    if (alreadyBookedSaveInFlightRef.current.has(key)) return;
+
+    const currentRow = workspaceRef.current.rows.find((row) => String(row.id) === key);
+    if (!currentRow) return;
+
+    const nextAlreadyBooked = !Boolean(currentRow.alreadyBooked);
+    const isSavedClient = lastSavedRowsSnapshotRef.current.has(key);
+
+    // Do not create a completely empty database client merely because its
+    // badge was clicked. Enter at least one real cell value first.
+    if (
+      !isSavedClient &&
+      isRowBlank({ ...currentRow, alreadyBooked: false, bookedFromMme: false }, workspaceRef.current.columns)
+    ) {
+      setNotice({
+        type: "error",
+        message: "Enter the client information before marking this client as booked elsewhere.",
+      });
+      return;
+    }
+
+    alreadyBookedSaveInFlightRef.current.add(key);
+    localMutationInFlightRef.current = true;
+
+    // Optimistic UI: the badge/highlight changes immediately.
+    const optimisticRow = { ...currentRow, alreadyBooked: nextAlreadyBooked };
+    const optimisticWorkspace = {
+      ...workspaceRef.current,
+      rows: workspaceRef.current.rows.map((row) =>
+        String(row.id) === key ? optimisticRow : row,
       ),
-    }));
+    };
+    suppressNextDirtyMarkRef.current = true;
+    cachedWorkspace = optimisticWorkspace;
+    setWorkspace(optimisticWorkspace);
+
+    try {
+      let workspaceAfterSuccess = optimisticWorkspace;
+
+      if (isSavedClient) {
+        await setWorkspaceRowAlreadyBooked(key, nextAlreadyBooked);
+
+        // Update only the badge portion of the saved baseline. Do NOT copy the
+        // row's current values into the baseline, because they may contain
+        // unrelated edits that still require the normal Save Changes button.
+        const previousSignature = lastSavedRowsSnapshotRef.current.get(key);
+        let savedValues = currentRow.values;
+        try {
+          const parsed = JSON.parse(previousSignature);
+          if (parsed?.values && typeof parsed.values === "object") {
+            savedValues = parsed.values;
+          }
+        } catch {
+          // Fall back to the current values only if the old signature is
+          // unexpectedly unreadable.
+        }
+        lastSavedRowsSnapshotRef.current.set(
+          key,
+          JSON.stringify({
+            values: savedValues,
+            alreadyBooked: nextAlreadyBooked,
+          }),
+        );
+
+        // Use the latest workspace in case the employee typed in another cell
+        // while this small badge request was in flight, while forcing the
+        // successfully-saved badge value onto that latest row.
+        const latestWorkspace = workspaceRef.current;
+        workspaceAfterSuccess = {
+          ...latestWorkspace,
+          rows: latestWorkspace.rows.map((row) =>
+            String(row.id) === key
+              ? { ...row, alreadyBooked: nextAlreadyBooked }
+              : row,
+          ),
+        };
+        suppressNextDirtyMarkRef.current = true;
+        cachedWorkspace = workspaceAfterSuccess;
+        setWorkspace(workspaceAfterSuccess);
+      } else {
+        const eventDateColumn = workspaceRef.current.columns.find(
+          (column) => column.id === "event_date",
+        );
+        let rowToSave = optimisticRow;
+
+        if (eventDateColumn) {
+          const currentDate = rowToSave.values[eventDateColumn.id];
+          if (!currentDate || String(currentDate).trim() === "") {
+            rowToSave = {
+              ...rowToSave,
+              values: { ...rowToSave.values, [eventDateColumn.id]: "N/A" },
+            };
+          }
+        }
+
+        await saveWorkspaceChanges(workspaceRef.current.columns, [
+          { ...rowToSave, isNewClient: true },
+        ]);
+
+        lastSavedRowsSnapshotRef.current.set(key, rowSignature(rowToSave));
+        serverRowKeysRef.current.add(key);
+
+        // Do not overwrite typing that happened while the request was in
+        // flight. Merge the saved fallback (N/A date) only when the latest
+        // local row still has that date blank; every newer edit stays local
+        // and remains dirty until the normal Save Changes action.
+        const latestWorkspace = workspaceRef.current;
+        workspaceAfterSuccess = {
+          ...latestWorkspace,
+          rows: latestWorkspace.rows.map((row) => {
+            if (String(row.id) !== key) return row;
+
+            let nextRow = { ...row, alreadyBooked: nextAlreadyBooked };
+            if (eventDateColumn) {
+              const latestDate = nextRow.values[eventDateColumn.id];
+              if (!latestDate || String(latestDate).trim() === "") {
+                nextRow = {
+                  ...nextRow,
+                  values: {
+                    ...nextRow.values,
+                    [eventDateColumn.id]: rowToSave.values[eventDateColumn.id],
+                  },
+                };
+              }
+            }
+            return nextRow;
+          }),
+        };
+        suppressNextDirtyMarkRef.current = true;
+        cachedWorkspace = workspaceAfterSuccess;
+        setWorkspace(workspaceAfterSuccess);
+      }
+
+      const stillDirty = workspaceAfterSuccess.rows.some((row) => {
+        const savedSignature = lastSavedRowsSnapshotRef.current.get(String(row.id));
+        if (savedSignature === undefined) {
+          return !isRowBlank(row, workspaceAfterSuccess.columns);
+        }
+        return rowSignature(row) !== savedSignature;
+      });
+      setHasUnsavedChanges(stillDirty);
+    } catch (error) {
+      // Revert only the badge. Keep every other in-progress cell edit intact.
+      const revertedWorkspace = {
+        ...workspaceRef.current,
+        rows: workspaceRef.current.rows.map((row) =>
+          String(row.id) === key
+            ? { ...row, alreadyBooked: Boolean(currentRow.alreadyBooked) }
+            : row,
+        ),
+      };
+      suppressNextDirtyMarkRef.current = true;
+      cachedWorkspace = revertedWorkspace;
+      setWorkspace(revertedWorkspace);
+
+      setNotice({
+        type: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Could not save the booking badge. Please try again.",
+      });
+    } finally {
+      alreadyBookedSaveInFlightRef.current.delete(key);
+      localMutationInFlightRef.current = false;
+    }
   }
 
   function addColumn(column) {
@@ -1561,43 +1908,85 @@ const venueFilterOptions = useMemo(() => {
 
   async function handleSaveChanges(rowsOverride) {
     if (!employee?.id || isSaving) return;
+
+    // Blur an active editor before taking the save snapshot so the value shown
+    // in the UI is already committed to React state before the request starts.
+    document.activeElement?.blur?.();
+
     setIsSaving(true);
+    localMutationInFlightRef.current = true;
+
     try {
-      const sourceRows = rowsOverride ?? workspace.rows;
+      const sourceRows = rowsOverride ?? workspaceRef.current.rows;
 
-      const nonBlankRows = sourceRows.filter((row) => !isRowBlank(row, workspace.columns));
-      const rowsRemoved = nonBlankRows.length !== sourceRows.length;
+      // Only discard brand-new rows that are still completely empty. A saved
+      // client that an employee clears should not silently disappear; explicit
+      // deletion now has its own fast single/bulk delete action.
+      const rows = sourceRows
+        .filter(
+          (row) =>
+            lastSavedRowsSnapshotRef.current.has(row.id) ||
+            !isRowBlank(row, workspaceRef.current.columns),
+        )
+        .map((row) => {
+          const eventDateColumn = workspaceRef.current.columns.find(
+            (column) => column.id === "event_date",
+          );
+          if (!eventDateColumn) return row;
+          const current = row.values[eventDateColumn.id];
+          if (current && String(current).trim() !== "") return row;
+          return { ...row, values: { ...row.values, [eventDateColumn.id]: "N/A" } };
+        })
+        .map((row, index) => ({ ...row, rowNumber: index + 1 }));
 
-      const eventDateColumn = workspace.columns.find((column) => column.id === "event_date");
-      const rows = eventDateColumn
-        ? nonBlankRows.map((row) => {
-            const current = row.values[eventDateColumn.id];
-            if (current && String(current).trim() !== "") return row;
-            return { ...row, values: { ...row.values, [eventDateColumn.id]: "N/A" } };
-          })
-        : nonBlankRows;
+      const changedRows = rows.filter((row) => {
+        const savedSignature = lastSavedRowsSnapshotRef.current.get(row.id);
+        return savedSignature === undefined || rowSignature(row) !== savedSignature;
+      });
+      const changedRowsForSave = changedRows.map((row) => ({
+        ...row,
+        isNewClient: !lastSavedRowsSnapshotRef.current.has(row.id),
+      }));
 
-      const workspaceToSave = { ...workspace, rows };
+      // The backend receives all column definitions (small) but only changed
+      // rows (potentially just one client), avoiding the previous O(all rows ×
+      // all columns) rewrite on every Save.
+      await saveWorkspaceChanges(workspaceRef.current.columns, changedRowsForSave);
 
-      await saveWorkspace(workspaceToSave, employee.id);
-      setWorkspace(workspaceToSave);
-      lastSavedRowsSnapshotRef.current = new Map(rows.map((row) => [row.id, rowSignature(row)]));
+      for (const row of rows) {
+        lastSavedRowsSnapshotRef.current.set(row.id, rowSignature(row));
+      }
+      for (const row of changedRowsForSave) {
+        if (row.isNewClient) serverRowKeysRef.current.add(String(row.id));
+      }
+
+      const nextWorkspace = { ...workspaceRef.current, rows };
+      suppressNextDirtyMarkRef.current = true;
+      cachedWorkspace = nextWorkspace;
+      setWorkspace(nextWorkspace);
       setHasUnsavedChanges(false);
       setNotice({
         type: "success",
-        message: rowsRemoved
-          ? "All changes saved successfully. Empty rows were removed automatically."
-          : "All changes saved successfully.",
+        message:
+          changedRows.length === 0
+            ? "Management sheet is already up to date."
+            : changedRows.length === 1
+            ? "Client saved successfully."
+            : `${changedRows.length} changed client rows saved successfully.`,
       });
+      return true;
     } catch (error) {
       setNotice({
         type: "error",
         message: error instanceof Error ? error.message : "Could not save changes.",
       });
+      return false;
     } finally {
+      localMutationInFlightRef.current = false;
       setIsSaving(false);
     }
   }
+
 
   async function handleFileSelection(event) {
     const file = event.target.files?.[0];
@@ -1635,32 +2024,50 @@ const venueFilterOptions = useMemo(() => {
 
     const headerMap = new Map(workspace.columns.map((column) => [normalizeHeader(column.name), column]));
 
-    const phoneColumn = workspace.columns.find(
-      (column) =>
-        column.id === "client_phone" ||
-        normalizeHeader(column.name) === normalizeHeader("Client Phone Number"),
-    );
     const eventDateColumn = workspace.columns.find(
       (column) =>
         column.id === "event_date" ||
         normalizeHeader(column.name) === normalizeHeader("Event Date"),
     );
+    const venueColumn = workspace.columns.find(
+      (column) =>
+        column.id === "venue" ||
+        normalizeHeader(column.name) === normalizeHeader("Venue"),
+    );
+    const shiftColumn = workspace.columns.find(
+      (column) =>
+        column.id === "shift" ||
+        normalizeHeader(column.name) === normalizeHeader("Shift"),
+    );
+    const floorColumn = workspace.columns.find(
+      (column) =>
+        column.id === "floor" ||
+        normalizeHeader(column.name) === normalizeHeader("Floor"),
+    );
 
-    if (!phoneColumn || !eventDateColumn) {
+    if (!eventDateColumn || !venueColumn || !shiftColumn || !floorColumn) {
       setNotice({
         type: "error",
         message:
-          "Import could not check duplicates because Client Phone Number or Event Date is missing from the management sheet.",
+          "Import could not check duplicates because Event Date, Venue, Shift or Floor is missing from the management sheet.",
       });
       return;
     }
 
-    // Existing sheet rows establish the unique client/event pairs. New rows
-    // accepted from this same Excel file are added to the set too, so duplicate
-    // phone + event-date pairs inside a single upload are skipped as well.
-    const seenPhoneEventKeys = new Set(
+    // Existing rows establish the unique Event Date + Venue + Shift + Floor
+    // combinations. Accepted rows are added immediately too, so duplicates
+    // inside the same uploaded Excel file are skipped as well.
+    const seenEventKeys = new Set(
       workspace.rows
-        .map((row) => buildPhoneEventDuplicateKey(row.values, phoneColumn, eventDateColumn))
+        .map((row) =>
+          buildEventDuplicateKey(
+            row.values,
+            eventDateColumn,
+            venueColumn,
+            shiftColumn,
+            floorColumn,
+          ),
+        )
         .filter(Boolean),
     );
 
@@ -1683,12 +2090,18 @@ const venueFilterOptions = useMemo(() => {
         }
       });
 
-      const phoneEventKey = buildPhoneEventDuplicateKey(values, phoneColumn, eventDateColumn);
-      if (phoneEventKey && seenPhoneEventKeys.has(phoneEventKey)) {
+      const eventDuplicateKey = buildEventDuplicateKey(
+        values,
+        eventDateColumn,
+        venueColumn,
+        shiftColumn,
+        floorColumn,
+      );
+      if (eventDuplicateKey && seenEventKeys.has(eventDuplicateKey)) {
         duplicateCount += 1;
         return;
       }
-      if (phoneEventKey) seenPhoneEventKeys.add(phoneEventKey);
+      if (eventDuplicateKey) seenEventKeys.add(eventDuplicateKey);
 
       importedRows.push({
         id: crypto.randomUUID(),
@@ -1707,7 +2120,7 @@ const venueFilterOptions = useMemo(() => {
       type: "success",
       message:
         duplicateCount > 0
-          ? `${importedRows.length} row(s) imported from ${importPreview.fileName}. ${duplicateCount} duplicate row(s) skipped because the same Client Phone Number + Event Date already exists.`
+          ? `${importedRows.length} row(s) imported from ${importPreview.fileName}. ${duplicateCount} duplicate row(s) skipped because the same Event Date + Venue + Shift + Floor already exists.`
           : `${importedRows.length} row(s) imported from ${importPreview.fileName}.`,
     });
     setImportPreview(null);
@@ -1718,8 +2131,8 @@ const venueFilterOptions = useMemo(() => {
   }
 
   async function handleSavePromptConfirm() {
-    await handleSaveChanges();
-    setSavePromptRowCount(0);
+    const saved = await handleSaveChanges();
+    if (saved) setSavePromptRowCount(0);
   }
 
   /* ─── Loading ─── */
@@ -1915,6 +2328,40 @@ const venueFilterOptions = useMemo(() => {
         </div>
       </header>
 
+      {remoteChangeNotice && (
+        <div className="fixed right-4 top-24 z-[130] w-[min(92vw,430px)] animate-[slideInRight_0.35s_ease-out] rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sky-950 shadow-2xl shadow-black/15">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-100 text-sky-700">
+              <UserRound size={17} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-black">Another employee changed the client list</p>
+              <p className="mt-1 text-xs font-semibold leading-5 text-sky-800">
+                {remoteChangeNotice.addedCount > 0 && `${remoteChangeNotice.addedCount} client${remoteChangeNotice.addedCount === 1 ? "" : "s"} added`}
+                {remoteChangeNotice.addedCount > 0 && remoteChangeNotice.deletedCount > 0 ? " · " : ""}
+                {remoteChangeNotice.deletedCount > 0 && `${remoteChangeNotice.deletedCount} client${remoteChangeNotice.deletedCount === 1 ? "" : "s"} deleted`}
+                . Refresh to load the latest shared list.
+              </p>
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="mt-3 rounded-xl bg-sky-900 px-3 py-2 text-xs font-black text-white transition hover:bg-sky-800 active:scale-[0.97]"
+              >
+                Refresh now
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => setRemoteChangeNotice(null)}
+              className="rounded-lg p-1.5 text-sky-700 transition hover:bg-sky-100"
+              title="Dismiss"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ─── Main ─── */}
       <main className="px-3 py-5 sm:px-5 lg:px-7">
         <section className="mx-auto max-w-[1800px]">
@@ -1971,6 +2418,18 @@ const venueFilterOptions = useMemo(() => {
                     {isImporting ? "Reading..." : "Upload Excel"}
                   </button>
                 </div>
+
+                {selectedRowIds.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmBulkDelete(true)}
+                    disabled={isSaving}
+                    className="flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-black text-red-600 shadow-sm transition-all duration-200 hover:border-red-300 hover:bg-red-100 hover:shadow-md active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Trash2 size={17} />
+                    Delete selected ({selectedRowIds.size})
+                  </button>
+                )}
 
                 {/* ── Filters dropdown ── */}
                 <div className="relative shrink-0" ref={filterDropdownRef}>
@@ -2166,7 +2625,20 @@ const venueFilterOptions = useMemo(() => {
                 <table className="w-full border-separate border-spacing-0 text-left" style={{ minWidth: "100%" }}>
                   <thead>
                     <tr>
-                      <th className="sticky left-0 z-30 w-14 min-w-14 border-b-2 border-r border-violet-500/40 bg-gradient-to-b from-[#241b4a] via-[#15122a] to-black px-2 py-3.5 text-center text-[11px] font-black uppercase tracking-wider text-white">#</th>
+                      <th className="sticky left-0 z-30 w-20 min-w-20 border-b-2 border-r border-violet-500/40 bg-gradient-to-b from-[#241b4a] via-[#15122a] to-black px-2 py-3.5 text-center text-[11px] font-black uppercase tracking-wider text-white">
+                        <div className="flex items-center justify-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={allVisibleRowsSelected}
+                            onChange={toggleSelectAllVisible}
+                            disabled={filteredRows.length === 0 || isSaving}
+                            title="Select all visible clients"
+                            aria-label="Select all visible clients"
+                            className="h-4 w-4 cursor-pointer accent-white disabled:cursor-not-allowed disabled:opacity-40"
+                          />
+                          <span>#</span>
+                        </div>
+                      </th>
                       {workspace.columns.map((column) => (
                         <th
                           key={column.id}
@@ -2230,8 +2702,17 @@ const venueFilterOptions = useMemo(() => {
                             className={`sticky left-0 z-10 border-b border-r ${cellBorder} text-center text-xs font-black text-black/45 transition-colors duration-150 ${stickyBg}`}
                             style={rowH ? { height: `${rowH}px` } : undefined}
                           >
-                            <div className="relative flex w-full min-h-11 items-center justify-center px-2" style={rowH ? { height: `${rowH}px` } : undefined}>
-                              {row.rowNumber}
+                            <div className="relative flex w-full min-h-11 items-center justify-center gap-2 px-2" style={rowH ? { height: `${rowH}px` } : undefined}>
+                              <input
+                                type="checkbox"
+                                checked={selectedRowIds.has(String(row.id))}
+                                onChange={() => toggleRowSelection(row.id)}
+                                disabled={isSaving}
+                                title={`Select client ${row.rowNumber}`}
+                                aria-label={`Select client ${row.rowNumber}`}
+                                className="h-4 w-4 shrink-0 cursor-pointer accent-black disabled:cursor-not-allowed disabled:opacity-50"
+                              />
+                              <span>{row.rowNumber}</span>
                               <div
                                 onMouseDown={(e) => startRowResize(e, row.id)}
                                 className="absolute bottom-0 left-0 right-0 h-1.5 cursor-row-resize transition-colors duration-150 hover:bg-black/20"
@@ -2259,8 +2740,8 @@ const venueFilterOptions = useMemo(() => {
                                     onClick={() => toggleAlreadyBooked(row.id)}
                                     title={
                                       isAlreadyBooked
-                                        ? "Already booked with another event management company — click to unmark"
-                                        : "Mark as already booked with another event management company"
+                                        ? "Already booked with another event management company — click to unmark (saves automatically)"
+                                        : "Mark as already booked with another event management company (saves automatically)"
                                     }
                                     className={`my-auto mr-1.5 flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[10px] font-black transition-all duration-200 active:scale-90 ${
                                       isAlreadyBooked
@@ -2406,6 +2887,17 @@ const venueFilterOptions = useMemo(() => {
       {/* ─── Hover Preview ─── */}
       {hoverPreview && (
         <HoverPreviewPanel preview={hoverPreview} onMouseEnter={cancelHoverHide} onMouseLeave={scheduleHoverHide} />
+      )}
+
+      {confirmBulkDelete && selectedRowIds.size > 0 && (
+        <ConfirmDialog
+          title={`Delete ${selectedRowIds.size} selected client${selectedRowIds.size === 1 ? "" : "s"}?`}
+          message="The selected clients and their linked meetings, calls, finalization data and calendar entries will be permanently removed. This action cannot be undone."
+          confirmLabel={`Delete ${selectedRowIds.size}`}
+          cancelLabel="Cancel"
+          onCancel={() => setConfirmBulkDelete(false)}
+          onConfirm={deleteSelectedRows}
+        />
       )}
 
       {/* ─── Delete row confirmation modal ─── */}
