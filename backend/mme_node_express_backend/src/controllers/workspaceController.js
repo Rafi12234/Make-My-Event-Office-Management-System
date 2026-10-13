@@ -12,38 +12,60 @@ import { computeMeetingCallTimes } from "../utils/meetingCallTimes.js";
 // Without this, meetings/calls tied to a deleted client kept showing up in
 // the Calendar page even though the client no longer existed on the sheet.
 async function deleteClientDataForRowKeys(tx, rowKeys) {
-  if (!rowKeys.length) return;
+  if (!rowKeys.length) return [];
 
   const meetings = await tx.clientMeeting.findMany({
     where: { linkedRowKey: { in: rowKeys } },
-    select: { id: true },
+    select: {
+      id: true,
+      images: {
+        select: { id: true, storedFileName: true },
+      },
+    },
   });
+
   const meetingIds = meetings.map((meeting) => meeting.id);
+  const images = meetings.flatMap((meeting) => meeting.images || []);
+  const imageIds = images.map((image) => image.id);
+  const imageFileNames = images
+    .map((image) => image.storedFileName)
+    .filter(Boolean);
 
   if (meetingIds.length) {
-    const images = await tx.clientMeetingImage.findMany({
+    // Generated proposal documents are historical records and must survive a
+    // client deletion. Detach their optional source references before the
+    // meetings/images are removed so foreign keys never block the delete.
+    await tx.pdfDocument.updateMany({
       where: { meetingId: { in: meetingIds } },
-      select: { storedFileName: true },
+      data: { meetingId: null },
     });
 
-    // Images are also removed via ON DELETE CASCADE when the meeting itself
-    // is deleted below, but we delete them explicitly first so we can clean
-    // up the files on disk before the DB rows disappear.
-    await tx.clientMeetingImage.deleteMany({ where: { meetingId: { in: meetingIds } } });
-
-    for (const image of images) {
-      if (image.storedFileName) {
-        unlink(path.join(meetingImagesDirectory, image.storedFileName), () => {});
-      }
+    if (imageIds.length) {
+      await tx.pdfDocumentItemImage.updateMany({
+        where: { sourceMeetingImageId: { in: imageIds } },
+        data: { sourceMeetingImageId: null },
+      });
     }
 
+    // Meeting items and meeting images cascade from client_meetings. Keeping
+    // this as one delete is much faster than individually deleting every
+    // image/item row first.
     await tx.clientMeeting.deleteMany({ where: { id: { in: meetingIds } } });
   }
 
   await tx.clientCall.deleteMany({ where: { linkedRowKey: { in: rowKeys } } });
   await tx.clientFinalization.deleteMany({ where: { linkedRowKey: { in: rowKeys } } });
   await tx.calendarEvent.deleteMany({ where: { linkedRowKey: { in: rowKeys } } });
+
+  return imageFileNames;
 }
+
+function removeMeetingImageFiles(fileNames) {
+  for (const storedFileName of fileNames || []) {
+    unlink(path.join(meetingImagesDirectory, storedFileName), () => {});
+  }
+}
+
 
 const FRONTEND_TO_DB_TYPE = {
   text: "text",
@@ -195,9 +217,11 @@ export async function getWorkspace(req, res, next) {
           width: column.widthPx,
           required: Boolean(column.isRequired),
         })),
-        rows: rows.map((row) => ({
+        rows: rows.map((row, index) => ({
           id: row.rowKey,
-          rowNumber: row.rowPosition,
+          // row_position is an internal stable sort key and may contain gaps
+          // after fast targeted deletes; display numbering should stay 1..N.
+          rowNumber: index + 1,
           values: valuesByRow.get(row.id),
           alreadyBooked: alreadyBookedByRow.get(row.id) || false,
           bookedFromMme: bookedFromMmeByRow.get(row.id) || false,
@@ -259,13 +283,453 @@ export async function buildCellValueFields(client, rawValue, dataType) {
   return { valueText, valueInteger, valueDecimal, valueDate, valueTime, valueDatetime, valueBoolean, valueEmployeeId, displayValue };
 }
 
+
+// Lightweight snapshot for cross-employee add/delete awareness. The frontend
+// polls this endpoint instead of downloading every management-sheet cell.
+export async function getWorkspaceRowSnapshot(req, res, next) {
+  try {
+    const sheet = await getDefaultSheet(prisma);
+    const rows = await prisma.sheetRow.findMany({
+      where: { sheetId: sheet.id, isArchived: false },
+      orderBy: [{ rowPosition: "asc" }, { id: "asc" }],
+      select: { rowKey: true },
+    });
+
+    return res.json({
+      data: {
+        updatedAt: sheet.updatedAt,
+        rowKeys: rows.map((row) => row.rowKey),
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+// Fast path for normal Management-page saves. Unlike the legacy whole-sheet
+// PUT endpoint, this endpoint never interprets a missing row as a deletion.
+// Only rows that are new/edited are sent by the frontend, which makes saves
+// much faster and prevents one employee's stale screen from deleting another
+// employee's newly-added clients.
+export async function saveWorkspaceChanges(req, res, next) {
+  const columns = req.body?.columns;
+  const rows = req.body?.rows;
+  const employeeId = Number(req.employee?.id || 0) || null;
+
+  if (!Array.isArray(columns) || !Array.isArray(rows)) {
+    return res.status(422).json({ message: "Valid columns and changed rows are required." });
+  }
+
+  if (rows.length > 2000) {
+    return res.status(422).json({ message: "Too many rows were submitted in one save." });
+  }
+
+  try {
+    const result = await prisma.$transaction(
+      async (tx) => {
+        const sheet = await getDefaultSheet(tx);
+        const mutationTime = new Date();
+
+        // Updating the single sheet row first gives concurrent Management-page
+        // mutations a common lock. That prevents two employees adding clients
+        // at the same moment from choosing the same unique row_position.
+        await tx.managementSheet.update({
+          where: { id: sheet.id },
+          data: { updatedById: employeeId, updatedAt: mutationTime },
+        });
+
+        const existingColumns = await tx.sheetColumn.findMany({
+          where: { sheetId: sheet.id },
+          select: {
+            id: true,
+            columnKey: true,
+            columnName: true,
+            dataType: true,
+            displayOrder: true,
+            widthPx: true,
+            isRequired: true,
+            isVisible: true,
+            isActive: true,
+          },
+        });
+        const existingColumnByKey = new Map(
+          existingColumns.map((column) => [column.columnKey, column]),
+        );
+        const columnIdsByKey = new Map();
+
+        for (let index = 0; index < columns.length; index += 1) {
+          const column = columns[index];
+          const columnKey = String(column.id);
+          const dataType = FRONTEND_TO_DB_TYPE[column.type] || "text";
+          const columnName = String(column.name || "Untitled Column").trim();
+          const widthPx = Math.max(80, Math.min(Number(column.width || 180), 1000));
+          const isRequired = Boolean(column.required);
+          const existing = existingColumnByKey.get(columnKey);
+
+          if (existing) {
+            const needsUpdate =
+              existing.columnName !== columnName ||
+              existing.dataType !== dataType ||
+              existing.displayOrder !== index + 1 ||
+              Number(existing.widthPx) !== widthPx ||
+              Boolean(existing.isRequired) !== isRequired ||
+              !existing.isVisible ||
+              !existing.isActive;
+
+            if (needsUpdate) {
+              await tx.sheetColumn.update({
+                where: { id: existing.id },
+                data: {
+                  columnName,
+                  dataType,
+                  displayOrder: index + 1,
+                  widthPx,
+                  isRequired,
+                  isVisible: true,
+                  isActive: true,
+                  updatedById: employeeId,
+                },
+              });
+            }
+
+            columnIdsByKey.set(columnKey, { id: existing.id, dataType });
+            continue;
+          }
+
+          const created = await tx.sheetColumn.create({
+            data: {
+              sheetId: sheet.id,
+              columnKey,
+              columnName,
+              dataType,
+              displayOrder: index + 1,
+              widthPx,
+              isRequired,
+              isVisible: true,
+              isActive: true,
+              createdById: employeeId,
+              updatedById: employeeId,
+            },
+            select: { id: true },
+          });
+          columnIdsByKey.set(columnKey, { id: created.id, dataType });
+        }
+
+        const rowKeys = [...new Set(rows.map((row) => String(row.id || "").trim()).filter(Boolean))];
+        const existingRows = rowKeys.length
+          ? await tx.sheetRow.findMany({
+              where: { sheetId: sheet.id, rowKey: { in: rowKeys } },
+              select: { id: true, rowKey: true },
+            })
+          : [];
+        const existingRowByKey = new Map(existingRows.map((row) => [row.rowKey, row]));
+
+        // Lock/read current row positions (not a repeatable-read snapshot) so
+        // a second employee adding a client concurrently always sees the
+        // position committed by the first employee.
+        const lockedPositionRows = await tx.$queryRawUnsafe(
+          "SELECT row_position AS rowPosition FROM sheet_rows WHERE sheet_id = ? FOR UPDATE",
+          sheet.id,
+        );
+        let nextPosition = lockedPositionRows.reduce(
+          (max, row) => Math.max(max, Number(row.rowPosition || 0)),
+          0,
+        );
+        const savedRowKeys = [];
+
+        for (const row of rows) {
+          const rowKey = String(row.id || "").trim();
+          if (!rowKey) continue;
+
+          let rowRecord = existingRowByKey.get(rowKey);
+          if (rowRecord) {
+            rowRecord = await tx.sheetRow.update({
+              where: { id: rowRecord.id },
+              data: {
+                updatedById: employeeId,
+                isArchived: false,
+                archivedAt: null,
+              },
+              select: { id: true, rowKey: true },
+            });
+          } else {
+            if (row.isNewClient !== true) {
+              const conflict = new Error(
+                "This client was deleted by another employee while you were working. Refresh the Management page before saving it again.",
+              );
+              conflict.statusCode = 409;
+              throw conflict;
+            }
+
+            nextPosition += 1;
+            rowRecord = await tx.sheetRow.create({
+              data: {
+                sheetId: sheet.id,
+                rowKey,
+                rowPosition: nextPosition,
+                createdById: employeeId,
+                updatedById: employeeId,
+                isArchived: false,
+              },
+              select: { id: true, rowKey: true },
+            });
+          }
+
+          for (const [columnKeyRaw, rawValue] of Object.entries(row.values || {})) {
+            const columnKey = String(columnKeyRaw);
+            const column = columnIdsByKey.get(columnKey);
+            if (!column) continue;
+            if (column.dataType === "last_meeting_time" || column.dataType === "next_meeting_time") continue;
+
+            const fields = await buildCellValueFields(tx, rawValue, column.dataType);
+            const isEventDateColumn = columnKey === "event_date";
+            const alreadyBookedFields = isEventDateColumn
+              ? { alreadyBooked: Boolean(row.alreadyBooked) }
+              : {};
+
+            await tx.sheetCell.upsert({
+              where: { rowId_columnId: { rowId: rowRecord.id, columnId: column.id } },
+              update: {
+                ...fields,
+                ...alreadyBookedFields,
+                updatedById: employeeId,
+              },
+              create: {
+                rowId: rowRecord.id,
+                columnId: column.id,
+                ...fields,
+                ...alreadyBookedFields,
+                createdById: employeeId,
+                updatedById: employeeId,
+              },
+            });
+          }
+
+          savedRowKeys.push(rowKey);
+        }
+
+        return { savedRowKeys, updatedAt: mutationTime };
+      },
+      { timeout: 30000 },
+    );
+
+    return res.json({
+      message: "Changes saved successfully.",
+      data: result,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+// Saves only the per-client "already booked with another company" badge.
+// This is intentionally separate from the normal row save so clicking the
+// badge never commits unrelated cell edits that are still being typed.
+export async function setWorkspaceRowAlreadyBooked(req, res, next) {
+  const employeeId = Number(req.employee?.id || 0) || null;
+  const rowKey = String(req.params?.rowKey || "").trim();
+
+  if (!rowKey) {
+    return res.status(422).json({ message: "A valid client row is required." });
+  }
+  if (typeof req.body?.alreadyBooked !== "boolean") {
+    return res.status(422).json({ message: "A valid booking badge value is required." });
+  }
+
+  const alreadyBooked = req.body.alreadyBooked;
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const sheet = await getDefaultSheet(tx);
+
+      const row = await tx.sheetRow.findUnique({
+        where: {
+          sheetId_rowKey: {
+            sheetId: sheet.id,
+            rowKey,
+          },
+        },
+        select: { id: true, rowKey: true, isArchived: true },
+      });
+
+      if (!row || row.isArchived) {
+        return null;
+      }
+
+      const eventDateColumn = await tx.sheetColumn.findUnique({
+        where: {
+          sheetId_columnKey: {
+            sheetId: sheet.id,
+            columnKey: "event_date",
+          },
+        },
+        select: { id: true, dataType: true },
+      });
+
+      if (!eventDateColumn) {
+        const configurationError = new Error(
+          "Event Date column is missing from the Management sheet.",
+        );
+        configurationError.statusCode = 409;
+        throw configurationError;
+      }
+
+      const existingCell = await tx.sheetCell.findUnique({
+        where: {
+          rowId_columnId: {
+            rowId: row.id,
+            columnId: eventDateColumn.id,
+          },
+        },
+        select: { id: true },
+      });
+
+      if (existingCell) {
+        await tx.sheetCell.update({
+          where: { id: existingCell.id },
+          data: {
+            alreadyBooked,
+            updatedById: employeeId,
+          },
+        });
+      } else {
+        // Current Management saves normally create an Event Date cell for every
+        // saved client (blank dates become N/A). Keep this fallback so older or
+        // manually-migrated rows can still use the badge safely.
+        const fallbackFields = await buildCellValueFields(
+          tx,
+          "N/A",
+          eventDateColumn.dataType,
+        );
+        await tx.sheetCell.create({
+          data: {
+            rowId: row.id,
+            columnId: eventDateColumn.id,
+            ...fallbackFields,
+            alreadyBooked,
+            createdById: employeeId,
+            updatedById: employeeId,
+          },
+        });
+      }
+
+      const mutationTime = new Date();
+      await tx.sheetRow.update({
+        where: { id: row.id },
+        data: { updatedById: employeeId },
+      });
+      await tx.managementSheet.update({
+        where: { id: sheet.id },
+        data: { updatedById: employeeId, updatedAt: mutationTime },
+      });
+
+      return {
+        rowKey: row.rowKey,
+        alreadyBooked,
+        updatedAt: mutationTime,
+      };
+    });
+
+    if (!result) {
+      return res.status(404).json({
+        message:
+          "This client no longer exists. Another employee may have deleted it; refresh the Management page.",
+      });
+    }
+
+    return res.json({
+      message: alreadyBooked
+        ? "Client marked as booked with another company."
+        : "Client booking badge removed.",
+      data: result,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+// One transaction handles both the original one-row delete button and the new
+// multi-select delete action. It avoids the old expensive pattern of sending
+// and rewriting the entire remaining worksheet just to remove a few clients.
+export async function deleteWorkspaceRows(req, res, next) {
+  const employeeId = Number(req.employee?.id || 0) || null;
+  const rowKeys = Array.isArray(req.body?.rowKeys)
+    ? [...new Set(req.body.rowKeys.map((value) => String(value || "").trim()).filter(Boolean))]
+    : [];
+
+  if (!rowKeys.length) {
+    return res.status(422).json({ message: "Select at least one client to delete." });
+  }
+  if (rowKeys.length > 500) {
+    return res.status(422).json({ message: "Delete at most 500 clients at a time." });
+  }
+
+  let imageFileNames = [];
+
+  try {
+    const result = await prisma.$transaction(
+      async (tx) => {
+        const sheet = await getDefaultSheet(tx);
+        const mutationTime = new Date();
+
+        // Serialize row mutations on this shared sheet for predictable results
+        // when several employees save/delete at the same time.
+        await tx.managementSheet.update({
+          where: { id: sheet.id },
+          data: { updatedById: employeeId, updatedAt: mutationTime },
+        });
+
+        const existingRows = await tx.sheetRow.findMany({
+          where: {
+            sheetId: sheet.id,
+            isArchived: false,
+            rowKey: { in: rowKeys },
+          },
+          select: { rowKey: true },
+        });
+        const existingRowKeys = existingRows.map((row) => row.rowKey);
+
+        if (!existingRowKeys.length) {
+          return { deletedRowKeys: [], updatedAt: mutationTime };
+        }
+
+        imageFileNames = await deleteClientDataForRowKeys(tx, existingRowKeys);
+
+        await tx.sheetRow.deleteMany({
+          where: { sheetId: sheet.id, rowKey: { in: existingRowKeys } },
+        });
+
+        return { deletedRowKeys: existingRowKeys, updatedAt: mutationTime };
+      },
+      { timeout: 30000 },
+    );
+
+    // Delete image files only after the DB transaction committed. If a DB
+    // constraint/error rolls the transaction back, its image files remain.
+    removeMeetingImageFiles(imageFileNames);
+
+    return res.json({
+      message:
+        result.deletedRowKeys.length === 1
+          ? "Client deleted successfully."
+          : `${result.deletedRowKeys.length} clients deleted successfully.`,
+      data: result,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function saveWorkspace(req, res, next) {
   const workspace = req.body.workspace;
-  const employeeId = Number(req.body.employeeId || 0) || null;
+  // Always trust the authenticated session, never a caller-supplied employeeId.
+  const employeeId = Number(req.employee?.id || 0) || null;
 
   if (!workspace || !Array.isArray(workspace.columns) || !Array.isArray(workspace.rows)) {
     return res.status(422).json({ message: "A valid workspace payload is required." });
   }
+
+  let imageFileNames = [];
 
   try {
     await prisma.$transaction(
@@ -407,7 +871,7 @@ export async function saveWorkspace(req, res, next) {
           }
         }
 
-        await deleteClientDataForRowKeys(tx, rowKeysBeingRemoved);
+        imageFileNames = await deleteClientDataForRowKeys(tx, rowKeysBeingRemoved);
 
         await tx.managementSheet.update({
           where: { id: sheet.id },
@@ -417,6 +881,7 @@ export async function saveWorkspace(req, res, next) {
       { timeout: 30000 },
     );
 
+    removeMeetingImageFiles(imageFileNames);
     res.json({ message: "Workspace saved successfully." });
   } catch (error) {
     next(error);
