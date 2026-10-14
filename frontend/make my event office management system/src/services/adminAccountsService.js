@@ -79,6 +79,42 @@ export const updateMoneyIn = (id, payload) =>
 export const loadExpenses = (params) => apiRequest(`/expenses${toQuery(params)}`);
 export const loadExpense = (id) => apiRequest(`/expenses/${id}`);
 
+// Loads every currently-active approved bill for one employee across all
+// backend pages. The summary modal on the Bills page uses this so the admin
+// sees the employee's complete approved history rather than only the first
+// pagination page. Results are returned oldest approval first for a natural
+// serial/history view.
+export async function loadApprovedBillsForEmployee(employeeId) {
+  if (!employeeId) return [];
+
+  const pageSize = 200;
+  const rows = [];
+  let page = 1;
+  let totalPages = 1;
+
+  do {
+    const result = await loadExpenses({
+      employeeId,
+      approved: "true",
+      status: "active",
+      sort: "oldest",
+      page,
+      pageSize,
+    });
+
+    rows.push(...(result?.rows || []));
+    totalPages = Math.max(1, Number(result?.totalPages) || 1);
+    page += 1;
+  } while (page <= totalPages);
+
+  return rows.sort((left, right) => {
+    const leftTime = Date.parse(left.approvedAt || left.updatedAt || left.createdAt || "") || 0;
+    const rightTime = Date.parse(right.approvedAt || right.updatedAt || right.createdAt || "") || 0;
+    if (leftTime !== rightTime) return leftTime - rightTime;
+    return Number(left.id || 0) - Number(right.id || 0);
+  });
+}
+
 // Pending-approval counts for the Bills nav badge and its Event/Regular
 // sub-tabs — always the whole queue, ignoring whatever filters are set on
 // the Bills page itself, so the number matches what the sidebar shows.
