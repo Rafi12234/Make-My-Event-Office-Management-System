@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router";
 import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
@@ -44,16 +44,187 @@ import RedirectIfAuthed from "./components/RedirectIfAuthed";
 import RequirePasswordChange from "./components/RequirePasswordChange";
 import BlockIfEmployeeSession from "./components/BlockIfEmployeeSession";
 
-// history.scrollRestoration is set to "manual" in main.jsx, so nothing
-// scrolls automatically anymore — reset to the top on every route change
-// except /management, which restores its own remembered scroll position
-// (see ManagementPage) instead of always jumping to the top.
+/*
+ * Management scroll restoration
+ * -----------------------------
+ *
+ * The Management page is a long shared sheet. Employees frequently open a
+ * client's Meetings/Calls page, Calendar, Accounts, PDF screens, etc. and
+ * then return to /management. React Router unmounts ManagementPage while
+ * those routes are open, so relying on the browser's native scroll history
+ * is not enough (main.jsx intentionally sets history.scrollRestoration to
+ * "manual").
+ *
+ * ManagementPage already remembers its own scroll position, but the old
+ * implementation could be overwritten with 0 when this component reset the
+ * destination page to the top during a route change. This route-level backup
+ * is deliberately independent: it remembers /management while the employee
+ * is still on that route, refuses to record scroll events after the URL has
+ * changed, and retries restoration while the Management rows are rendering.
+ *
+ * Keeping this at the app/router level means it works no matter which page
+ * the employee visits before returning to /management.
+ */
+const MANAGEMENT_SCROLL_KEY = "mme_management_route_scroll_v2";
+const MANAGEMENT_PATH = "/management";
+
+function readManagementScrollY() {
+  try {
+    const raw = Number(sessionStorage.getItem(MANAGEMENT_SCROLL_KEY));
+    return Number.isFinite(raw) && raw > 0 ? raw : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeManagementScrollY(value) {
+  try {
+    const y = Number(value);
+    sessionStorage.setItem(
+      MANAGEMENT_SCROLL_KEY,
+      String(Number.isFinite(y) && y > 0 ? y : 0),
+    );
+  } catch {
+    // Storage can be unavailable in restricted/private browser contexts.
+    // Scroll restoration is a convenience feature, so never break routing.
+  }
+}
+
+function clearManagementScrollY() {
+  try {
+    sessionStorage.removeItem(MANAGEMENT_SCROLL_KEY);
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+// history.scrollRestoration is set to "manual" in main.jsx. This component
+// therefore owns route-level scroll behavior: non-management pages open at
+// the top, while /management returns to the exact vertical position where the
+// employee left it.
 function ScrollToTop() {
   const location = useLocation();
+  const restoringManagementRef = useRef(false);
+  const restoreTimeoutsRef = useRef([]);
+
+  // While actually on /management, continuously keep a route-level backup.
+  // The pathname guard is important: when another route is opened, its own
+  // scroll-to-top must never overwrite the saved Management position with 0.
+  useEffect(() => {
+    if (location.pathname !== MANAGEMENT_PATH) return undefined;
+
+    let frame = 0;
+
+    function saveCurrentManagementPosition() {
+      if (window.location.pathname !== MANAGEMENT_PATH) return;
+      if (restoringManagementRef.current) return;
+
+      if (frame) window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        if (window.location.pathname !== MANAGEMENT_PATH) return;
+        if (restoringManagementRef.current) return;
+        writeManagementScrollY(window.scrollY);
+      });
+    }
+
+    window.addEventListener("scroll", saveCurrentManagementPosition, {
+      passive: true,
+    });
+
+    // pagehide covers refresh/tab close without depending on React cleanup.
+    function handlePageHide() {
+      if (window.location.pathname === MANAGEMENT_PATH) {
+        writeManagementScrollY(window.scrollY);
+      }
+    }
+    window.addEventListener("pagehide", handlePageHide);
+
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", saveCurrentManagementPosition);
+      window.removeEventListener("pagehide", handlePageHide);
+    };
+  }, [location.pathname]);
 
   useEffect(() => {
-    if (location.pathname === "/management") return;
-    window.scrollTo(0, 0);
+    // Cancel restoration attempts from the previous route change.
+    for (const timeoutId of restoreTimeoutsRef.current) {
+      window.clearTimeout(timeoutId);
+    }
+    restoreTimeoutsRef.current = [];
+
+    // A real logout/login starts a new employee workspace session, so don't
+    // carry the previous employee's Management position into the next login.
+    if (location.pathname === "/" || location.pathname === "/login") {
+      restoringManagementRef.current = false;
+      clearManagementScrollY();
+      window.scrollTo(0, 0);
+      return undefined;
+    }
+
+    if (location.pathname !== MANAGEMENT_PATH) {
+      restoringManagementRef.current = false;
+      window.scrollTo(0, 0);
+      return undefined;
+    }
+
+    const targetY = readManagementScrollY();
+    if (!targetY) {
+      restoringManagementRef.current = false;
+      return undefined;
+    }
+
+    restoringManagementRef.current = true;
+    const startedAt = Date.now();
+
+    // Management may first render cached rows and then refresh them from the
+    // API. Restoring once can therefore be clamped if the document is still
+    // short. Retry for a few seconds and stop immediately once the requested
+    // position is genuinely reachable and has been restored.
+    function attemptRestore() {
+      if (window.location.pathname !== MANAGEMENT_PATH) {
+        restoringManagementRef.current = false;
+        return;
+      }
+
+      const pageHeight = Math.max(
+        document.documentElement.scrollHeight,
+        document.body?.scrollHeight || 0,
+      );
+      const maxY = Math.max(0, pageHeight - window.innerHeight);
+      const desiredY = Math.min(targetY, maxY);
+
+      window.scrollTo({ top: desiredY, left: 0, behavior: "auto" });
+
+      const targetIsReachable = maxY >= targetY - 2;
+      const reachedTarget = Math.abs(window.scrollY - targetY) <= 3;
+      const timedOut = Date.now() - startedAt >= 4500;
+
+      if ((targetIsReachable && reachedTarget) || timedOut) {
+        restoringManagementRef.current = false;
+        writeManagementScrollY(window.scrollY);
+        return;
+      }
+
+      const timeoutId = window.setTimeout(attemptRestore, 80);
+      restoreTimeoutsRef.current.push(timeoutId);
+    }
+
+    // Two animation frames let React commit the Management route first.
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(attemptRestore);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+      for (const timeoutId of restoreTimeoutsRef.current) {
+        window.clearTimeout(timeoutId);
+      }
+      restoreTimeoutsRef.current = [];
+    };
   }, [location.pathname]);
 
   return null;
@@ -134,4 +305,3 @@ function App() {
 }
 
 export default App;
-
