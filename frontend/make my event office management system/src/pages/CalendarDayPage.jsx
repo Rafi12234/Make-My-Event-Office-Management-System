@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import mmeLogo from "../assets/mme-logo-cropped.png";
 import {
@@ -387,7 +387,15 @@ function ClientDayCard({ group, columns, extras, navigate, selectedDate, employe
                 {meetingsOnDate.length > 0 && <CountBadge count={meetingsOnDate.length} />}
               </div>
               <button
-                onClick={() => navigate(`/management/meetings/${rowKey}`)}
+                onClick={() => {
+                  const returnTo = selectedDate
+                    ? `/calendar/day/${selectedDate}`
+                    : "/calendar";
+                  navigate(
+                    `/management/meetings/${rowKey}?returnTo=${encodeURIComponent(returnTo)}`,
+                    { state: { from: returnTo } },
+                  );
+                }}
                 className="group/btn flex items-center gap-1.5 rounded-xl border border-black bg-black px-3 py-1.5 text-xs font-black text-white shadow-sm transition-all duration-200 hover:border-zinc-600 hover:bg-zinc-600 active:bg-zinc-700 hover:shadow-md"
               >
                 Manage
@@ -492,7 +500,15 @@ function ClientDayCard({ group, columns, extras, navigate, selectedDate, employe
                 {callsOnDate.length > 0 && <CountBadge count={callsOnDate.length} color="gray" />}
               </div>
               <button
-                onClick={() => navigate(`/management/calls/${rowKey}`)}
+                onClick={() => {
+                  const returnTo = selectedDate
+                    ? `/calendar/day/${selectedDate}`
+                    : "/calendar";
+                  navigate(
+                    `/management/calls/${rowKey}?returnTo=${encodeURIComponent(returnTo)}`,
+                    { state: { from: returnTo } },
+                  );
+                }}
                 className="group/btn flex items-center gap-1.5 rounded-xl border border-black bg-black px-3 py-1.5 text-xs font-black text-white shadow-sm transition-all duration-200 hover:border-zinc-600 hover:bg-zinc-600 active:bg-zinc-700 hover:shadow-md"
               >
                 Manage
