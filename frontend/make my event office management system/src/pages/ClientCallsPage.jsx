@@ -5,6 +5,7 @@ import BackButton from "../components/BackButton";
 import DateTimePicker from "../components/DateTimePicker";
 import {
   AlertTriangle,
+  BadgeAlert,
   CalendarClock,
   CheckCircle2,
   Loader2,
@@ -19,7 +20,10 @@ import {
   MessageSquare,
 } from "lucide-react";
 import { loadCurrentEmployee } from "../services/authStorage";
-import { loadEmployeeDirectory } from "../services/managementStorage";
+import {
+  loadEmployeeDirectory,
+  setWorkspaceRowAlreadyBooked,
+} from "../services/managementStorage";
 import {
   createCall,
   deleteCall,
@@ -407,11 +411,18 @@ export default function ClientCallsPage() {
   const { rowKey } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const backTo = location.state?.from || "/management";
+  const queryReturnToRaw = new URLSearchParams(location.search).get("returnTo");
+  const queryReturnTo =
+    queryReturnToRaw && queryReturnToRaw.startsWith("/") && !queryReturnToRaw.startsWith("//")
+      ? queryReturnToRaw
+      : null;
+  const backTo = queryReturnTo || location.state?.from || "/management";
   const [employee] = useState(() => loadCurrentEmployee());
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
   const [eventDate, setEventDate] = useState("");
+  const [alreadyBooked, setAlreadyBooked] = useState(false);
+  const [isSavingAlreadyBooked, setIsSavingAlreadyBooked] = useState(false);
   const [calls, setCalls] = useState([]);
   const [employeeDirectory, setEmployeeDirectory] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -430,6 +441,7 @@ export default function ClientCallsPage() {
       setClientName(data.clientName || "");
       setClientPhone(data.clientPhone || "");
       setEventDate(data.eventDate || "");
+      setAlreadyBooked(Boolean(data.alreadyBooked));
       setCalls(data.calls || []);
     } catch (err) {
       setError(err.message || "Failed to load calls.");
@@ -496,6 +508,30 @@ export default function ClientCallsPage() {
     }
   }
 
+  // Same shared flag used by the Management sheet. This saves immediately
+  // through the dedicated badge endpoint — the employee never has to click
+  // a separate Save button, and no call discussion/other draft field is sent.
+  async function handleToggleAlreadyBooked() {
+    if (isSavingAlreadyBooked || isLoading) return;
+
+    const previousValue = alreadyBooked;
+    const nextValue = !previousValue;
+
+    setError("");
+    setAlreadyBooked(nextValue); // optimistic UI
+    setIsSavingAlreadyBooked(true);
+
+    try {
+      await setWorkspaceRowAlreadyBooked(rowKey, nextValue);
+    } catch (err) {
+      // Roll the badge back if the database update failed.
+      setAlreadyBooked(previousValue);
+      setError(err.message || "Failed to update the booked-by-others status.");
+    } finally {
+      setIsSavingAlreadyBooked(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-[#f8f9fb] text-black">
       <style>{`
@@ -541,28 +577,27 @@ export default function ClientCallsPage() {
                     Client Calls
                   </p>
                 </div>
-<h1 className="text-3xl font-black text-slate-900 sm:text-4xl">
-  {clientName || "This client"}
-</h1>
+                <h1 className="text-3xl font-black text-slate-900 sm:text-4xl">
+                  {clientName || "This client"}
+                </h1>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {eventDate && (
+                    <p className="inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-600">
+                      <CalendarClock size={13} className="text-slate-400" />
+                      Event Date: {formatEventDateDisplay(eventDate)}
+                    </p>
+                  )}
 
-<div className="mt-2 flex flex-wrap items-center gap-2">
-  {eventDate && (
-    <p className="inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-600">
-      <CalendarClock size={13} className="text-slate-400" />
-      Event Date: {formatEventDateDisplay(eventDate)}
-    </p>
-  )}
-
-  {clientPhone && (
-    <a
-      href={`tel:${clientPhone.replace(/[^\d+]/g, "")}`}
-      className="inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
-    >
-      <Phone size={13} className="text-slate-400" />
-      Phone: {clientPhone}
-    </a>
-  )}
-</div>
+                  {clientPhone && (
+                    <a
+                      href={`tel:${clientPhone.replace(/[^\d+]/g, "")}`}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+                    >
+                      <Phone size={13} className="text-slate-400" />
+                      Phone: {clientPhone}
+                    </a>
+                  )}
+                </div>
               </div>
 
               {/* Stats */}
@@ -593,6 +628,30 @@ export default function ClientCallsPage() {
                 )}
                 Add New Call
               </button>
+
+              <button
+                type="button"
+                onClick={handleToggleAlreadyBooked}
+                disabled={isSavingAlreadyBooked || isLoading}
+                title={
+                  alreadyBooked
+                    ? "Already booked with another event management company — click to unmark (saves automatically)"
+                    : "Mark as already booked with another event management company (saves automatically)"
+                }
+                className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-black transition-all duration-200 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60 ${
+                  alreadyBooked
+                    ? "border-rose-500 bg-rose-500 text-white shadow-md shadow-rose-500/25 hover:bg-rose-600"
+                    : "border-slate-200 bg-white text-slate-600 shadow-sm hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
+                }`}
+              >
+                {isSavingAlreadyBooked ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <BadgeAlert size={16} />
+                )}
+                {alreadyBooked ? "Booked by Others" : "Mark Booked by Others"}
+              </button>
+
               {hasEmptyCall && (
                 <p className="text-xs font-semibold text-slate-400">
                   Add a discussion note and save the new call before starting another.
