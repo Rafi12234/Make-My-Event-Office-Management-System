@@ -259,13 +259,37 @@ function applyStoredColumnWidths(columns, employeeId) {
   });
 }
 
+const MANAGEMENT_MIN_COLUMN_WIDTH = 60;
+const MANAGEMENT_ROW_NUMBER_WIDTH = 80;
+const MANAGEMENT_ACTION_WIDTH = 52;
+
 function saveStoredColumnWidths(employeeId, columns) {
   const next = {};
   for (const column of columns || []) {
     const width = Number(column.width);
-    if (Number.isFinite(width) && width >= 60) next[column.id] = width;
+    if (Number.isFinite(width) && width >= MANAGEMENT_MIN_COLUMN_WIDTH) {
+      next[column.id] = Math.round(width);
+    }
   }
-  localStorage.setItem(getColumnWidthsStorageKey(employeeId), JSON.stringify(next));
+
+  try {
+    localStorage.setItem(getColumnWidthsStorageKey(employeeId), JSON.stringify(next));
+  } catch {
+    // Column sizing is a UI preference. Storage failures must never interrupt
+    // normal Management page work.
+  }
+}
+
+function getManagementTableWidth(columns) {
+  const dataColumnsWidth = (columns || []).reduce((total, column) => {
+    const width = Number(column.width);
+    return total + Math.max(
+      MANAGEMENT_MIN_COLUMN_WIDTH,
+      Number.isFinite(width) ? width : 180,
+    );
+  }, 0);
+
+  return MANAGEMENT_ROW_NUMBER_WIDTH + dataColumnsWidth + MANAGEMENT_ACTION_WIDTH;
 }
 
 // Filters/sort live in sessionStorage (not localStorage) so they persist
@@ -591,8 +615,13 @@ function HoverPreviewPanel({ preview, onMouseEnter, onMouseLeave }) {
 // hidden input is bound directly to the real "YYYY-MM-DD" value.
 function EventDateCellEditor({ value, isNotAvailable, onChange, baseClass }) {
   return (
-    <div className={`${baseClass} relative flex items-center justify-between gap-2`}>
-      <span className={value ? "" : "text-black/25"}>{value ? isoDateToDDMMYYYY(value) : (isNotAvailable ? "N/A" : "Select event date")}</span>
+    <div className={`${baseClass} relative flex min-w-0 items-center gap-2 overflow-hidden pr-10`}>
+      <span
+        className={`min-w-0 flex-1 truncate whitespace-nowrap ${value ? "" : "text-black/25"}`}
+        title={value ? isoDateToDDMMYYYY(value) : (isNotAvailable ? "N/A" : "Select event date")}
+      >
+        {value ? isoDateToDDMMYYYY(value) : (isNotAvailable ? "N/A" : "Select event date")}
+      </span>
       <CalendarDays size={15} className="pointer-events-none shrink-0 text-black/30" />
       <input
         type="date"
@@ -968,6 +997,8 @@ export default function ManagementPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [savePromptRowCount, setSavePromptRowCount] = useState(0);
   const fileInputRef = useRef(null);
+  const managementTableRef = useRef(null);
+  const columnResizeRef = useRef(null);
   const hasMounted = useRef(false);
   const [rowHeights, setRowHeights] = useState(() => {
     try { return JSON.parse(localStorage.getItem("mme_row_heights_v1") || "{}"); }
@@ -1313,6 +1344,11 @@ const venueFilterOptions = useMemo(() => {
     [filters],
   );
 
+  const managementTableWidth = useMemo(
+    () => getManagementTableWidth(workspace.columns),
+    [workspace.columns],
+  );
+
   function toggleFilter(key, value) {
     setFilters((prev) => {
       const next = new Set(prev[key]);
@@ -1333,27 +1369,98 @@ const venueFilterOptions = useMemo(() => {
 
   function startColumnResize(e, columnId) {
     e.preventDefault();
-    const col = workspace.columns.find((c) => c.id === columnId);
-    if (!col) return;
-    const startX = e.clientX;
-    const startWidth = col.width;
+    e.stopPropagation();
+
+    const currentWorkspace = workspaceRef.current;
+    const column = currentWorkspace.columns.find((item) => item.id === columnId);
+    const table = managementTableRef.current;
+    const colElement = table?.querySelector(`col[data-management-column-id="${columnId}"]`);
+
+    if (!column || !table || !colElement) return;
+
+    const startWidth = Math.max(
+      MANAGEMENT_MIN_COLUMN_WIDTH,
+      Number(column.width) || 180,
+    );
+    const startTableWidth = getManagementTableWidth(currentWorkspace.columns);
+
+    columnResizeRef.current = {
+      columnId,
+      startX: e.clientX,
+      startWidth,
+      startTableWidth,
+      finalWidth: startWidth,
+      animationFrame: 0,
+      table,
+      colElement,
+    };
+
     setResizeCursor("col-resize");
-    function onMove(ev) {
-      const newWidth = Math.max(60, startWidth + (ev.clientX - startX));
-      setWorkspace((prev) => ({
-        ...prev,
-        columns: prev.columns.map((c) => (c.id === columnId ? { ...c, width: newWidth } : c)),
-      }));
+
+    function paintResize() {
+      const state = columnResizeRef.current;
+      if (!state) return;
+
+      state.animationFrame = 0;
+      state.colElement.style.width = `${state.finalWidth}px`;
+      state.table.style.width = `${state.startTableWidth - state.startWidth + state.finalWidth}px`;
     }
+
+    function onMove(ev) {
+      const state = columnResizeRef.current;
+      if (!state) return;
+
+      state.finalWidth = Math.max(
+        MANAGEMENT_MIN_COLUMN_WIDTH,
+        Math.round(state.startWidth + (ev.clientX - state.startX)),
+      );
+
+      // The Accounts Log Cost table gets its smooth resizing from fixed table
+      // columns. Management can contain hundreds of rows, so additionally avoid
+      // setWorkspace() on every mousemove: update only the <col> in the DOM and
+      // commit to React once when the employee releases the mouse.
+      if (!state.animationFrame) {
+        state.animationFrame = window.requestAnimationFrame(paintResize);
+      }
+    }
+
     function onUp() {
+      const state = columnResizeRef.current;
+      if (!state) return;
+
+      if (state.animationFrame) {
+        window.cancelAnimationFrame(state.animationFrame);
+        state.animationFrame = 0;
+      }
+
+      // Ensure the final pointer position is painted even if mouse-up happened
+      // before the last scheduled animation frame.
+      state.colElement.style.width = `${state.finalWidth}px`;
+      state.table.style.width = `${state.startTableWidth - state.startWidth + state.finalWidth}px`;
+
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
       setResizeCursor(null);
 
-      // Persist per-employee preferred widths immediately after resizing,
-      // so refresh keeps the same layout until the employee changes widths again.
-      saveStoredColumnWidths(employee?.id, workspaceRef.current.columns);
+      const latestWorkspace = workspaceRef.current;
+      const nextColumns = latestWorkspace.columns.map((item) =>
+        item.id === state.columnId
+          ? { ...item, width: state.finalWidth }
+          : item,
+      );
+      const nextWorkspace = { ...latestWorkspace, columns: nextColumns };
+
+      // Column width is a personal UI preference, not client data. Commit once
+      // without making the sheet appear dirty or requiring Save Changes.
+      suppressNextDirtyMarkRef.current = true;
+      workspaceRef.current = nextWorkspace;
+      cachedWorkspace = nextWorkspace;
+      setWorkspace(nextWorkspace);
+      saveStoredColumnWidths(employee?.id, nextColumns);
+
+      columnResizeRef.current = null;
     }
+
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
   }
@@ -2622,7 +2729,27 @@ const venueFilterOptions = useMemo(() => {
               <EmptyState onAddRow={addRow} onUpload={() => fileInputRef.current?.click()} />
             ) : (
               <div className="min-h-[420px] overflow-x-auto">
-                <table className="w-full border-separate border-spacing-0 text-left" style={{ minWidth: "100%" }}>
+                <table
+                  ref={managementTableRef}
+                  className="w-full table-fixed border-separate border-spacing-0 text-left"
+                  style={{ width: `${managementTableWidth}px`, minWidth: "100%" }}
+                >
+                  <colgroup>
+                    <col style={{ width: `${MANAGEMENT_ROW_NUMBER_WIDTH}px` }} />
+                    {workspace.columns.map((column) => (
+                      <col
+                        key={column.id}
+                        data-management-column-id={column.id}
+                        style={{
+                          width: `${Math.max(
+                            MANAGEMENT_MIN_COLUMN_WIDTH,
+                            Number(column.width) || 180,
+                          )}px`,
+                        }}
+                      />
+                    ))}
+                    <col style={{ width: `${MANAGEMENT_ACTION_WIDTH}px` }} />
+                  </colgroup>
                   <thead>
                     <tr>
                       <th className="sticky left-0 z-30 w-20 min-w-20 border-b-2 border-r border-violet-500/40 bg-gradient-to-b from-[#241b4a] via-[#15122a] to-black px-2 py-3.5 text-center text-[11px] font-black uppercase tracking-wider text-white">
@@ -2642,16 +2769,18 @@ const venueFilterOptions = useMemo(() => {
                       {workspace.columns.map((column) => (
                         <th
                           key={column.id}
-                          style={{ width: column.width, minWidth: column.width }}
                           className="relative border-b-2 border-r border-violet-500/40 bg-gradient-to-b from-[#241b4a] via-[#15122a] to-black px-3 py-3.5 align-top text-[11px] font-black uppercase tracking-wider text-white transition-colors duration-200 hover:from-[#332658]"
                         >
                           <div className="flex items-start justify-between gap-2 pr-1">
                             <span>{Showed_Column_Name[column.name] ?? column.name}{column.required ? " *" : ""}</span>
                           </div>
-                          <div
+                          <span
                             onMouseDown={(e) => startColumnResize(e, column.id)}
-                            className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize transition-colors duration-150 hover:bg-white/40"
-                          />
+                            title="Drag to resize column"
+                            className="group absolute -right-1 top-0 z-20 flex h-full w-2.5 cursor-col-resize touch-none select-none items-center justify-center"
+                          >
+                            <span className="h-5 w-px bg-white/20 transition-colors duration-200 group-hover:bg-white/80" />
+                          </span>
                         </th>
                       ))}
                       <th className="sticky right-0 z-30 w-[52px] min-w-[52px] border-b-2 border-l border-violet-500/40 bg-gradient-to-b from-[#241b4a] via-[#15122a] to-black px-2 py-3.5 text-center text-[11px] font-black uppercase tracking-wider text-white">Action</th>
@@ -2722,12 +2851,14 @@ const venueFilterOptions = useMemo(() => {
                           {workspace.columns.map((column) => (
                             <td
                               key={column.id}
-                              style={{ width: column.width, minWidth: column.width, ...(rowH ? { height: `${rowH}px` } : {}) }}
-                              className={`border-b border-r ${cellBorder} align-top transition-colors duration-150 ${cellBg}`}
+                              style={rowH ? { height: `${rowH}px` } : undefined}
+                              className={`border-b border-r ${cellBorder} align-top transition-colors duration-150 ${cellBg} ${
+                                column.id === "event_date" ? "overflow-hidden" : ""
+                              }`}
                             >
                               {column.id === "event_date" ? (
-                                <div className="flex h-full min-h-11 items-stretch">
-                                  <div className="min-w-0 flex-1">
+                                <div className="relative flex h-full min-h-11 min-w-0 items-stretch overflow-hidden">
+                                  <div className="min-w-0 flex-1 overflow-hidden">
                                     <CellEditor
                                       column={column}
                                       value={row.values[column.id]}
@@ -2743,7 +2874,7 @@ const venueFilterOptions = useMemo(() => {
                                         ? "Already booked with another event management company — click to unmark (saves automatically)"
                                         : "Mark as already booked with another event management company (saves automatically)"
                                     }
-                                    className={`my-auto mr-1.5 flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[10px] font-black transition-all duration-200 active:scale-90 ${
+                                    className={`absolute right-1.5 top-1/2 z-20 flex h-7 w-7 -translate-y-1/2 shrink-0 items-center justify-center rounded-full p-0 text-[10px] font-black transition-all duration-200 active:scale-90 ${
                                       isAlreadyBooked
                                         ? "bg-rose-500 text-white shadow-sm shadow-rose-500/30 hover:bg-rose-600"
                                         : "bg-[#f4f4f4] text-black/35 hover:bg-rose-50 hover:text-rose-500"
