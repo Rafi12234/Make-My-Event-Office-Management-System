@@ -1,12 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import {
+  ArrowUpRight,
   CalendarClock,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
+  Clock3,
   Info,
+  Layers3,
   Phone,
+  Search,
   SlidersHorizontal,
+  UserRound,
   UsersRound,
   X,
 } from "lucide-react";
@@ -17,93 +23,297 @@ import { fetchAllCalls, fetchAllMeetings } from "../../services/adminActivitySer
 
 function formatDisplay(dbDatetime) {
   if (!dbDatetime) return null;
-  const [datePart, timePart] = dbDatetime.split(" ");
+  const [datePart, timePart] = String(dbDatetime).split(" ");
   const date = new Date(`${datePart}T${timePart || "00:00:00"}`);
   if (Number.isNaN(date.getTime())) return dbDatetime;
   return date.toLocaleString("en-GB", {
-    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
-// ─── Client Group Row ────────────────────────────────────────────────────────
-// One row per client with a dropdown: expanding it reveals exactly two
-// subrows — every completed meeting/call for that client (date-wise, with a
-// single Details button opening the full history) and every currently
-// scheduled next-meeting/next-call (each meeting/call can carry its own
-// independent next-schedule, so more than one may be active at once). Any
-// newly logged meeting/call or newly scheduled next-date for the same
-// client folds into these same two subrows automatically (grouped by
-// rowKey), never creating new ones.
-function ClientGroupRow({ kind, group }) {
-  const navigate = useNavigate();
-  const [expanded, setExpanded] = useState(false);
-  const label = kind === "meeting" ? "Meeting" : "Call";
-  const loggedDatetimeKey = kind === "meeting" ? "meetingDatetime" : "callDatetime";
+function compactDateTime(dbDatetime) {
+  if (!dbDatetime) return "—";
+  const [datePart, timePart] = String(dbDatetime).split(" ");
+  const date = new Date(`${datePart}T${timePart || "00:00:00"}`);
+  if (Number.isNaN(date.getTime())) return String(dbDatetime);
+  return date.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function getLoggedDatetime(entry, kind) {
+  return kind === "meeting" ? entry.meetingDatetime : entry.callDatetime;
+}
+
+function getGroupPeople(group) {
+  return [
+    ...new Set(
+      [
+        ...group.completed.map((entry) => entry.createdByName),
+        ...group.nextEntries.map((entry) => entry.assignedEmployeeName),
+      ].filter(Boolean),
+    ),
+  ];
+}
+
+function StatCard({ icon: Icon, label, value, caption, tone = "purple" }) {
+  const tones = {
+    purple: "bg-mme-purple text-white shadow-mme-purple/15",
+    rose: "border-mme-pink/70 bg-white text-mme-purple",
+    emerald: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    amber: "border-amber-200 bg-amber-50 text-amber-800",
+  };
 
   return (
-    <div className="rounded-2xl border border-mme-pink/50 bg-white transition hover:border-mme-pink hover:shadow-sm">
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left"
-      >
-        <p className="truncate font-black text-mme-purple">{group.clientName || "Unnamed client"}</p>
-        <ChevronDown size={16} className={`shrink-0 text-mme-purple/50 transition-transform ${expanded ? "rotate-180" : ""}`} />
-      </button>
-
-      {expanded && (
-        <div className="space-y-3 border-t border-mme-pink/30 px-4 py-3.5">
-          {group.completed.length > 0 && (
-            <div className="rounded-xl border border-mme-pink/40 bg-[#fff9fc] p-3">
-              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <p className="text-[10px] font-black uppercase tracking-wide text-mme-purple/50">
-                  Completed {label}s ({group.completed.length})
-                </p>
-                <button
-                  onClick={() => navigate(`/admin/activity/${kind === "meeting" ? "meetings" : "calls"}/${group.rowKey}`)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-mme-pink/70 bg-white px-2.5 py-1 text-[11px] font-black text-mme-purple transition hover:bg-mme-blush/40"
-                >
-                  <Info size={11} /> Details
-                </button>
-              </div>
-              <ul className="space-y-1">
-                {group.completed.map((entry) => (
-                  <li key={entry.id} className="text-xs text-mme-purple/70">
-                    {formatDisplay(entry[loggedDatetimeKey]) || "—"} {"\u00b7"} Logged by{" "}
-                    <span className="font-bold text-mme-purple/85">{entry.createdByName || "—"}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {group.nextEntries.length > 0 && (
-            <div className="rounded-xl border border-mme-pink/40 bg-[#fff9fc] p-3">
-              <p className="text-[10px] font-black uppercase tracking-wide text-mme-purple/50">
-                Next {label}{group.nextEntries.length !== 1 ? "s" : ""} ({group.nextEntries.length})
-              </p>
-              <ul className="mt-1 space-y-1">
-                {group.nextEntries.map((next, i) => (
-                  <li key={i} className="text-sm">
-                    <span className="font-bold text-mme-purple">{formatDisplay(next.datetime) || "Not scheduled yet"}</span>
-                    <span className="ml-2 font-normal text-mme-purple/60">
-                      Assigned To <span className="font-bold text-mme-purple">{next.assignedEmployeeName || "Unassigned"}</span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {group.completed.length === 0 && group.nextEntries.length === 0 && (
-            <p className="text-xs italic text-mme-purple/40">No completed or upcoming {kind} for this client.</p>
-          )}
+    <div className={`rounded-2xl border border-transparent p-4 shadow-sm ${tones[tone]}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className={`text-[10px] font-black uppercase tracking-[0.16em] ${tone === "purple" ? "text-white/65" : "opacity-55"}`}>
+            {label}
+          </p>
+          <p className="mt-1 text-2xl font-black leading-none">{value}</p>
+          {caption ? (
+            <p className={`mt-2 text-[11px] font-semibold ${tone === "purple" ? "text-white/65" : "opacity-60"}`}>
+              {caption}
+            </p>
+          ) : null}
         </div>
-      )}
+        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${tone === "purple" ? "bg-white/12" : "bg-white/70"}`}>
+          <Icon size={16} />
+        </div>
+      </div>
     </div>
   );
 }
 
-// ─── Main Page ───────────────────────────────────────────────────────────────
+function ActivityStatus({ hasCompleted, hasNext }) {
+  if (hasNext) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-amber-700">
+        <Clock3 size={11} /> Upcoming
+      </span>
+    );
+  }
+
+  if (hasCompleted) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-emerald-700">
+        <CheckCircle2 size={11} /> Completed
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-slate-500">
+      No activity
+    </span>
+  );
+}
+
+function ClientActivityTableRow({ kind, group, index }) {
+  const navigate = useNavigate();
+  const [expanded, setExpanded] = useState(false);
+  const label = kind === "meeting" ? "Meeting" : "Call";
+  const detailsPath = `/admin/activity/${kind === "meeting" ? "meetings" : "calls"}/${group.rowKey}`;
+  const people = getGroupPeople(group);
+  const latestCompleted = group.completed[0] || null;
+  const nextEntry = group.nextEntries[0] || null;
+
+  return (
+    <>
+      <tr
+        className="group border-b border-mme-pink/35 bg-white transition-colors hover:bg-[#fff9fc]"
+        style={{ animation: `fadeInUp 0.25s ease ${Math.min(index * 0.025, 0.25)}s both` }}
+      >
+        <td className="min-w-[250px] px-4 py-4 align-top">
+          <button
+            type="button"
+            onClick={() => setExpanded((value) => !value)}
+            className="flex max-w-full items-start gap-3 text-left"
+          >
+            <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border transition ${expanded ? "border-mme-purple bg-mme-purple text-white" : "border-mme-pink/60 bg-mme-blush/35 text-mme-purple"}`}>
+              <ChevronRight size={14} className={`transition-transform duration-200 ${expanded ? "rotate-90" : ""}`} />
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-black text-mme-purple" title={group.clientName || "Unnamed client"}>
+                {group.clientName || "Unnamed client"}
+              </span>
+              <span className="mt-1 block text-[10px] font-bold uppercase tracking-wide text-mme-purple/40">
+                {group.completed.length + group.nextEntries.length} visible record{group.completed.length + group.nextEntries.length === 1 ? "" : "s"}
+              </span>
+            </span>
+          </button>
+        </td>
+
+        <td className="min-w-[130px] px-4 py-4 align-top">
+          <div className="inline-flex items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2 text-emerald-700">
+            <CheckCircle2 size={14} />
+            <span className="text-sm font-black">{group.completed.length}</span>
+          </div>
+          <p className="mt-1.5 text-[10px] font-semibold text-mme-purple/40">completed {label.toLowerCase()}{group.completed.length === 1 ? "" : "s"}</p>
+        </td>
+
+        <td className="min-w-[190px] px-4 py-4 align-top">
+          {latestCompleted ? (
+            <>
+              <p className="text-xs font-black text-mme-purple">
+                {compactDateTime(getLoggedDatetime(latestCompleted, kind))}
+              </p>
+              <p className="mt-1 flex items-center gap-1 text-[10px] font-semibold text-mme-purple/45">
+                <UserRound size={10} /> {latestCompleted.createdByName || "Unknown employee"}
+              </p>
+            </>
+          ) : (
+            <span className="text-xs font-semibold italic text-mme-purple/35">No completed activity</span>
+          )}
+        </td>
+
+        <td className="min-w-[220px] px-4 py-4 align-top">
+          {nextEntry ? (
+            <div>
+              <p className="text-xs font-black text-amber-700">{compactDateTime(nextEntry.datetime)}</p>
+              <p className="mt-1 flex items-center gap-1 text-[10px] font-semibold text-mme-purple/45">
+                <UsersRound size={10} /> {nextEntry.assignedEmployeeName || "Unassigned"}
+              </p>
+              {group.nextEntries.length > 1 ? (
+                <p className="mt-1 text-[10px] font-black text-amber-600">+{group.nextEntries.length - 1} more scheduled</p>
+              ) : null}
+            </div>
+          ) : (
+            <span className="text-xs font-semibold italic text-mme-purple/35">Nothing scheduled</span>
+          )}
+        </td>
+
+        <td className="min-w-[190px] px-4 py-4 align-top">
+          <div className="flex max-w-[220px] flex-wrap gap-1.5">
+            {people.length ? (
+              <>
+                {people.slice(0, 2).map((name) => (
+                  <span key={name} className="max-w-[150px] truncate rounded-full border border-mme-pink/55 bg-mme-blush/25 px-2.5 py-1 text-[10px] font-bold text-mme-purple" title={name}>
+                    {name}
+                  </span>
+                ))}
+                {people.length > 2 ? (
+                  <span className="rounded-full bg-mme-purple px-2 py-1 text-[10px] font-black text-white">+{people.length - 2}</span>
+                ) : null}
+              </>
+            ) : (
+              <span className="text-xs font-semibold italic text-mme-purple/35">—</span>
+            )}
+          </div>
+        </td>
+
+        <td className="min-w-[130px] px-4 py-4 align-top">
+          <ActivityStatus hasCompleted={group.completed.length > 0} hasNext={group.nextEntries.length > 0} />
+        </td>
+
+        <td className="sticky right-0 min-w-[150px] border-l border-mme-pink/25 bg-white px-4 py-4 align-top transition-colors group-hover:bg-[#fff9fc]">
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setExpanded((value) => !value)}
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-mme-pink/60 bg-white text-mme-purple transition hover:border-mme-purple hover:bg-mme-blush/35"
+              title={expanded ? "Collapse row" : "Expand row"}
+            >
+              <ChevronDown size={14} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate(detailsPath)}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-mme-purple px-3 py-2 text-[11px] font-black text-white shadow-sm transition hover:bg-[#4b2c55] hover:shadow-md"
+            >
+              Details <ArrowUpRight size={12} />
+            </button>
+          </div>
+        </td>
+      </tr>
+
+      {expanded ? (
+        <tr className="border-b border-mme-pink/35 bg-[#fffafd]">
+          <td colSpan={7} className="px-5 py-5">
+            <div className="grid gap-4 xl:grid-cols-2">
+              <div className="overflow-hidden rounded-2xl border border-mme-pink/45 bg-white">
+                <div className="flex items-center justify-between gap-3 border-b border-mme-pink/35 bg-emerald-50/60 px-4 py-3">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">Completed {label}s</p>
+                    <p className="mt-0.5 text-xs font-semibold text-mme-purple/50">Full visible history for this client</p>
+                  </div>
+                  <span className="rounded-full bg-emerald-600 px-2.5 py-1 text-[10px] font-black text-white">{group.completed.length}</span>
+                </div>
+                {group.completed.length ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[500px] text-left">
+                      <thead>
+                        <tr className="border-b border-mme-pink/30 bg-[#fffdfd]">
+                          <th className="px-4 py-2 text-[9px] font-black uppercase tracking-[0.14em] text-mme-purple/45">#</th>
+                          <th className="px-4 py-2 text-[9px] font-black uppercase tracking-[0.14em] text-mme-purple/45">Date &amp; time</th>
+                          <th className="px-4 py-2 text-[9px] font-black uppercase tracking-[0.14em] text-mme-purple/45">Logged by</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.completed.map((entry, itemIndex) => (
+                          <tr key={entry.id} className="border-b border-mme-pink/20 last:border-0">
+                            <td className="px-4 py-2.5 text-xs font-black text-mme-purple/35">{itemIndex + 1}</td>
+                            <td className="px-4 py-2.5 text-xs font-bold text-mme-purple">{formatDisplay(getLoggedDatetime(entry, kind)) || "—"}</td>
+                            <td className="px-4 py-2.5 text-xs font-semibold text-mme-purple/65">{entry.createdByName || "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="p-5 text-xs font-semibold italic text-mme-purple/35">No completed {label.toLowerCase()} in the current filter.</p>
+                )}
+              </div>
+
+              <div className="overflow-hidden rounded-2xl border border-mme-pink/45 bg-white">
+                <div className="flex items-center justify-between gap-3 border-b border-mme-pink/35 bg-amber-50/70 px-4 py-3">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.16em] text-amber-700">Next {label}{group.nextEntries.length === 1 ? "" : "s"}</p>
+                    <p className="mt-0.5 text-xs font-semibold text-mme-purple/50">Upcoming schedules and assignees</p>
+                  </div>
+                  <span className="rounded-full bg-amber-500 px-2.5 py-1 text-[10px] font-black text-white">{group.nextEntries.length}</span>
+                </div>
+                {group.nextEntries.length ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[500px] text-left">
+                      <thead>
+                        <tr className="border-b border-mme-pink/30 bg-[#fffdfd]">
+                          <th className="px-4 py-2 text-[9px] font-black uppercase tracking-[0.14em] text-mme-purple/45">#</th>
+                          <th className="px-4 py-2 text-[9px] font-black uppercase tracking-[0.14em] text-mme-purple/45">Scheduled for</th>
+                          <th className="px-4 py-2 text-[9px] font-black uppercase tracking-[0.14em] text-mme-purple/45">Assigned to</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.nextEntries.map((next, itemIndex) => (
+                          <tr key={`${next.datetime || "none"}-${next.assignedEmployeeName || "none"}-${itemIndex}`} className="border-b border-mme-pink/20 last:border-0">
+                            <td className="px-4 py-2.5 text-xs font-black text-mme-purple/35">{itemIndex + 1}</td>
+                            <td className="px-4 py-2.5 text-xs font-bold text-amber-700">{formatDisplay(next.datetime) || "Not scheduled yet"}</td>
+                            <td className="px-4 py-2.5 text-xs font-semibold text-mme-purple/65">{next.assignedEmployeeName || "Unassigned"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="p-5 text-xs font-semibold italic text-mme-purple/35">No upcoming {label.toLowerCase()} in the current filter.</p>
+                )}
+              </div>
+            </div>
+          </td>
+        </tr>
+      ) : null}
+    </>
+  );
+}
+
 export default function AdminActivityPage() {
   const navigate = useNavigate();
   const [admin, setAdmin] = useState(null);
@@ -114,16 +324,14 @@ export default function AdminActivityPage() {
   const [employees, setEmployees] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [notice, setNotice] = useState(null);
-  // Completed and Next are independent toggles (both on by default) so an
-  // admin can see both at once for the same employee/date range — they are
-  // no longer a single mutually-exclusive category choice.
   const [showCompleted, setShowCompleted] = useState(true);
   const [showNext, setShowNext] = useState(true);
   const [filterEmployees, setFilterEmployees] = useState(new Set());
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [searchText, setSearchText] = useState("");
   const [showFilters, setShowFilters] = useState(false);
-  const [hoveredSection, setHoveredSection] = useState(null); // "employees" | "date" | null
+  const [hoveredSection, setHoveredSection] = useState(null);
   const filterDropdownRef = useRef(null);
 
   useEffect(() => {
@@ -142,16 +350,16 @@ export default function AdminActivityPage() {
       .then(([meetingsData, callsData, employeesData]) => {
         setMeetings(meetingsData);
         setCalls(callsData);
-        setEmployees(employeesData.filter((e) => e.isActive));
+        setEmployees(employeesData.filter((employee) => employee.isActive));
       })
-      .catch((err) => setNotice({ type: "error", message: err.message }))
+      .catch((error) => setNotice({ type: "error", message: error.message }))
       .finally(() => setIsLoading(false));
   }, [admin]);
 
   useEffect(() => {
     if (!notice) return undefined;
-    const t = setTimeout(() => setNotice(null), 4000);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setNotice(null), 4000);
+    return () => clearTimeout(timer);
   }, [notice]);
 
   async function handleLogout() {
@@ -162,17 +370,14 @@ export default function AdminActivityPage() {
   const kind = tab === "meetings" ? "meeting" : "call";
   const list = tab === "meetings" ? meetings : calls;
 
-  // Switching tabs invalidates whichever employees were previously checked —
-  // a name checked on the Meetings tab may not even appear on the Calls tab.
   useEffect(() => {
     setFilterEmployees(new Set());
+    setSearchText("");
   }, [tab]);
 
-  // Close the dropdown on an outside click, same behavior as
-  // ManagementPage.jsx's Filters dropdown.
   useEffect(() => {
-    function handleClickOutside(e) {
-      if (filterDropdownRef.current && !filterDropdownRef.current.contains(e.target)) {
+    function handleClickOutside(event) {
+      if (filterDropdownRef.current && !filterDropdownRef.current.contains(event.target)) {
         setShowFilters(false);
       }
     }
@@ -192,20 +397,16 @@ export default function AdminActivityPage() {
     return true;
   }
 
-  // The employee list applies to BOTH categories at once, matched against
-  // whichever role is relevant to that subrow — who logged the completed
-  // entry, or who the next-schedule is assigned to — so picking one employee
-  // and a date range surfaces their completed AND next entries together,
-  // instead of forcing an either/or category choice first.
   const employeeCounts = useMemo(() => {
     const counts = new Map();
     for (const entry of list) {
       if (showCompleted && entry.hasCompletedDetails) {
-        const loggedDate = (kind === "meeting" ? entry.meetingDatetime : entry.callDatetime)?.slice(0, 10) || null;
+        const loggedDate = getLoggedDatetime(entry, kind)?.slice(0, 10) || null;
         if (entry.createdByName && passesDateFilter(loggedDate)) {
           counts.set(entry.createdByName, (counts.get(entry.createdByName) || 0) + 1);
         }
       }
+
       const next = kind === "meeting" ? entry.nextMeeting : entry.nextCall;
       if (showNext && next) {
         const nextDate = (kind === "meeting" ? next.nextMeetingDatetime : next.nextCallDatetime)?.slice(0, 10) || null;
@@ -214,54 +415,88 @@ export default function AdminActivityPage() {
         }
       }
     }
-    // Show every employee the admin created, not just those with a match —
-    // the count is 0 for anyone with no completed/upcoming entries here.
+
     return employees
-      .map((emp) => ({ name: emp.fullName, count: counts.get(emp.fullName) || 0 }))
+      .map((employee) => ({ name: employee.fullName, count: counts.get(employee.fullName) || 0 }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   }, [list, kind, showCompleted, showNext, dateFrom, dateTo, employees]);
 
-  // Groups every meeting/call by client (rowKey) into two independent
-  // subrows — completed history and scheduled next-meeting/next-call — each
-  // filtered on its own terms (Completed matches by who logged it, Next
-  // matches by who it's assigned to) so the SAME employee + date range can
-  // surface both at once for a client instead of one excluding the other.
   const clientGroups = useMemo(() => {
     const groups = new Map();
+
     for (const entry of list) {
-      const loggedDate = (kind === "meeting" ? entry.meetingDatetime : entry.callDatetime)?.slice(0, 10) || null;
+      const loggedDatetime = getLoggedDatetime(entry, kind);
+      const loggedDate = loggedDatetime?.slice(0, 10) || null;
       const isCompletedMatch =
-        showCompleted && entry.hasCompletedDetails && passesEmployeeFilter(entry.createdByName) && passesDateFilter(loggedDate);
+        showCompleted &&
+        entry.hasCompletedDetails &&
+        passesEmployeeFilter(entry.createdByName) &&
+        passesDateFilter(loggedDate);
 
       const next = kind === "meeting" ? entry.nextMeeting : entry.nextCall;
       const nextDatetime = next ? (kind === "meeting" ? next.nextMeetingDatetime : next.nextCallDatetime) : null;
       const nextDate = nextDatetime?.slice(0, 10) || null;
-      const isNextMatch = showNext && Boolean(next) && passesEmployeeFilter(next?.assignedEmployeeName) && passesDateFilter(nextDate);
+      const isNextMatch =
+        showNext &&
+        Boolean(next) &&
+        passesEmployeeFilter(next?.assignedEmployeeName) &&
+        passesDateFilter(nextDate);
 
       if (!isCompletedMatch && !isNextMatch) continue;
 
       if (!groups.has(entry.rowKey)) {
-        groups.set(entry.rowKey, { rowKey: entry.rowKey, clientName: entry.clientName, completed: [], nextEntries: [] });
+        groups.set(entry.rowKey, {
+          rowKey: entry.rowKey,
+          clientName: entry.clientName,
+          completed: [],
+          nextEntries: [],
+        });
       }
+
       const group = groups.get(entry.rowKey);
       if (!group.clientName && entry.clientName) group.clientName = entry.clientName;
       if (isCompletedMatch) group.completed.push(entry);
-      if (isNextMatch) group.nextEntries.push({ datetime: nextDatetime, assignedEmployeeName: next.assignedEmployeeName });
+      if (isNextMatch) {
+        group.nextEntries.push({
+          datetime: nextDatetime,
+          assignedEmployeeName: next.assignedEmployeeName,
+        });
+      }
     }
+
     for (const group of groups.values()) {
-      group.nextEntries.sort((a, b) => (a.datetime || "").localeCompare(b.datetime || ""));
+      group.completed.sort((a, b) => String(getLoggedDatetime(b, kind) || "").localeCompare(String(getLoggedDatetime(a, kind) || "")));
+      group.nextEntries.sort((a, b) => String(a.datetime || "").localeCompare(String(b.datetime || "")));
     }
-    // A logged meeting/call with no discussion/items and no upcoming
-    // follow-up carries nothing worth showing the admin — drop those empty
-    // client cards instead of rendering a group with no content at all.
+
     return [...groups.values()].filter((group) => group.completed.length > 0 || group.nextEntries.length > 0);
   }, [list, kind, showCompleted, showNext, filterEmployees, dateFrom, dateTo]);
 
-  const totalClientCount = useMemo(() => new Set(list.map((e) => e.rowKey)).size, [list]);
+  const totalClientCount = useMemo(() => new Set(list.map((entry) => entry.rowKey)).size, [list]);
+
+  const visibleGroups = useMemo(() => {
+    const query = searchText.trim().toLowerCase();
+    if (!query) return clientGroups;
+
+    return clientGroups.filter((group) => {
+      if (String(group.clientName || "").toLowerCase().includes(query)) return true;
+      return getGroupPeople(group).some((name) => String(name).toLowerCase().includes(query));
+    });
+  }, [clientGroups, searchText]);
+
+  const visibleCompletedCount = useMemo(
+    () => visibleGroups.reduce((sum, group) => sum + group.completed.length, 0),
+    [visibleGroups],
+  );
+
+  const visibleNextCount = useMemo(
+    () => visibleGroups.reduce((sum, group) => sum + group.nextEntries.length, 0),
+    [visibleGroups],
+  );
 
   function toggleFilterEmployee(name) {
-    setFilterEmployees((prev) => {
-      const next = new Set(prev);
+    setFilterEmployees((previous) => {
+      const next = new Set(previous);
       if (next.has(name)) next.delete(name);
       else next.add(name);
       return next;
@@ -278,84 +513,167 @@ export default function AdminActivityPage() {
   }
 
   const activeFilterCount =
-    (showCompleted ? 0 : 1) + (showNext ? 0 : 1) + filterEmployees.size + (dateFrom ? 1 : 0) + (dateTo ? 1 : 0);
+    (showCompleted ? 0 : 1) +
+    (showNext ? 0 : 1) +
+    filterEmployees.size +
+    (dateFrom ? 1 : 0) +
+    (dateTo ? 1 : 0);
 
   if (checkingSession || !admin) return null;
 
   return (
     <AdminLayout admin={admin} onLogout={handleLogout}>
-        <div className="mb-5">
-          <BackButton to="/admin-dashboard" title="Back to Admin Dashboard" />
-        </div>
+      <style>{`
+        @keyframes fadeInUp {
+          from { opacity: 0; transform: translateY(8px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
 
-        <div className="mb-7">
+      <div className="mb-5">
+        <BackButton to="/admin-dashboard" title="Back to Admin Dashboard" />
+      </div>
+
+      <div className="mb-7 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+        <div>
           <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.2em] text-mme-plum">
             <CalendarClock size={14} /> Admin Control
           </div>
           <h1 className="mt-2 text-2xl font-black text-mme-purple sm:text-3xl">Meeting &amp; Call Oversight</h1>
-          
+          <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-mme-purple/50">
+            Review completed client activity, upcoming schedules and responsible employees from one operational table.
+          </p>
         </div>
 
-        {notice && (
-          <div className={`mb-5 flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm font-bold ${
-            notice.type === "error"
-              ? "border-red-200 bg-red-50 text-red-600"
-              : "border-green-200 bg-green-50 text-green-700"
-          }`}>
-            {notice.message}
-          </div>
-        )}
+        <div className="inline-flex w-fit rounded-2xl border border-mme-pink/60 bg-white p-1.5 shadow-sm">
+          <button
+            type="button"
+            onClick={() => setTab("meetings")}
+            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-black transition-all ${
+              tab === "meetings"
+                ? "bg-mme-purple text-white shadow-md shadow-mme-purple/20"
+                : "text-mme-purple/55 hover:bg-mme-blush/35 hover:text-mme-purple"
+            }`}
+          >
+            <CalendarClock size={14} /> Meetings
+            <span className={`rounded-full px-2 py-0.5 text-[10px] ${tab === "meetings" ? "bg-white/15" : "bg-mme-blush/60"}`}>
+              {meetings.length}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("calls")}
+            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-black transition-all ${
+              tab === "calls"
+                ? "bg-mme-purple text-white shadow-md shadow-mme-purple/20"
+                : "text-mme-purple/55 hover:bg-mme-blush/35 hover:text-mme-purple"
+            }`}
+          >
+            <Phone size={14} /> Calls
+            <span className={`rounded-full px-2 py-0.5 text-[10px] ${tab === "calls" ? "bg-white/15" : "bg-mme-blush/60"}`}>
+              {calls.length}
+            </span>
+          </button>
+        </div>
+      </div>
 
-        <div className="rounded-3xl border border-mme-pink/60 bg-white shadow-[0_8px_30px_rgba(91,55,101,0.07)]">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-mme-pink/50 px-6 py-4">
-            <div className="flex gap-2">
-              <button
-                onClick={() => setTab("meetings")}
-                className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-black transition ${
-                  tab === "meetings" ? "bg-mme-purple text-white" : "text-mme-purple/60 hover:bg-mme-blush/40"
-                }`}
-              >
-                <CalendarClock size={13} /> Meetings ({meetings.length})
-              </button>
-              <button
-                onClick={() => setTab("calls")}
-                className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-black transition ${
-                  tab === "calls" ? "bg-mme-purple text-white" : "text-mme-purple/60 hover:bg-mme-blush/40"
-                }`}
-              >
-                <Phone size={13} /> Calls ({calls.length})
-              </button>
+      {notice ? (
+        <div className={`mb-5 flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm font-bold ${
+          notice.type === "error"
+            ? "border-red-200 bg-red-50 text-red-600"
+            : "border-green-200 bg-green-50 text-green-700"
+        }`}>
+          {notice.message}
+        </div>
+      ) : null}
+
+      <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          icon={Layers3}
+          label={tab === "meetings" ? "Meeting records" : "Call records"}
+          value={list.length}
+          caption={`${totalClientCount} clients in this activity type`}
+          tone="purple"
+        />
+        <StatCard
+          icon={UsersRound}
+          label="Visible clients"
+          value={visibleGroups.length}
+          caption={activeFilterCount || searchText ? `Filtered from ${totalClientCount} clients` : "Current client coverage"}
+          tone="rose"
+        />
+        <StatCard
+          icon={CheckCircle2}
+          label="Completed"
+          value={visibleCompletedCount}
+          caption="Matching completed activities"
+          tone="emerald"
+        />
+        <StatCard
+          icon={Clock3}
+          label="Upcoming"
+          value={visibleNextCount}
+          caption="Matching future schedules"
+          tone="amber"
+        />
+      </div>
+
+      <div className="overflow-hidden rounded-3xl border border-mme-pink/60 bg-white shadow-[0_12px_35px_rgba(91,55,101,0.08)]">
+        <div className="flex flex-col gap-3 border-b border-mme-pink/45 bg-gradient-to-r from-white via-[#fffafd] to-white px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-sm font-black text-mme-purple">Client activity table</p>
+            <p className="mt-1 text-xs font-semibold text-mme-purple/45">
+              Expand a client row for detailed history, or open the full activity record.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="relative min-w-0 sm:w-72">
+              <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-mme-purple/35" />
+              <input
+                type="search"
+                value={searchText}
+                onChange={(event) => setSearchText(event.target.value)}
+                placeholder="Search client or employee..."
+                className="w-full rounded-xl border border-mme-pink/65 bg-white py-2.5 pl-9 pr-9 text-sm font-semibold text-mme-purple outline-none transition focus:border-mme-purple focus:ring-4 focus:ring-mme-pink/20"
+              />
+              {searchText ? (
+                <button
+                  type="button"
+                  onClick={() => setSearchText("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-lg p-1 text-mme-purple/35 transition hover:bg-mme-blush hover:text-mme-purple"
+                  title="Clear search"
+                >
+                  <X size={13} />
+                </button>
+              ) : null}
             </div>
 
-            {/* ── Filters dropdown (matches ManagementPage.jsx's Filters UI) ── */}
             <div className="relative" ref={filterDropdownRef}>
               <button
+                type="button"
                 onClick={() => {
-                  setShowFilters((v) => !v);
+                  setShowFilters((value) => !value);
                   if (!showFilters) setHoveredSection("employees");
                 }}
-                className="inline-flex items-center gap-2 rounded-xl bg-mme-purple px-4 py-2.5 text-sm font-black text-white shadow-md shadow-mme-purple/20 transition hover:bg-[#4b2c55]"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-mme-purple px-4 py-2.5 text-sm font-black text-white shadow-md shadow-mme-purple/20 transition hover:bg-[#4b2c55] sm:w-auto"
               >
                 <SlidersHorizontal size={15} />
                 Filters
-                {activeFilterCount > 0 && (
+                {activeFilterCount > 0 ? (
                   <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-xs font-black text-white">{activeFilterCount}</span>
-                )}
+                ) : null}
                 <ChevronDown size={14} className={`transition-transform duration-300 ${showFilters ? "rotate-180" : ""}`} />
               </button>
 
-              {showFilters && (
+              {showFilters ? (
                 <div className="absolute right-0 top-full z-50 mt-2 flex rounded-2xl border border-mme-pink/60 bg-white shadow-[0_20px_60px_rgba(91,55,101,0.18)]" style={{ minWidth: 480 }}>
-                  {/* Left — category toggles + section nav */}
                   <div className="w-56 shrink-0 border-r border-mme-pink/40 py-2">
-                    {/* Completed/Next are checkboxes, not a single category
-                        choice — both can stay checked so an employee's
-                        completed AND next entries show together. */}
                     <label className="flex w-full cursor-pointer items-center gap-3 px-4 py-2.5 text-left text-sm font-bold text-mme-purple transition hover:bg-mme-blush/40">
                       <input
                         type="checkbox"
                         checked={showCompleted}
-                        onChange={() => setShowCompleted((v) => !v)}
+                        onChange={() => setShowCompleted((value) => !value)}
                         className="h-4 w-4 accent-mme-purple"
                       />
                       <CheckCircle2 size={14} className="shrink-0 text-mme-purple/60" />
@@ -365,7 +683,7 @@ export default function AdminActivityPage() {
                       <input
                         type="checkbox"
                         checked={showNext}
-                        onChange={() => setShowNext((v) => !v)}
+                        onChange={() => setShowNext((value) => !value)}
                         className="h-4 w-4 accent-mme-purple"
                       />
                       <CalendarClock size={14} className="shrink-0 text-mme-purple/60" />
@@ -375,6 +693,7 @@ export default function AdminActivityPage() {
                     <div className="my-1.5 border-t border-mme-pink/30" />
 
                     <button
+                      type="button"
                       onClick={() => setHoveredSection("employees")}
                       className={`flex w-full items-center justify-between px-4 py-2.5 text-left text-sm font-bold transition ${
                         hoveredSection === "employees" ? "bg-mme-purple text-white" : "text-mme-purple hover:bg-mme-blush/40"
@@ -382,14 +701,15 @@ export default function AdminActivityPage() {
                     >
                       <span className="flex items-center gap-2">
                         Employees
-                        {filterEmployees.size > 0 && (
+                        {filterEmployees.size > 0 ? (
                           <span className={`h-2 w-2 rounded-full ${hoveredSection === "employees" ? "bg-white" : "bg-mme-purple"}`} />
-                        )}
+                        ) : null}
                       </span>
-                      <span className="text-xs opacity-60">{"\u203a"}</span>
+                      <span className="text-xs opacity-60">›</span>
                     </button>
 
                     <button
+                      type="button"
                       onClick={() => setHoveredSection("date")}
                       className={`flex w-full items-center justify-between px-4 py-2.5 text-left text-sm font-bold transition ${
                         hoveredSection === "date" ? "bg-mme-purple text-white" : "text-mme-purple hover:bg-mme-blush/40"
@@ -397,28 +717,28 @@ export default function AdminActivityPage() {
                     >
                       <span className="flex items-center gap-2">
                         Date Range
-                        {(dateFrom || dateTo) && (
+                        {dateFrom || dateTo ? (
                           <span className={`h-2 w-2 rounded-full ${hoveredSection === "date" ? "bg-white" : "bg-mme-purple"}`} />
-                        )}
+                        ) : null}
                       </span>
-                      <span className="text-xs opacity-60">{"\u203a"}</span>
+                      <span className="text-xs opacity-60">›</span>
                     </button>
 
-                    {activeFilterCount > 0 && (
+                    {activeFilterCount > 0 ? (
                       <div className="mx-3 mt-2 border-t border-mme-pink/30 pt-2">
                         <button
+                          type="button"
                           onClick={clearFilters}
                           className="flex w-full items-center gap-1.5 rounded-xl px-2 py-2 text-xs font-black text-red-500 transition hover:bg-red-50"
                         >
                           <X size={13} /> Clear all ({activeFilterCount})
                         </button>
                       </div>
-                    )}
+                    ) : null}
                   </div>
 
-                  {/* Right — employee list / date range for the selected section */}
                   <div className="flex-1 p-5">
-                    {hoveredSection === "employees" && (
+                    {hoveredSection === "employees" ? (
                       <div>
                         <p className="mb-3 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-mme-plum">
                           <UsersRound size={12} /> Logged By / Assigned To
@@ -442,9 +762,9 @@ export default function AdminActivityPage() {
                           </div>
                         )}
                       </div>
-                    )}
+                    ) : null}
 
-                    {hoveredSection === "date" && (
+                    {hoveredSection === "date" ? (
                       <div>
                         <p className="mb-3 text-[10px] font-black uppercase tracking-[0.18em] text-mme-plum">
                           Date Range ({tab === "meetings" ? "Meeting" : "Call"} conducted or scheduled)
@@ -455,7 +775,7 @@ export default function AdminActivityPage() {
                             <input
                               type="date"
                               value={dateFrom}
-                              onChange={(e) => setDateFrom(e.target.value)}
+                              onChange={(event) => setDateFrom(event.target.value)}
                               className="w-full rounded-xl border border-mme-pink/70 bg-[#fff9fc] px-3 py-2 text-sm text-mme-purple outline-none transition focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/20"
                             />
                           </div>
@@ -464,45 +784,97 @@ export default function AdminActivityPage() {
                             <input
                               type="date"
                               value={dateTo}
-                              onChange={(e) => setDateTo(e.target.value)}
+                              onChange={(event) => setDateTo(event.target.value)}
                               className="w-full rounded-xl border border-mme-pink/70 bg-[#fff9fc] px-3 py-2 text-sm text-mme-purple outline-none transition focus:border-mme-plum focus:ring-4 focus:ring-mme-pink/20"
                             />
                           </div>
                         </div>
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 </div>
-              )}
+              ) : null}
             </div>
           </div>
-
-          <div className="p-6">
-            {!isLoading && activeFilterCount > 0 && (
-              <p className="mb-4 text-xs font-bold text-mme-purple/50">
-                {clientGroups.length} of {totalClientCount} clients match these filters
-              </p>
-            )}
-            {isLoading ? (
-              <div className="flex justify-center py-12">
-                <span className="h-8 w-8 animate-spin rounded-full border-3 border-mme-pink border-t-mme-purple" />
-              </div>
-            ) : !clientGroups.length ? (
-              <div className="flex flex-col items-center justify-center py-16 text-center">
-                <UsersRound size={38} className="text-mme-mauve" />
-                <p className="mt-4 font-black text-mme-purple">
-                  {list.length ? "No results match this filter." : `No ${tab} logged yet`}
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-2.5">
-                {clientGroups.map((group) => (
-                  <ClientGroupRow key={group.rowKey} kind={kind} group={group} />
-                ))}
-              </div>
-            )}
-          </div>
         </div>
+
+        {(activeFilterCount > 0 || searchText) && !isLoading ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-mme-pink/35 bg-mme-blush/15 px-5 py-2.5">
+            <p className="text-xs font-bold text-mme-purple/55">
+              Showing <span className="font-black text-mme-purple">{visibleGroups.length}</span> of {totalClientCount} clients
+            </p>
+            <div className="flex items-center gap-2">
+              {searchText ? (
+                <button type="button" onClick={() => setSearchText("")} className="text-[11px] font-black text-mme-purple/55 hover:text-mme-purple">
+                  Clear search
+                </button>
+              ) : null}
+              {activeFilterCount > 0 ? (
+                <button type="button" onClick={clearFilters} className="text-[11px] font-black text-red-500 hover:text-red-600">
+                  Clear filters
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        {isLoading ? (
+          <div className="flex min-h-80 flex-col items-center justify-center gap-3">
+            <span className="h-8 w-8 animate-spin rounded-full border-3 border-mme-pink border-t-mme-purple" />
+            <p className="text-xs font-bold text-mme-purple/40">Loading activity...</p>
+          </div>
+        ) : visibleGroups.length === 0 ? (
+          <div className="flex min-h-80 flex-col items-center justify-center px-6 text-center">
+            <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-mme-blush/45 text-mme-mauve">
+              <UsersRound size={28} />
+            </div>
+            <p className="mt-4 text-lg font-black text-mme-purple">
+              {list.length ? "No activity matches this view" : `No ${tab} logged yet`}
+            </p>
+            <p className="mt-1 max-w-md text-sm font-semibold text-mme-purple/40">
+              {list.length ? "Try clearing the search, employee selection, date range or activity-status filters." : "New employee activity will appear here automatically."}
+            </p>
+            {list.length && (activeFilterCount > 0 || searchText) ? (
+              <button
+                type="button"
+                onClick={() => {
+                  clearFilters();
+                  setSearchText("");
+                }}
+                className="mt-5 rounded-xl bg-mme-purple px-4 py-2.5 text-xs font-black text-white transition hover:bg-[#4b2c55]"
+              >
+                Reset view
+              </button>
+            ) : null}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1250px] border-collapse text-left">
+              <thead>
+                <tr className="border-b border-mme-pink/45 bg-[#fff9fc]">
+                  <th className="px-4 py-3 text-[9px] font-black uppercase tracking-[0.16em] text-mme-purple/45">Client</th>
+                  <th className="px-4 py-3 text-[9px] font-black uppercase tracking-[0.16em] text-mme-purple/45">Completed</th>
+                  <th className="px-4 py-3 text-[9px] font-black uppercase tracking-[0.16em] text-mme-purple/45">Latest activity</th>
+                  <th className="px-4 py-3 text-[9px] font-black uppercase tracking-[0.16em] text-mme-purple/45">Next schedule</th>
+                  <th className="px-4 py-3 text-[9px] font-black uppercase tracking-[0.16em] text-mme-purple/45">Employees</th>
+                  <th className="px-4 py-3 text-[9px] font-black uppercase tracking-[0.16em] text-mme-purple/45">Status</th>
+                  <th className="sticky right-0 border-l border-mme-pink/25 bg-[#fff9fc] px-4 py-3 text-right text-[9px] font-black uppercase tracking-[0.16em] text-mme-purple/45">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleGroups.map((group, index) => (
+                  <ClientActivityTableRow key={group.rowKey} kind={kind} group={group} index={index} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-[11px] font-semibold text-mme-purple/40">
+        <span className="inline-flex items-center gap-1.5"><Info size={12} /> Expand a row for quick history.</span>
+        <span className="inline-flex items-center gap-1.5"><ArrowUpRight size={12} /> Details opens the complete client activity page.</span>
+      </div>
     </AdminLayout>
   );
 }
