@@ -2853,12 +2853,17 @@ const venueFilterOptions = useMemo(() => {
                               key={column.id}
                               style={rowH ? { height: `${rowH}px` } : undefined}
                               className={`border-b border-r ${cellBorder} align-top transition-colors duration-150 ${cellBg} ${
-                                column.id === "event_date" ? "overflow-hidden" : ""
+                                column.id === "event_date" ||
+                                column.type === "meeting_manager" ||
+                                column.type === "last_meeting_time" ||
+                                column.type === "next_meeting_time"
+                                  ? "overflow-hidden"
+                                  : ""
                               }`}
                             >
                               {column.id === "event_date" ? (
                                 <div className="relative flex h-full min-h-11 min-w-0 items-stretch overflow-hidden">
-                                  <div className="min-w-0 flex-1 overflow-hidden">
+                                  <div className="min-w-0 flex-1 overflow-hidden pr-9">
                                     <CellEditor
                                       column={column}
                                       value={row.values[column.id]}
@@ -2884,36 +2889,38 @@ const venueFilterOptions = useMemo(() => {
                                   </button>
                                 </div>
                               ) : column.type === "meeting_manager" ? (
-                                <div className="flex h-full min-h-11 items-center justify-center gap-2 p-1.5">
+                                <div className="flex h-full min-h-11 min-w-0 flex-wrap items-center justify-center gap-1.5 overflow-hidden p-1.5">
                                   <button
                                     type="button"
                                     onClick={() => navigate(`/management/meetings/${row.id}`)}
                                     onMouseEnter={(event) => handlePreviewHover(event, row, "meetings")}
                                     onMouseLeave={scheduleHoverHide}
-                                    className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-xl bg-[#f2662b] px-3 py-2 text-xs font-black text-white transition-all duration-200 hover:bg-[#d9541f] hover:shadow-md hover:shadow-[#f2662b]/30 active:scale-[0.96]"
+                                    className="inline-flex min-w-0 max-w-full flex-1 basis-[88px] items-center justify-center gap-1 overflow-hidden rounded-xl bg-[#f2662b] px-2 py-2 text-xs font-black text-white transition-all duration-200 hover:bg-[#d9541f] hover:shadow-md hover:shadow-[#f2662b]/30 active:scale-[0.96]"
                                   >
-                                    <CalendarClock size={14} /> Meetings
+                                    <CalendarClock size={14} className="shrink-0" />
+                                    <span className="min-w-0 truncate">Meetings</span>
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => navigate(`/management/calls/${row.id}`)}
                                     onMouseEnter={(event) => handlePreviewHover(event, row, "calls")}
                                     onMouseLeave={scheduleHoverHide}
-                                    className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-xl bg-[#c2410c] px-3 py-2 text-xs font-black text-white transition-all duration-200 hover:bg-[#9a340a] hover:shadow-md hover:shadow-[#c2410c]/30 active:scale-[0.96]"
+                                    className="inline-flex min-w-0 max-w-full flex-1 basis-[88px] items-center justify-center gap-1 overflow-hidden rounded-xl bg-[#c2410c] px-2 py-2 text-xs font-black text-white transition-all duration-200 hover:bg-[#9a340a] hover:shadow-md hover:shadow-[#c2410c]/30 active:scale-[0.96]"
                                   >
-                                    <Phone size={14} /> Calls
+                                    <Phone size={14} className="shrink-0" />
+                                    <span className="min-w-0 truncate">Calls</span>
                                   </button>
                                 </div>
                               ) : column.type === "last_meeting_time" || column.type === "next_meeting_time" ? (
                                 <div
-                                  className={`flex h-full min-h-11 flex-col items-center justify-center gap-1 p-1.5 text-center text-xs font-bold transition-colors duration-150 ${
+                                  className={`flex h-full min-h-11 min-w-0 flex-col items-center justify-center gap-1 overflow-hidden p-1.5 text-center text-xs font-bold transition-colors duration-150 ${
                                     row.values[column.id] || (column.type === "last_meeting_time" ? row.lastCallDatetime : row.nextCallDatetime)
                                       ? "text-black/75"
                                       : "text-black/35 italic"
                                   }`}
                                   title="Automatically set from the Meeting and Call managers"
                                 >
-                                  <p>
+                                  <p className="w-full min-w-0 break-words">
                                     <span className="font-black text-black/50">Meeting: </span>
                                     {formatMeetingTimeDisplay(
                                       row.values[column.id],
@@ -2921,11 +2928,11 @@ const venueFilterOptions = useMemo(() => {
                                     )}
                                   </p>
                                   <p
-                                    className={
+                                    className={`w-full min-w-0 break-words ${
                                       column.type === "next_meeting_time" && isOverdueDatetime(row.nextCallDatetime)
                                         ? "font-black text-red-600"
-                                        : undefined
-                                    }
+                                        : ""
+                                    }`}
                                   >
                                     <span className={column.type === "next_meeting_time" && isOverdueDatetime(row.nextCallDatetime) ? "font-black text-red-500" : "font-black text-black/50"}>
                                       Call: 
