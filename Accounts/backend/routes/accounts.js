@@ -12,12 +12,14 @@ import {
   getVendorOutstandingItems,
   payVendor,
 } from "../controllers/accountsController.js";
+import { listSubmittedBills } from "../controllers/submittedBillsController.js";
 
 export { uploadsRootDirectory, receiptsDirectory };
 
 const router = Router();
 
 router.get("/summary", getSummary);
+router.get("/submitted-bills", listSubmittedBills);
 router.get("/booked-events", listBookedEvents);
 router.get("/vendors", listVendors);
 router.get("/vendors/:id", getVendorProfile);
